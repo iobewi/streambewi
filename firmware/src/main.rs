@@ -3,17 +3,13 @@
 
 extern crate alloc;
 
-mod flash_config;
 mod stream;
 mod wifi;
 
 use embassy_executor::Spawner;
-use core::cell::RefCell;
-
-use embassy_futures::join::join;
-use embassy_net::{Runner, StackResources};
+use embassy_futures::join::{join, join3};
+use embassy_net::StackResources;
 use embassy_time::{Duration, Timer};
-use embassy_sync::blocking_mutex::Mutex;
 use embassy_usb::Builder;
 #[cfg(feature = "usb-debug")]
 use embassy_usb::Handler;
@@ -22,7 +18,6 @@ use esp_backtrace as _;
 use esp_hal::{
     clock::CpuClock,
     gpio::{Input, InputConfig, Pull},
-    rng::Rng,
     uart::{Config as UartConfig, Uart, UartRx},
     timer::timg::TimerGroup,
     usb::{
@@ -33,9 +28,7 @@ use esp_hal::{
         usb_serial_jtag::{UsbSerialJtag, UsbSerialJtagRx},
     },
 };
-use esp_radio::wifi::{ControllerConfig, Interface, WifiController};
-use esp_storage::FlashStorage;
-use flash_config::{FlashConfigBackend, SharedFlash};
+use iobewi_esp_config_space::{NvsConfigBackend, NvsPartition};
 use iobewi_config_space::ConfigManager;
 use iobewi_wifi_manager::{CONFIG_BUDGET, WifiManager};
 use iobewi_fat16::{ReadStatus, VirtualFat16};
@@ -69,6 +62,9 @@ impl ReadPolicy for StreamReadPolicy {
     }
 }
 
+/// NVS partition of the default espflash partition table (`nvs`, 0x9000, 24 KiB).
+const NVS_PARTITION: NvsPartition = NvsPartition::new(0x9000, 0x6000);
+
 macro_rules! mk_static {
     ($t:ty, $val:expr) => {{
         static CELL: static_cell::StaticCell<$t> = static_cell::StaticCell::new();
@@ -101,7 +97,7 @@ impl Handler for BusLog {
 
 #[esp_hal::main]
 async fn main(spawner: Spawner) {
-    esp_println::logger::init_logger_from_env();
+    iobewi_log::install(iobewi_esp_console::console_print, "");
     log::info!("usb-radio POC: P3 continuous HTTP MP3 -> USB MSC");
     log::info!("usb-radio POC: DP=GPIO20 DM=GPIO19");
     log::info!("stream: {}", stream::STREAM_URL);
@@ -116,35 +112,21 @@ async fn main(spawner: Spawner) {
     let timg0 = TimerGroup::new(peripherals.TIMG0);
     esp_rtos::start(timg0.timer0, peripherals.FROM_CPU_INTR0);
 
-    // Wi-Fi credentials come from Improv Serial (ESP Web Tools) and live in flash.
-    let flash = mk_static!(
-        SharedFlash,
-        Mutex::new(RefCell::new(FlashStorage::new(peripherals.FLASH)))
-    );
-    let mut config_manager = ConfigManager::new(FlashConfigBackend::new(flash));
-    // Recovery: BOOT (GPIO0) is a strapping pin, so it cannot be held at power-up (low at reset
-    // enters the ROM download mode). It is watched once the firmware runs instead.
-    let boot_button = Input::new(peripherals.GPIO0, InputConfig::default().with_pull(Pull::Up));
-    spawner.spawn(recovery_task(boot_button, FlashConfigBackend::new(flash)).unwrap());
+    // Wi-Fi credentials come from Improv Serial (ESP Web Tools) and live in the NVS partition
+    // of the default espflash partition table.
+    let flash = iobewi_esp_flash::init(peripherals.FLASH);
+    let backend = NvsConfigBackend::new(flash, NVS_PARTITION)
+        .await
+        .expect("NVS config backend");
+    let mut config_manager = ConfigManager::new(backend);
     let wifi_space = config_manager
         .claim("wifi", CONFIG_BUDGET)
         .expect("wifi config space");
 
-    let wifi_interface = Interface::station();
-    let controller =
-        WifiController::new(peripherals.WIFI, ControllerConfig::default()).unwrap();
-
-    let net_config = embassy_net::Config::dhcpv4(Default::default());
-    let rng = Rng::new();
-    let seed = (rng.random() as u64) << 32 | rng.random() as u64;
-    let (stack, runner) = embassy_net::new(
-        wifi_interface,
-        net_config,
-        mk_static!(StackResources<3>, StackResources::<3>::new()),
-        seed,
-    );
-
-    spawner.spawn(net_task(runner).unwrap());
+    // Recovery: BOOT (GPIO0) is a strapping pin, so it cannot be held at power-up (low at reset
+    // enters the ROM download mode). It is watched once the firmware runs instead.
+    let boot_button = Input::new(peripherals.GPIO0, InputConfig::default().with_pull(Pull::Up));
+    spawner.spawn(recovery_task(boot_button, backend).unwrap());
 
     // Improv Serial is served on both the USB-UART bridge (UART0) and the native USB-Serial-JTAG,
     // since boards expose one or both. The JTAG port shares GPIO19/20 with the OTG controller,
@@ -156,14 +138,25 @@ async fn main(spawner: Spawner) {
         .into_async();
     let (uart_rx, uart_tx) = uart.split();
     let (jtag_rx, jtag_tx) = UsbSerialJtag::new(peripherals.USB_DEVICE).into_async().split();
-    let manager = WifiManager::new(wifi::EspWifiTransport::new(controller, stack), wifi_space);
+    let transport = iobewi_esp_wifi::WifiManager::new(
+        peripherals.WIFI,
+        spawner,
+        mk_static!(
+            StackResources<{ wifi::NET_SOCKETS }>,
+            StackResources::<{ wifi::NET_SOCKETS }>::new()
+        ),
+    );
+    let manager = WifiManager::new(transport, wifi_space);
     spawner.spawn(improv_uart_task(uart_rx).unwrap());
     spawner.spawn(improv_jtag_task(jtag_rx).unwrap());
-    spawner.spawn(
-        wifi_task(manager, wifi::Ports { uart: uart_tx, jtag: jtag_tx }).unwrap(),
-    );
+    let ports = wifi::Ports { uart: uart_tx, jtag: jtag_tx };
+    let network = wifi::NetworkSignal::new();
 
-    let stream_fut = stream::run(stack, &STREAM);
+    let stream_fut = async {
+        // The driver creates the network stack lazily: wait for the first link-up.
+        let stack = network.wait().await;
+        stream::run(stack, &STREAM).await
+    };
 
     let usb_fut = async {
         // UNCONFIGURED (no Wi-Fi network saved): no stream is possible, MSC stays off.
@@ -246,7 +239,7 @@ async fn main(spawner: Spawner) {
         join(device_fut, msc_fut).await;
     };
 
-    join(stream_fut, usb_fut).await;
+    join3(wifi::wifi_task(manager, ports, &network), stream_fut, usb_fut).await;
 }
 
 #[embassy_executor::task]
@@ -260,16 +253,6 @@ async fn improv_jtag_task(rx: UsbSerialJtagRx<'static, esp_hal::Async>) {
 }
 
 #[embassy_executor::task]
-async fn wifi_task(manager: wifi::Manager, ports: wifi::Ports) {
-    wifi::wifi_task(manager, ports).await
-}
-
-#[embassy_executor::task]
-async fn recovery_task(button: Input<'static>, backend: FlashConfigBackend) {
+async fn recovery_task(button: Input<'static>, backend: NvsConfigBackend) {
     wifi::recovery_watch(button, backend).await
-}
-
-#[embassy_executor::task]
-async fn net_task(mut runner: Runner<'static, Interface>) {
-    runner.run().await
 }

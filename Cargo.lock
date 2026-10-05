@@ -950,6 +950,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "911aadae41ec99104efa865bd0b6e486b4b735999f9b571963748a46d16495ab"
 
 [[package]]
+name = "esp-nvs"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b61bade3acc39e566697bd215068384afba840999fcd8e9366702f267034c7c0"
+dependencies = [
+ "embedded-storage",
+ "strum",
+ "thiserror",
+]
+
+[[package]]
 name = "esp-phy"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1090,6 +1101,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6ef0e785f54e316f64a1e14a7a2f061a2ea0b038b284902ca71e1e1f5574cf47"
 dependencies = [
  "document-features",
+ "embedded-storage",
  "esp-hal",
  "esp-hal-procmacros",
  "esp-metadata-generated",
@@ -1524,30 +1536,117 @@ dependencies = [
 [[package]]
 name = "iobewi-block"
 version = "0.1.0"
-source = "git+https://github.com/iobewi/iobewi?rev=879045a75f6f47c55994aaa243fde748f19083bf#879045a75f6f47c55994aaa243fde748f19083bf"
+source = "git+https://github.com/iobewi/iobewi?rev=ddfa839a15836c3eebedc24fa34efc1d7bd3bc84#ddfa839a15836c3eebedc24fa34efc1d7bd3bc84"
 
 [[package]]
 name = "iobewi-config-space"
 version = "0.1.0"
-source = "git+https://github.com/iobewi/iobewi?rev=879045a75f6f47c55994aaa243fde748f19083bf#879045a75f6f47c55994aaa243fde748f19083bf"
+source = "git+https://github.com/iobewi/iobewi?rev=ddfa839a15836c3eebedc24fa34efc1d7bd3bc84#ddfa839a15836c3eebedc24fa34efc1d7bd3bc84"
+
+[[package]]
+name = "iobewi-esp-config-space"
+version = "0.1.0"
+source = "git+https://github.com/iobewi/iobewi?rev=ddfa839a15836c3eebedc24fa34efc1d7bd3bc84#ddfa839a15836c3eebedc24fa34efc1d7bd3bc84"
+dependencies = [
+ "esp-nvs",
+ "iobewi-config-space",
+ "iobewi-esp-flash",
+ "iobewi-esp-nvs",
+ "iobewi-nvs-core",
+ "log",
+]
+
+[[package]]
+name = "iobewi-esp-console"
+version = "0.1.0"
+source = "git+https://github.com/iobewi/iobewi?rev=ddfa839a15836c3eebedc24fa34efc1d7bd3bc84#ddfa839a15836c3eebedc24fa34efc1d7bd3bc84"
+dependencies = [
+ "esp-println",
+ "log",
+]
+
+[[package]]
+name = "iobewi-esp-flash"
+version = "0.1.0"
+source = "git+https://github.com/iobewi/iobewi?rev=ddfa839a15836c3eebedc24fa34efc1d7bd3bc84#ddfa839a15836c3eebedc24fa34efc1d7bd3bc84"
+dependencies = [
+ "embassy-sync 0.8.0",
+ "embedded-storage",
+ "esp-hal",
+ "esp-rom-sys",
+ "esp-storage",
+ "static_cell",
+]
+
+[[package]]
+name = "iobewi-esp-nvs"
+version = "0.1.0"
+source = "git+https://github.com/iobewi/iobewi?rev=ddfa839a15836c3eebedc24fa34efc1d7bd3bc84#ddfa839a15836c3eebedc24fa34efc1d7bd3bc84"
+dependencies = [
+ "embedded-storage",
+ "esp-nvs",
+ "esp-rom-sys",
+ "iobewi-esp-flash",
+]
+
+[[package]]
+name = "iobewi-esp-reset"
+version = "0.1.0"
+source = "git+https://github.com/iobewi/iobewi?rev=ddfa839a15836c3eebedc24fa34efc1d7bd3bc84#ddfa839a15836c3eebedc24fa34efc1d7bd3bc84"
+dependencies = [
+ "esp-hal",
+]
+
+[[package]]
+name = "iobewi-esp-wifi"
+version = "0.1.0"
+source = "git+https://github.com/iobewi/iobewi?rev=ddfa839a15836c3eebedc24fa34efc1d7bd3bc84#ddfa839a15836c3eebedc24fa34efc1d7bd3bc84"
+dependencies = [
+ "embassy-executor",
+ "embassy-net",
+ "embassy-time",
+ "esp-hal",
+ "esp-radio",
+ "iobewi-wifi-core",
+ "log",
+]
 
 [[package]]
 name = "iobewi-fat16"
 version = "0.1.0"
-source = "git+https://github.com/iobewi/iobewi?rev=879045a75f6f47c55994aaa243fde748f19083bf#879045a75f6f47c55994aaa243fde748f19083bf"
+source = "git+https://github.com/iobewi/iobewi?rev=ddfa839a15836c3eebedc24fa34efc1d7bd3bc84#ddfa839a15836c3eebedc24fa34efc1d7bd3bc84"
 dependencies = [
  "iobewi-block",
 ]
 
 [[package]]
+name = "iobewi-log"
+version = "0.1.0"
+source = "git+https://github.com/iobewi/iobewi?rev=ddfa839a15836c3eebedc24fa34efc1d7bd3bc84#ddfa839a15836c3eebedc24fa34efc1d7bd3bc84"
+dependencies = [
+ "critical-section",
+ "heapless 0.9.3",
+ "log",
+ "static_cell",
+]
+
+[[package]]
+name = "iobewi-nvs-core"
+version = "0.1.0"
+source = "git+https://github.com/iobewi/iobewi?rev=ddfa839a15836c3eebedc24fa34efc1d7bd3bc84#ddfa839a15836c3eebedc24fa34efc1d7bd3bc84"
+dependencies = [
+ "esp-nvs",
+]
+
+[[package]]
 name = "iobewi-rolling-stream"
 version = "0.1.0"
-source = "git+https://github.com/iobewi/iobewi?rev=879045a75f6f47c55994aaa243fde748f19083bf#879045a75f6f47c55994aaa243fde748f19083bf"
+source = "git+https://github.com/iobewi/iobewi?rev=ddfa839a15836c3eebedc24fa34efc1d7bd3bc84#ddfa839a15836c3eebedc24fa34efc1d7bd3bc84"
 
 [[package]]
 name = "iobewi-usb-msc"
 version = "0.1.0"
-source = "git+https://github.com/iobewi/iobewi?rev=879045a75f6f47c55994aaa243fde748f19083bf#879045a75f6f47c55994aaa243fde748f19083bf"
+source = "git+https://github.com/iobewi/iobewi?rev=ddfa839a15836c3eebedc24fa34efc1d7bd3bc84#ddfa839a15836c3eebedc24fa34efc1d7bd3bc84"
 dependencies = [
  "embassy-time",
  "embassy-usb",
@@ -1558,12 +1657,12 @@ dependencies = [
 [[package]]
 name = "iobewi-wifi-core"
 version = "0.1.0"
-source = "git+https://github.com/iobewi/iobewi?rev=879045a75f6f47c55994aaa243fde748f19083bf#879045a75f6f47c55994aaa243fde748f19083bf"
+source = "git+https://github.com/iobewi/iobewi?rev=ddfa839a15836c3eebedc24fa34efc1d7bd3bc84#ddfa839a15836c3eebedc24fa34efc1d7bd3bc84"
 
 [[package]]
 name = "iobewi-wifi-manager"
 version = "0.1.0"
-source = "git+https://github.com/iobewi/iobewi?rev=879045a75f6f47c55994aaa243fde748f19083bf#879045a75f6f47c55994aaa243fde748f19083bf"
+source = "git+https://github.com/iobewi/iobewi?rev=ddfa839a15836c3eebedc24fa34efc1d7bd3bc84#ddfa839a15836c3eebedc24fa34efc1d7bd3bc84"
 dependencies = [
  "iobewi-config-space",
  "iobewi-wifi-core",
@@ -2439,7 +2538,6 @@ dependencies = [
  "embassy-time",
  "embassy-usb",
  "embedded-io-async 0.7.0",
- "embedded-storage",
  "esp-alloc",
  "esp-backtrace",
  "esp-bootloader-esp-idf",
@@ -2447,10 +2545,15 @@ dependencies = [
  "esp-println",
  "esp-radio",
  "esp-rtos",
- "esp-storage",
  "improv-serial",
  "iobewi-config-space",
+ "iobewi-esp-config-space",
+ "iobewi-esp-console",
+ "iobewi-esp-flash",
+ "iobewi-esp-reset",
+ "iobewi-esp-wifi",
  "iobewi-fat16",
+ "iobewi-log",
  "iobewi-usb-msc",
  "iobewi-wifi-core",
  "iobewi-wifi-manager",

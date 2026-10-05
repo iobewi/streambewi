@@ -1,17 +1,14 @@
-//! Wi-Fi for the POC: Improv Serial provisioning over USB-Serial-JTAG (ESP Web Tools) on top of IOBEWI's portable
-//! `WifiManager`, with credentials persisted by `flash_config`. Nothing is baked in at build time.
-//!
-//! The ESP-specific parts (radio transport, UART) are adapters local to this POC because
-//! IOBEWI's ESP adapters pin a different esp-hal than the rest of the POC.
+//! Wi-Fi provisioning for StreamBeWI: Improv Serial (ESP Web Tools) on UART0 and USB-Serial-JTAG,
+//! on top of IOBEWI's `WifiManager` (portable policy) and the IOBEWI ESP Wi-Fi driver, with
+//! credentials persisted in ConfigSpace over NVS. Nothing is baked in at build time.
 
-use alloc::string::{String, ToString};
-use alloc::vec::Vec;
+use alloc::string::ToString;
 
 use core::sync::atomic::{AtomicBool, Ordering};
 
 use embassy_futures::select::{Either, select};
 use embassy_net::Stack;
-use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel};
+use embassy_sync::{blocking_mutex::raw::{CriticalSectionRawMutex, NoopRawMutex}, channel::Channel, signal::Signal};
 use embassy_time::{Duration, Timer, with_timeout};
 use embedded_io_async::{Read, Write};
 use esp_hal::{
@@ -20,138 +17,11 @@ use esp_hal::{
     uart::UartTx,
     usb::usb_serial_jtag::UsbSerialJtagTx,
 };
-use esp_radio::wifi::{
-    AuthenticationMethod, AuthenticationMethodConfig, Config as WifiConfig, WifiController,
-    scan::ScanConfig, sta::StationConfig,
-};
 use improv_serial::{self as improv, Command, ImprovError, ParsedCommand, Parser, State};
 use iobewi_config_space::ConfigBackend;
-use iobewi_wifi_core::{Network, WifiProvisioning, WifiTransport};
+use iobewi_esp_config_space::NvsConfigBackend;
+use iobewi_wifi_core::WifiProvisioning;
 use iobewi_wifi_manager::{LinkObserver, MaintainError, Sleep, WifiManager};
-
-use crate::flash_config::FlashConfigBackend;
-
-const CONNECT_TIMEOUT: Duration = Duration::from_secs(20);
-const DHCP_TIMEOUT: Duration = Duration::from_secs(20);
-
-pub struct EspWifiTransport {
-    controller: WifiController<'static>,
-    stack: Stack<'static>,
-    current: Option<(String, String)>,
-}
-
-impl EspWifiTransport {
-    pub fn new(controller: WifiController<'static>, stack: Stack<'static>) -> Self {
-        Self { controller, stack, current: None }
-    }
-}
-
-impl WifiTransport for EspWifiTransport {
-    type Address = embassy_net::Ipv4Address;
-    type NetworkHandle = Stack<'static>;
-
-    async fn connect(&mut self, ssid: &str, password: String) -> bool {
-        // Already up on these exact credentials (e.g. maintain() restarted after an Improv
-        // request): do not bounce the link under a running stream.
-        if self.stack.is_config_up() {
-            if let Some((s, p)) = &self.current {
-                if s == ssid && *p == password {
-                    return true;
-                }
-            }
-        }
-        self.current = None;
-
-        let Ok(ssid_cfg) = ssid.try_into() else {
-            log::info!("wifi: invalid ssid");
-            return false;
-        };
-        let station = StationConfig::default().with_ssid(ssid_cfg);
-        let station = if password.is_empty() {
-            station
-        } else {
-            let Ok(pw) = password.as_str().try_into() else {
-                log::info!("wifi: invalid password");
-                return false;
-            };
-            station.with_authentication(AuthenticationMethodConfig::Wpa2Personal(pw))
-        };
-
-        // Err(NotConnected) when idle is expected.
-        let _ = self.controller.disconnect_async().await;
-        if self.controller.set_config(&WifiConfig::Station(station)).is_err() {
-            log::info!("wifi: set_config failed");
-            return false;
-        }
-
-        log::info!("wifi: connecting ssid={}", ssid);
-        match with_timeout(CONNECT_TIMEOUT, self.controller.connect_async()).await {
-            Ok(Ok(info)) => log::info!("wifi: associated {:?}", info),
-            Ok(Err(err)) => {
-                log::info!("wifi: connect error {:?}", err);
-                return false;
-            }
-            Err(_) => {
-                log::info!("wifi: connect timeout");
-                let _ = self.controller.disconnect_async().await;
-                return false;
-            }
-        }
-        if with_timeout(DHCP_TIMEOUT, self.stack.wait_config_up()).await.is_err() {
-            log::info!("wifi: DHCP timeout");
-            let _ = self.controller.disconnect_async().await;
-            return false;
-        }
-        if let Some(config) = self.stack.config_v4() {
-            log::info!("wifi: got IP {}", config.address);
-        }
-        self.current = Some((ssid.to_string(), password));
-        true
-    }
-
-    async fn scan(&mut self) -> Vec<Network> {
-        let config = ScanConfig::default().with_max(20);
-        match self.controller.scan_async(&config).await {
-            Ok(list) => list
-                .into_iter()
-                .map(|ap| Network {
-                    ssid: ap.ssid.as_str().to_string(),
-                    signal_strength: ap.signal_strength,
-                    secured: !matches!(ap.auth_method, None | Some(AuthenticationMethod::None)),
-                })
-                .collect(),
-            Err(err) => {
-                log::info!("wifi: scan error {:?}", err);
-                Vec::new()
-            }
-        }
-    }
-
-    async fn wait_down(&mut self) {
-        if !self.stack.is_config_up() {
-            return;
-        }
-        // Radio link lost, or DHCP/IP configuration lost.
-        let _ = select(
-            self.controller.wait_for_disconnect_async(),
-            self.stack.wait_config_down(),
-        )
-        .await;
-        self.current = None;
-    }
-
-    fn ip(&self) -> Option<Self::Address> {
-        self.stack.config_v4().map(|c| c.address.address())
-    }
-
-    fn network_handle(&self) -> Option<Self::NetworkHandle> {
-        self.stack.is_config_up().then_some(self.stack)
-    }
-
-    fn is_online(&self) -> bool {
-        self.stack.is_config_up()
-    }
-}
 
 struct EmbassySleep;
 
@@ -161,14 +31,22 @@ impl Sleep for EmbassySleep {
     }
 }
 
-struct LogObserver;
+/// Publishes the network stack once the link is up: the driver creates the stack lazily, so it
+/// is only known after the first connection. Not `Send` (the stack is single-executor), hence a
+/// local signal owned by the composition root rather than a static.
+pub type NetworkSignal = Signal<NoopRawMutex, Stack<'static>>;
 
-impl LinkObserver<Stack<'static>> for LogObserver {
+struct LogObserver<'a> {
+    network: &'a NetworkSignal,
+}
+
+impl LinkObserver<Stack<'static>> for LogObserver<'_> {
     fn link_down(&mut self) {
         log::info!("wifi: link down, reconnecting");
     }
-    fn ready(&mut self, _network: Stack<'static>) {
+    fn ready(&mut self, network: Stack<'static>) {
         log::info!("wifi: ready");
+        self.network.signal(network);
     }
 }
 
@@ -184,7 +62,7 @@ pub fn is_configured() -> bool {
 
 /// Watches the (active-low) BOOT button: held for `RECOVERY_HOLD`, it erases the saved Wi-Fi
 /// network and restarts, which brings the device back to UNCONFIGURED.
-pub async fn recovery_watch(mut button: Input<'static>, backend: FlashConfigBackend) -> ! {
+pub async fn recovery_watch(mut button: Input<'static>, backend: NvsConfigBackend) -> ! {
     loop {
         button.wait_for_low().await;
         if with_timeout(RECOVERY_HOLD, button.wait_for_high()).await.is_err() {
@@ -192,12 +70,15 @@ pub async fn recovery_watch(mut button: Input<'static>, backend: FlashConfigBack
                 Ok(_) => log::info!("provisioning: BOOT held, Wi-Fi config erased; restarting"),
                 Err(_) => log::info!("provisioning: BOOT held, erase FAILED; restarting"),
             }
-            esp_hal::system::software_reset();
+            iobewi_esp_reset::software_reset();
         }
     }
 }
 
-pub type Manager = WifiManager<EspWifiTransport, FlashConfigBackend>;
+/// Sockets reserved in the network stack: the HTTP stream, DNS and DHCP.
+pub const NET_SOCKETS: usize = 3;
+
+pub type Manager = WifiManager<iobewi_esp_wifi::WifiManager<NET_SOCKETS>, NvsConfigBackend>;
 
 static IMPROV_COMMANDS: Channel<CriticalSectionRawMutex, (Port, ParsedCommand), 2> = Channel::new();
 
@@ -263,9 +144,9 @@ pub async fn improv_reader<R: Read>(port: Port, mut rx: R) -> ! {
 /// Owns the Wi-Fi manager: keeps the saved network connected and serves Improv requests.
 /// A request pre-empts `maintain()`; it restarts afterwards (and `connect` is a no-op when the
 /// link is already up on the same credentials).
-pub async fn wifi_task(mut manager: Manager, mut ports: Ports) -> ! {
+pub async fn wifi_task(mut manager: Manager, mut ports: Ports, network: &NetworkSignal) -> ! {
     let sleep = EmbassySleep;
-    let mut observer = LogObserver;
+    let mut observer = LogObserver { network };
     let mut state = State::Authorized;
 
     loop {

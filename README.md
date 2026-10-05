@@ -24,7 +24,8 @@ The USB radio mechanics come from IOBEWI (pinned by git rev in `firmware/Cargo.t
 `iobewi-fat16` (virtual FAT16), `iobewi-rolling-stream` (live window), `iobewi-usb-msc`
 (read-only Mass Storage class), plus the Wi-Fi / config crates. This repository keeps the product
 policy only: `core/` (1 GiB `RADIO.MP3` geometry, prebuffer, far-ahead probe policy) and
-`firmware/` (composition root, ICY HTTP stream, retry policy). Logs use the `log` facade.
+`firmware/` (composition root, ICY HTTP stream, retry policy). Logs use the `log` facade, installed
+through `iobewi-log` + `iobewi-esp-console`.
 
 ## Stages
 
@@ -168,14 +169,15 @@ cargo +esp run -p usb-radio-firmware --release \
 Wi-Fi is configured over the USB-UART bridge (UART0) or the native USB-Serial-JTAG port, whichever the board exposes (both are served; replies go back on the requesting port), with [Improv Serial](https://www.improv-wifi.com/serial/),
 the protocol ESP Web Tools speaks after flashing.
 
-- `improv-serial` and IOBEWI's portable `iobewi-wifi-manager` / `iobewi-wifi-core` /
-  `iobewi-config-space` crates are used as-is (git-pinned). IOBEWI's ESP adapters are **not**
-  yet used: the POC still carries its own small adapters (`firmware/src/wifi.rs`: esp-radio
-  transport + UART0/USB-Serial-JTAG; `firmware/src/flash_config.rs`: config backend), to be replaced by
-  the IOBEWI ESP drivers (IOBEWI main is on `esp-hal 1.2`, like this repository).
-- Credentials are validated first (association + DHCP) and only then committed to two flash
-  sectors of the default NVS partition (`0x9000`/`0xA000`, A/B with generation + CRC, see
-  `core/src/config_store.rs`). A write interrupted by a power cut keeps the previous record.
+- `improv-serial` and IOBEWI's `iobewi-wifi-manager` / `iobewi-wifi-core` / `iobewi-config-space`
+  drive provisioning; the radio, flash and storage are the IOBEWI ESP drivers
+  (`iobewi-esp-wifi`, `iobewi-esp-flash`, `iobewi-esp-config-space` over NVS). Only the serial
+  transports (UART0 / USB-Serial-JTAG), the BOOT button and the USB OTG driver are still wired
+  in `firmware/src/` (no IOBEWI capability yet).
+- Credentials are validated first (association + DHCP) and only then committed to the `nvs`
+  partition of the default espflash partition table (`0x9000`, 24 KiB) through ConfigSpace.
+  A previous image's raw A/B records at that address are not valid NVS: flash with the erase
+  option once.
 - Reflashing the merged image rewrites that region: provision again after each flash.
 - Flash writes stall interrupts for a few ms: provision with the OTG port **unplugged**.
 
