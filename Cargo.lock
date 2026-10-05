@@ -1522,19 +1522,48 @@ dependencies = [
 ]
 
 [[package]]
+name = "iobewi-block"
+version = "0.1.0"
+source = "git+https://github.com/iobewi/iobewi?rev=879045a75f6f47c55994aaa243fde748f19083bf#879045a75f6f47c55994aaa243fde748f19083bf"
+
+[[package]]
 name = "iobewi-config-space"
 version = "0.1.0"
-source = "git+https://github.com/iobewi/iobewi?rev=e7d66f4b775c9a7be7588c490d61a62dfaee5da0#e7d66f4b775c9a7be7588c490d61a62dfaee5da0"
+source = "git+https://github.com/iobewi/iobewi?rev=879045a75f6f47c55994aaa243fde748f19083bf#879045a75f6f47c55994aaa243fde748f19083bf"
+
+[[package]]
+name = "iobewi-fat16"
+version = "0.1.0"
+source = "git+https://github.com/iobewi/iobewi?rev=879045a75f6f47c55994aaa243fde748f19083bf#879045a75f6f47c55994aaa243fde748f19083bf"
+dependencies = [
+ "iobewi-block",
+]
+
+[[package]]
+name = "iobewi-rolling-stream"
+version = "0.1.0"
+source = "git+https://github.com/iobewi/iobewi?rev=879045a75f6f47c55994aaa243fde748f19083bf#879045a75f6f47c55994aaa243fde748f19083bf"
+
+[[package]]
+name = "iobewi-usb-msc"
+version = "0.1.0"
+source = "git+https://github.com/iobewi/iobewi?rev=879045a75f6f47c55994aaa243fde748f19083bf#879045a75f6f47c55994aaa243fde748f19083bf"
+dependencies = [
+ "embassy-time",
+ "embassy-usb",
+ "iobewi-block",
+ "log",
+]
 
 [[package]]
 name = "iobewi-wifi-core"
 version = "0.1.0"
-source = "git+https://github.com/iobewi/iobewi?rev=e7d66f4b775c9a7be7588c490d61a62dfaee5da0#e7d66f4b775c9a7be7588c490d61a62dfaee5da0"
+source = "git+https://github.com/iobewi/iobewi?rev=879045a75f6f47c55994aaa243fde748f19083bf#879045a75f6f47c55994aaa243fde748f19083bf"
 
 [[package]]
 name = "iobewi-wifi-manager"
 version = "0.1.0"
-source = "git+https://github.com/iobewi/iobewi?rev=e7d66f4b775c9a7be7588c490d61a62dfaee5da0#e7d66f4b775c9a7be7588c490d61a62dfaee5da0"
+source = "git+https://github.com/iobewi/iobewi?rev=879045a75f6f47c55994aaa243fde748f19083bf#879045a75f6f47c55994aaa243fde748f19083bf"
 dependencies = [
  "iobewi-config-space",
  "iobewi-wifi-core",
@@ -2394,6 +2423,10 @@ checksum = "673aac59facbab8a9007c7f6108d11f63b603f7cabff99fabf650fea5c32b861"
 [[package]]
 name = "usb-radio-core"
 version = "0.1.0"
+dependencies = [
+ "iobewi-fat16",
+ "iobewi-rolling-stream",
+]
 
 [[package]]
 name = "usb-radio-firmware"
@@ -2417,8 +2450,11 @@ dependencies = [
  "esp-storage",
  "improv-serial",
  "iobewi-config-space",
+ "iobewi-fat16",
+ "iobewi-usb-msc",
  "iobewi-wifi-core",
  "iobewi-wifi-manager",
+ "log",
  "reqwless",
  "static_cell",
  "usb-radio-core",

@@ -17,13 +17,16 @@ embedded-io-async = "0.7.0"
 embedded-storage = "0.3.1"
 reqwless = { version = "0.14.0", default-features = false }
 static_cell = "2.1.1"
+log = "0.4"
 
-# Portable IOBEWI crates only (no esp-hal): the POC keeps its own esp-hal 1.2 stack, so
-# IOBEWI's ESP adapters (esp-hal =1.1.2) cannot be used; adapters live in this crate.
+# Portable IOBEWI crates (no esp-hal). ESP adapters still local until they are replaced by the
+# IOBEWI ESP drivers (IOBEWI main is on esp-hal 1.2 as well).
 improv-serial = { git = "https://github.com/iobewi/improv-serial", rev = "8e9d2c437d07cc22fe848ec0493ea3a3c5ecaea3" }
-iobewi-config-space = { git = "https://github.com/iobewi/iobewi", rev = "e7d66f4b775c9a7be7588c490d61a62dfaee5da0" }
-iobewi-wifi-core = { git = "https://github.com/iobewi/iobewi", rev = "e7d66f4b775c9a7be7588c490d61a62dfaee5da0" }
-iobewi-wifi-manager = { git = "https://github.com/iobewi/iobewi", rev = "e7d66f4b775c9a7be7588c490d61a62dfaee5da0" }
+iobewi-config-space = { git = "https://github.com/iobewi/iobewi", rev = "879045a75f6f47c55994aaa243fde748f19083bf" }
+iobewi-wifi-core = { git = "https://github.com/iobewi/iobewi", rev = "879045a75f6f47c55994aaa243fde748f19083bf" }
+iobewi-usb-msc = { git = "https://github.com/iobewi/iobewi", rev = "879045a75f6f47c55994aaa243fde748f19083bf" }
+iobewi-fat16 = { git = "https://github.com/iobewi/iobewi", rev = "879045a75f6f47c55994aaa243fde748f19083bf" }
+iobewi-wifi-manager = { git = "https://github.com/iobewi/iobewi", rev = "879045a75f6f47c55994aaa243fde748f19083bf" }
 
 esp-alloc = { version = "0.11.0", features = ["esp32s3"] }
 esp-backtrace = { version = "0.20.0", features = [
@@ -58,4 +61,4 @@ esp-println = { version = "0.18.0", default-features = false, features = [
 
 [features]
 default = []
-usb-debug = ["embassy-usb/log"]
+usb-debug = ["embassy-usb/log", "iobewi-usb-msc/usb-debug"]

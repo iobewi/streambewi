@@ -4,7 +4,6 @@
 extern crate alloc;
 
 mod flash_config;
-mod msc;
 mod stream;
 mod wifi;
 
@@ -38,11 +37,36 @@ use esp_storage::FlashStorage;
 use flash_config::{FlashConfigBackend, SharedFlash};
 use iobewi_config_space::ConfigManager;
 use iobewi_wifi_manager::{CONFIG_BUDGET, WifiManager};
-use msc::{MscClass, State as MscState};
+use iobewi_fat16::{ReadStatus, VirtualFat16};
+use iobewi_usb_msc::{InquiryIdentity, MscClass, ReadAction, ReadPolicy, State as MscState};
 use stream::{STREAM, SharedStreamSource};
-use usb_radio_core::VirtualFat16;
+use usb_radio_core::FAT16_CONFIG;
 
 esp_bootloader_esp_idf::esp_app_desc!();
+
+/// Longest wait for stream data inside one READ(10) sector (Windows gave up after ~20 s).
+const PENDING_TIMEOUT: Duration = Duration::from_secs(5);
+
+const MSC_IDENTITY: InquiryIdentity = InquiryIdentity {
+    vendor: *b"IOBEWI  ",
+    product: *b"USB RADIO POC   ",
+    revision: *b"0001",
+};
+
+/// Product policy for unavailable sectors: wait for data that is about to arrive, but never
+/// wedge the MSC on a stalled stream; expired data is answered with zeroes.
+struct StreamReadPolicy;
+
+impl ReadPolicy for StreamReadPolicy {
+    fn unavailable(&mut self, status: ReadStatus, elapsed: Duration) -> ReadAction {
+        match status {
+            ReadStatus::Pending if elapsed < PENDING_TIMEOUT => {
+                ReadAction::RetryAfter(Duration::from_millis(5))
+            }
+            _ => ReadAction::ZeroFill,
+        }
+    }
+}
 
 macro_rules! mk_static {
     ($t:ty, $val:expr) => {{
@@ -58,28 +82,28 @@ struct BusLog;
 #[cfg(feature = "usb-debug")]
 impl Handler for BusLog {
     fn enabled(&mut self, enabled: bool) {
-        esp_println::println!("usb: enabled={}", enabled);
+        log::info!("usb: enabled={}", enabled);
     }
     fn reset(&mut self) {
-        esp_println::println!("usb: bus reset");
+        log::info!("usb: bus reset");
     }
     fn addressed(&mut self, addr: u8) {
-        esp_println::println!("usb: addressed={}", addr);
+        log::info!("usb: addressed={}", addr);
     }
     fn configured(&mut self, configured: bool) {
-        esp_println::println!("usb: configured={}", configured);
+        log::info!("usb: configured={}", configured);
     }
     fn suspended(&mut self, suspended: bool) {
-        esp_println::println!("usb: suspended={}", suspended);
+        log::info!("usb: suspended={}", suspended);
     }
 }
 
 #[esp_hal::main]
 async fn main(spawner: Spawner) {
     esp_println::logger::init_logger_from_env();
-    esp_println::println!("usb-radio POC: P3 continuous HTTP MP3 -> USB MSC");
-    esp_println::println!("usb-radio POC: DP=GPIO20 DM=GPIO19");
-    esp_println::println!("stream: {}", stream::STREAM_URL);
+    log::info!("usb-radio POC: P3 continuous HTTP MP3 -> USB MSC");
+    log::info!("usb-radio POC: DP=GPIO20 DM=GPIO19");
+    log::info!("stream: {}", stream::STREAM_URL);
 
     let config = esp_hal::Config::default().with_cpu_clock(CpuClock::max());
     let peripherals = esp_hal::init(config);
@@ -134,17 +158,17 @@ async fn main(spawner: Spawner) {
     let usb_fut = async {
         // UNCONFIGURED (no Wi-Fi network saved): no stream is possible, MSC stays off.
         while !wifi::is_configured() {
-            esp_println::println!("provisioning: UNCONFIGURED, MSC off (waiting for Improv)");
+            log::info!("provisioning: UNCONFIGURED, MSC off (waiting for Improv)");
             Timer::after(Duration::from_secs(5)).await;
         }
-        esp_println::println!("provisioning: CONFIGURED");
+        log::info!("provisioning: CONFIGURED");
 
         // The USB disk is only presented once the stream has delivered the prebuffer: a visible
         // RADIO.MP3 with no audio behind it (Wi-Fi not provisioned/connected, stream down)
         // would look like an empty file to the host. Without data there is no USB device.
         while !STREAM.is_ready() {
             let (written, consumed) = STREAM.progress();
-            esp_println::println!(
+            log::info!(
                 "stream: prebuffer written={} consumed={}",
                 written,
                 consumed
@@ -153,8 +177,8 @@ async fn main(spawner: Spawner) {
         }
 
         let (written, _) = STREAM.progress();
-        esp_println::println!("stream: prebuffer bytes={}", written);
-        esp_println::println!("usb: enabling MSC for Metronic");
+        log::info!("stream: prebuffer bytes={}", written);
+        log::info!("usb: enabling MSC for Metronic");
 
         let usb = Usb::new_fs(
             peripherals.USB_FS,
@@ -197,14 +221,15 @@ async fn main(spawner: Spawner) {
         #[cfg(feature = "usb-debug")]
         builder.handler(&mut bus_log);
 
-        let mut msc = MscClass::new(&mut builder, &mut msc_state);
+        let mut msc = MscClass::new(&mut builder, &mut msc_state, MSC_IDENTITY);
         let mut usb_device = builder.build();
-        let mut disk = VirtualFat16::new(SharedStreamSource::new(&STREAM));
+        let mut disk = VirtualFat16::new(SharedStreamSource::new(&STREAM), FAT16_CONFIG)
+            .expect("valid FAT16 config");
 
         let device_fut = usb_device.run();
         let msc_fut = async {
-            if let Err(err) = msc.run(&mut disk).await {
-                esp_println::println!("msc: fatal endpoint error: {:?}", err);
+            if let Err(err) = msc.run(&mut disk, &mut StreamReadPolicy).await {
+                log::info!("msc: fatal endpoint error: {:?}", err);
             }
         };
 

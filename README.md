@@ -18,6 +18,14 @@ Make the Metronic see an ESP32-S3 as a USB mass-storage device containing a read
 `RADIO.MP3`, then progressively replace the static/diagnostic payload with the live MP3
 stream.
 
+## Architecture
+
+The USB radio mechanics come from IOBEWI (pinned by git rev in `firmware/Cargo.toml`):
+`iobewi-fat16` (virtual FAT16), `iobewi-rolling-stream` (live window), `iobewi-usb-msc`
+(read-only Mass Storage class), plus the Wi-Fi / config crates. This repository keeps the product
+policy only: `core/` (1 GiB `RADIO.MP3` geometry, prebuffer, far-ahead probe policy) and
+`firmware/` (composition root, ICY HTTP stream, retry policy). Logs use the `log` facade.
+
 ## Stages
 
 ### P0 — virtual FAT16 model
@@ -157,14 +165,14 @@ cargo +esp run -p usb-radio-firmware --release \
 
 ## Wi-Fi provisioning (Improv Serial)
 
-Wi-Fi is configured over the USB-UART port with [Improv Serial](https://www.improv-wifi.com/serial/),
+Wi-Fi is configured over the USB-Serial-JTAG (native USB) port with [Improv Serial](https://www.improv-wifi.com/serial/),
 the protocol ESP Web Tools speaks after flashing.
 
 - `improv-serial` and IOBEWI's portable `iobewi-wifi-manager` / `iobewi-wifi-core` /
   `iobewi-config-space` crates are used as-is (git-pinned). IOBEWI's ESP adapters are **not**
-  used: they pin `esp-hal 1.1`, the POC is on `esp-hal 1.2`. The POC carries its own small
-  adapters (`firmware/src/wifi.rs`: esp-radio transport + UART; `firmware/src/flash_config.rs`:
-  config backend).
+  yet used: the POC still carries its own small adapters (`firmware/src/wifi.rs`: esp-radio
+  transport + USB-Serial-JTAG; `firmware/src/flash_config.rs`: config backend), to be replaced by
+  the IOBEWI ESP drivers (IOBEWI main is on `esp-hal 1.2`, like this repository).
 - Credentials are validated first (association + DHCP) and only then committed to two flash
   sectors of the default NVS partition (`0x9000`/`0xA000`, A/B with generation + CRC, see
   `core/src/config_store.rs`). A write interrupted by a power cut keeps the previous record.

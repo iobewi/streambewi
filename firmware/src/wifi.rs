@@ -62,7 +62,7 @@ impl WifiTransport for EspWifiTransport {
         self.current = None;
 
         let Ok(ssid_cfg) = ssid.try_into() else {
-            esp_println::println!("wifi: invalid ssid");
+            log::info!("wifi: invalid ssid");
             return false;
         };
         let station = StationConfig::default().with_ssid(ssid_cfg);
@@ -70,7 +70,7 @@ impl WifiTransport for EspWifiTransport {
             station
         } else {
             let Ok(pw) = password.as_str().try_into() else {
-                esp_println::println!("wifi: invalid password");
+                log::info!("wifi: invalid password");
                 return false;
             };
             station.with_authentication(AuthenticationMethodConfig::Wpa2Personal(pw))
@@ -79,30 +79,30 @@ impl WifiTransport for EspWifiTransport {
         // Err(NotConnected) when idle is expected.
         let _ = self.controller.disconnect_async().await;
         if self.controller.set_config(&WifiConfig::Station(station)).is_err() {
-            esp_println::println!("wifi: set_config failed");
+            log::info!("wifi: set_config failed");
             return false;
         }
 
-        esp_println::println!("wifi: connecting ssid={}", ssid);
+        log::info!("wifi: connecting ssid={}", ssid);
         match with_timeout(CONNECT_TIMEOUT, self.controller.connect_async()).await {
-            Ok(Ok(info)) => esp_println::println!("wifi: associated {:?}", info),
+            Ok(Ok(info)) => log::info!("wifi: associated {:?}", info),
             Ok(Err(err)) => {
-                esp_println::println!("wifi: connect error {:?}", err);
+                log::info!("wifi: connect error {:?}", err);
                 return false;
             }
             Err(_) => {
-                esp_println::println!("wifi: connect timeout");
+                log::info!("wifi: connect timeout");
                 let _ = self.controller.disconnect_async().await;
                 return false;
             }
         }
         if with_timeout(DHCP_TIMEOUT, self.stack.wait_config_up()).await.is_err() {
-            esp_println::println!("wifi: DHCP timeout");
+            log::info!("wifi: DHCP timeout");
             let _ = self.controller.disconnect_async().await;
             return false;
         }
         if let Some(config) = self.stack.config_v4() {
-            esp_println::println!("wifi: got IP {}", config.address);
+            log::info!("wifi: got IP {}", config.address);
         }
         self.current = Some((ssid.to_string(), password));
         true
@@ -120,7 +120,7 @@ impl WifiTransport for EspWifiTransport {
                 })
                 .collect(),
             Err(err) => {
-                esp_println::println!("wifi: scan error {:?}", err);
+                log::info!("wifi: scan error {:?}", err);
                 Vec::new()
             }
         }
@@ -164,10 +164,10 @@ struct LogObserver;
 
 impl LinkObserver<Stack<'static>> for LogObserver {
     fn link_down(&mut self) {
-        esp_println::println!("wifi: link down, reconnecting");
+        log::info!("wifi: link down, reconnecting");
     }
     fn ready(&mut self, _network: Stack<'static>) {
-        esp_println::println!("wifi: ready");
+        log::info!("wifi: ready");
     }
 }
 
@@ -188,8 +188,8 @@ pub async fn recovery_watch(mut button: Input<'static>, backend: FlashConfigBack
         button.wait_for_low().await;
         if with_timeout(RECOVERY_HOLD, button.wait_for_high()).await.is_err() {
             match backend.clear("wifi").await {
-                Ok(_) => esp_println::println!("provisioning: BOOT held, Wi-Fi config erased; restarting"),
-                Err(_) => esp_println::println!("provisioning: BOOT held, erase FAILED; restarting"),
+                Ok(_) => log::info!("provisioning: BOOT held, Wi-Fi config erased; restarting"),
+                Err(_) => log::info!("provisioning: BOOT held, erase FAILED; restarting"),
             }
             esp_hal::system::software_reset();
         }
@@ -238,7 +238,7 @@ pub async fn wifi_task(mut manager: Manager, mut tx: UsbSerialJtagTx<'static, As
         {
             Either::First(MaintainError::NotProvisioned) => {
                 CONFIGURED.store(false, Ordering::Relaxed);
-                esp_println::println!("wifi: no saved credentials; waiting for Improv provisioning");
+                log::info!("wifi: no saved credentials; waiting for Improv provisioning");
                 let command = IMPROV_COMMANDS.receive().await;
                 handle(command, &mut tx, &mut state, &mut manager).await;
             }
@@ -296,23 +296,23 @@ async fn handle(
             send(tx, &improv::rpc_response_frame(Command::GetNetworkState, &[flags])).await;
         }
         ParsedCommand::WifiSettings(settings) => {
-            esp_println::println!("improv: provisioning ssid={}", settings.ssid);
+            log::info!("improv: provisioning ssid={}", settings.ssid);
             *state = State::Provisioning;
             send(tx, &improv::state_frame(*state)).await;
             if WifiProvisioning::provision(manager, &settings.ssid, settings.password).await {
-                esp_println::println!("improv: provisioned, credentials saved");
+                log::info!("improv: provisioned, credentials saved");
                 *state = State::Provisioned;
                 send(tx, &improv::state_frame(*state)).await;
                 send(tx, &improv::rpc_response_frame(Command::WifiSettings, &[])).await;
             } else {
-                esp_println::println!("improv: provisioning failed");
+                log::info!("improv: provisioning failed");
                 *state = State::Authorized;
                 send(tx, &improv::error_frame(ImprovError::UnableToConnect)).await;
                 send(tx, &improv::state_frame(*state)).await;
             }
         }
         ParsedCommand::Unsupported(command) => {
-            esp_println::println!("improv: unsupported command 0x{:02X}", command);
+            log::info!("improv: unsupported command 0x{:02X}", command);
             send(tx, &improv::error_frame(ImprovError::UnknownRpc)).await;
         }
     }

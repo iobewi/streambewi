@@ -5,3 +5,5 @@ edition = "2024"
 publish = false
 
 [dependencies]
+iobewi-fat16 = { git = "https://github.com/iobewi/iobewi", rev = "879045a75f6f47c55994aaa243fde748f19083bf" }
+iobewi-rolling-stream = { git = "https://github.com/iobewi/iobewi", rev = "879045a75f6f47c55994aaa243fde748f19083bf" }
