@@ -1,6 +1,6 @@
-repository:   https://github.com/iobewi/embewi-agent.git
-branch:       poc/usb-radio-stream
-source:       738d1506f4aa580c1f017d39758f8f61ce14e8d0
+repository:   https://github.com/iobewi/streambewi
+branch:       feat/provisioning-state
+source:       229535db294f0ee74cc773067e12a0f287eec155 (+ uncommitted source changes in the repository)
 target:       xtensa-esp32s3-none-elf (ESP32-S3)
 profile:      release
 delivery:     credential-free (Wi-Fi provisioned at runtime via Improv Serial)
@@ -9,18 +9,18 @@ cargo (esp):  cargo 1.97.0-nightly (c980f4866 2026-06-30) (1.97.0.0)
 rustc (core): rustc 1.95.0 (59807616e 2026-04-14)
 espflash:     espflash 4.6.0
 
-RUSTFLAGS:    -C force-frame-pointers  --remap-path-prefix=/workspace/embewi-agent/poc/usb-radio=/src  --remap-path-prefix=/opt/cargo=/cargo  --remap-path-prefix=/opt/rustup/toolchains/esp=/sysroot
-SOURCE_DATE_EPOCH: 1791125354
-build (cwd poc/usb-radio):
+RUSTFLAGS:    -C force-frame-pointers  --remap-path-prefix=/tmp/claude-0/-workspace/bca747e8-f0e5-44c7-9c43-ac010af737e0/scratchpad/streambewi=/src  --remap-path-prefix=/opt/cargo=/cargo  --remap-path-prefix=/opt/rustup/toolchains/esp=/sysroot
+SOURCE_DATE_EPOCH: 1791201447
+build (cwd repo root):
   cargo +1.95.0 test -p usb-radio-core --target x86_64-unknown-linux-gnu
   cargo +esp build -p usb-radio-firmware --release -Z build-std=core,alloc --target xtensa-esp32s3-none-elf
-image (cwd poc/usb-radio):
-  espflash save-image --chip esp32s3 --merge --skip-padding target/xtensa-esp32s3-none-elf/release/usb-radio-firmware /workspace/embewi-agent/poc/usb-radio/dist/usb-radio-poc-esp32s3.bin
+image (cwd repo root):
+  espflash save-image --chip esp32s3 --merge --skip-padding target/xtensa-esp32s3-none-elf/release/usb-radio-firmware /tmp/claude-0/-workspace/bca747e8-f0e5-44c7-9c43-ac010af737e0/scratchpad/streambewi/dist/usb-radio-poc-esp32s3.bin
 
 flash layout: single merged image (bootloader + partition table + app) at 0x0
   0x0 -> usb-radio-poc-esp32s3.bin
   (espflash default bootloader and partition table; no custom partitions)
 
 sha256:
-  ef57f42a4379a21a49fe0709c5d6fb990accc396d82e8993fd576a61b49649d7  usb-radio-poc-esp32s3.bin
-  dad4432cb228e450b70fd44aa431605a12b20a5b44a60a03d2f919b75c1df937  usb-radio-poc-esp32s3.elf
+  3d812a9cec168f22f7ab85e64fc824d820b6457dcc0d6372411445dfa08979c8  usb-radio-poc-esp32s3.bin
+  7e3c6bbb8824ee57922d5f8bacf2fa3e90bd2e4644c43cf55b5e0c51b9ac8728  usb-radio-poc-esp32s3.elf
