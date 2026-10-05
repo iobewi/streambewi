@@ -136,7 +136,7 @@ P3 hardware acceptance:
 From the repository root:
 
 ```sh
-cd poc/usb-radio
+# (already at the repository root)
 cargo test -p usb-radio-core
 
 cargo +esp build -p usb-radio-firmware --release \
@@ -205,15 +205,15 @@ at `0x0`; the matching ELF is emitted beside it.
 
 ### Browser (ESP Web Tools)
 
-Serve `poc/usb-radio/dist/` (it has its own `index.html` + `manifest.json`). If your local
+Serve `dist/` (it has its own `index.html` + `manifest.json`). If your local
 web flasher expects the image under `web/firmware/esp32s3-usb-radio/`, copy the BIN there;
 that directory is ignored by Git.
 
 ### Command line
 
 ```sh
-poc/usb-radio/scripts/flash.sh
-poc/usb-radio/scripts/flash.sh --port /dev/ttyUSB0
+scripts/flash.sh
+scripts/flash.sh --port /dev/ttyUSB0
 ```
 
 The port is auto-detected by `espflash` unless `--port` is given. Monitor only:
@@ -222,7 +222,7 @@ The port is auto-detected by `espflash` unless `--port` is given. Monitor only:
 ### Rebuild the artefacts
 
 ```sh
-poc/usb-radio/scripts/build-release.sh
+scripts/build-release.sh
 ```
 
 Runs the core tests, the release build (real link), and `espflash save-image --merge`.

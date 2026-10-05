@@ -51,7 +51,7 @@ $IMAGE_CMD
 
 COMMIT="$(git rev-parse HEAD)"
 DIRTY=""
-[ -n "$(git status --porcelain --untracked-files=no -- "$POC_DIR" ':(exclude)dist' ':(exclude)dist-local')" ] && DIRTY=" (+ uncommitted source changes under poc/usb-radio)"
+[ -n "$(git status --porcelain --untracked-files=no -- "$POC_DIR" ':(exclude)dist' ':(exclude)dist-local')" ] && DIRTY=" (+ uncommitted source changes in the repository)"
 {
   echo "repository:   $(git remote get-url origin 2>/dev/null || echo unknown)"
   echo "branch:       $(git rev-parse --abbrev-ref HEAD)"
@@ -66,10 +66,10 @@ DIRTY=""
   echo
   echo "RUSTFLAGS:    $RUSTFLAGS"
   echo "SOURCE_DATE_EPOCH: $SOURCE_DATE_EPOCH"
-  echo "build (cwd poc/usb-radio):"
+  echo "build (cwd repo root):"
   echo "  $CORE_CMD"
   echo "  $BUILD_CMD"
-  echo "image (cwd poc/usb-radio):"
+  echo "image (cwd repo root):"
   echo "  $IMAGE_CMD"
   echo
   echo "flash layout: single merged image (bootloader + partition table + app) at 0x0"

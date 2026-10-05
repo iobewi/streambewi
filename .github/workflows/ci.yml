@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  core:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.95.0"
+      - run: cargo +1.95.0 test -p usb-radio-core --target x86_64-unknown-linux-gnu
+
+  esp32s3:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust for Xtensa
+        uses: esp-rs/xtensa-toolchain@v1.5
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        with:
+          buildtargets: esp32s3
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: espflash
+      - name: Release build (real link)
+        run: cargo +esp build -p usb-radio-firmware --release -Z build-std=core,alloc --target xtensa-esp32s3-none-elf
+      - name: Flashable image
+        run: |
+          mkdir -p ci-out
+          espflash save-image --chip esp32s3 --merge --skip-padding \
+            target/xtensa-esp32s3-none-elf/release/usb-radio-firmware ci-out/usb-radio-poc-esp32s3.bin
+          sha256sum ci-out/*
+      - uses: actions/upload-artifact@v4
+        with:
+          name: usb-radio-poc-esp32s3-ci
+          path: ci-out/
