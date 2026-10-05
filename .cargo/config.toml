@@ -1,0 +1,14 @@
+[build]
+target = "xtensa-esp32s3-none-elf"
+rustflags = ["-C", "force-frame-pointers"]
+
+[target.xtensa-esp32s3-none-elf]
+runner = "espflash flash --monitor"
+
+[unstable]
+build-std = ["core"]
+
+[env]
+# iobewi-wifi-manager connection log; embassy-usb control tracing only exists with
+# `--features usb-debug`.
+ESP_LOG = "embassy_usb=trace,iobewi_wifi_manager=info"
