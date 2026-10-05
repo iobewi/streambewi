@@ -23,6 +23,7 @@ use esp_radio::wifi::{
     scan::ScanConfig, sta::StationConfig,
 };
 use improv_serial::{self as improv, Command, ImprovError, ParsedCommand, Parser, State};
+use iobewi_config_space::ConfigBackend;
 use iobewi_wifi_core::{Network, WifiProvisioning, WifiTransport};
 use iobewi_wifi_manager::{LinkObserver, MaintainError, Sleep, WifiManager};
 
@@ -169,7 +170,7 @@ impl LinkObserver<Stack<'static>> for LogObserver {
     }
 }
 
-/// How long BOOT must be held at power-up to forget the saved Wi-Fi network.
+/// How long BOOT must be held while running to forget the saved Wi-Fi network.
 const RECOVERY_HOLD: Duration = Duration::from_secs(3);
 
 /// True once a Wi-Fi network is saved (CONFIGURED); false while UNCONFIGURED.
@@ -179,18 +180,19 @@ pub fn is_configured() -> bool {
     CONFIGURED.load(Ordering::Relaxed)
 }
 
-/// True if the (active-low) BOOT button stays pressed for `RECOVERY_HOLD` from now.
-pub async fn recovery_requested(button: &Input<'_>) -> bool {
-    let mut held = Duration::from_millis(0);
-    let step = Duration::from_millis(50);
-    while button.is_low() {
-        if held >= RECOVERY_HOLD {
-            return true;
+/// Watches the (active-low) BOOT button: held for `RECOVERY_HOLD`, it erases the saved Wi-Fi
+/// network and restarts, which brings the device back to UNCONFIGURED.
+pub async fn recovery_watch(mut button: Input<'static>, backend: FlashConfigBackend) -> ! {
+    loop {
+        button.wait_for_low().await;
+        if with_timeout(RECOVERY_HOLD, button.wait_for_high()).await.is_err() {
+            match backend.clear("wifi").await {
+                Ok(_) => esp_println::println!("provisioning: BOOT held, Wi-Fi config erased; restarting"),
+                Err(_) => esp_println::println!("provisioning: BOOT held, erase FAILED; restarting"),
+            }
+            esp_hal::system::software_reset();
         }
-        Timer::after(step).await;
-        held += step;
     }
-    false
 }
 
 pub type Manager = WifiManager<EspWifiTransport, FlashConfigBackend>;

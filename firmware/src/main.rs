@@ -95,19 +95,13 @@ async fn main(spawner: Spawner) {
         Mutex::new(RefCell::new(FlashStorage::new(peripherals.FLASH)))
     );
     let mut config_manager = ConfigManager::new(FlashConfigBackend::new(flash));
+    // Recovery: BOOT (GPIO0) is a strapping pin, so it cannot be held at power-up (low at reset
+    // enters the ROM download mode). It is watched once the firmware runs instead.
+    let boot_button = Input::new(peripherals.GPIO0, InputConfig::default().with_pull(Pull::Up));
+    spawner.spawn(recovery_task(boot_button, FlashConfigBackend::new(flash)).unwrap());
     let wifi_space = config_manager
         .claim("wifi", CONFIG_BUDGET)
         .expect("wifi config space");
-
-    // Recovery: holding BOOT (GPIO0) for RECOVERY_HOLD at power-up forgets the saved Wi-Fi
-    // network, which puts the device back in UNCONFIGURED (MSC off, waiting for Improv).
-    let boot_button = Input::new(peripherals.GPIO0, InputConfig::default().with_pull(Pull::Up));
-    if wifi::recovery_requested(&boot_button).await {
-        match wifi_space.clear().await {
-            Ok(_) => esp_println::println!("provisioning: BOOT held, Wi-Fi config erased"),
-            Err(_) => esp_println::println!("provisioning: BOOT held, erase FAILED"),
-        }
-    }
 
     let wifi_interface = Interface::station();
     let controller =
@@ -229,6 +223,11 @@ async fn improv_task(rx: UartRx<'static, esp_hal::Async>) {
 #[embassy_executor::task]
 async fn wifi_task(manager: wifi::Manager, tx: UartTx<'static, esp_hal::Async>) {
     wifi::wifi_task(manager, tx).await
+}
+
+#[embassy_executor::task]
+async fn recovery_task(button: Input<'static>, backend: FlashConfigBackend) {
+    wifi::recovery_watch(button, backend).await
 }
 
 #[embassy_executor::task]
