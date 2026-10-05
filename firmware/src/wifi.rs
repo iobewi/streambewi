@@ -1,4 +1,4 @@
-//! Wi-Fi for the POC: Improv Serial provisioning (ESP Web Tools) on top of IOBEWI's portable
+//! Wi-Fi for the POC: Improv Serial provisioning over USB-Serial-JTAG (ESP Web Tools) on top of IOBEWI's portable
 //! `WifiManager`, with credentials persisted by `flash_config`. Nothing is baked in at build time.
 //!
 //! The ESP-specific parts (radio transport, UART) are adapters local to this POC because
@@ -13,10 +13,11 @@ use embassy_futures::select::{Either, select};
 use embassy_net::Stack;
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel};
 use embassy_time::{Duration, Timer, with_timeout};
+use embedded_io_async::{Read, Write};
 use esp_hal::{
     Async,
     gpio::Input,
-    uart::{UartRx, UartTx},
+    usb::usb_serial_jtag::{UsbSerialJtagRx, UsbSerialJtagTx},
 };
 use esp_radio::wifi::{
     AuthenticationMethod, AuthenticationMethodConfig, Config as WifiConfig, WifiController,
@@ -199,13 +200,13 @@ pub type Manager = WifiManager<EspWifiTransport, FlashConfigBackend>;
 
 static IMPROV_COMMANDS: Channel<CriticalSectionRawMutex, ParsedCommand, 2> = Channel::new();
 
-/// Reads UART0 (the USB-UART port that ESP Web Tools talks to) and forwards parsed Improv
+/// Reads the USB-Serial-JTAG port (the one ESP Web Tools talks to) and forwards parsed Improv
 /// commands. Log lines on the same wire are ignored by the parser (it resynchronises).
-pub async fn improv_reader(mut rx: UartRx<'static, Async>) -> ! {
+pub async fn improv_reader(mut rx: UsbSerialJtagRx<'static, Async>) -> ! {
     let mut parser = Parser::new();
     let mut buf = [0u8; 64];
     loop {
-        match rx.read_async(&mut buf).await {
+        match rx.read(&mut buf).await {
             Ok(n) => {
                 for &byte in &buf[..n] {
                     if let Some(command) = parser.feed(byte) {
@@ -221,7 +222,7 @@ pub async fn improv_reader(mut rx: UartRx<'static, Async>) -> ! {
 /// Owns the Wi-Fi manager: keeps the saved network connected and serves Improv requests.
 /// A request pre-empts `maintain()`; it restarts afterwards (and `connect` is a no-op when the
 /// link is already up on the same credentials).
-pub async fn wifi_task(mut manager: Manager, mut tx: UartTx<'static, Async>) -> ! {
+pub async fn wifi_task(mut manager: Manager, mut tx: UsbSerialJtagTx<'static, Async>) -> ! {
     let sleep = EmbassySleep;
     let mut observer = LogObserver;
     let mut state = State::Authorized;
@@ -246,20 +247,20 @@ pub async fn wifi_task(mut manager: Manager, mut tx: UartTx<'static, Async>) -> 
     }
 }
 
-async fn send(tx: &mut UartTx<'static, Async>, frame: &[u8]) {
+async fn send(tx: &mut UsbSerialJtagTx<'static, Async>, frame: &[u8]) {
     let mut rest = frame;
     while !rest.is_empty() {
-        match tx.write_async(rest).await {
+        match Write::write(tx, rest).await {
             Ok(n) => rest = &rest[n..],
             Err(_) => return,
         }
     }
-    let _ = tx.flush_async().await;
+    let _ = tx.flush().await;
 }
 
 async fn handle(
     command: ParsedCommand,
-    tx: &mut UartTx<'static, Async>,
+    tx: &mut UsbSerialJtagTx<'static, Async>,
     state: &mut State,
     manager: &mut Manager,
 ) {

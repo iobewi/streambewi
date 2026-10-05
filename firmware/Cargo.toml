@@ -53,7 +53,7 @@ esp-storage = { version = "0.10.0", default-features = false, features = ["esp32
 esp-println = { version = "0.18.0", default-features = false, features = [
   "esp32s3",
   "log-04",
-  "uart",
+  "auto",
 ] }
 
 [features]

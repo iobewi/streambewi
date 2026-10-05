@@ -25,10 +25,12 @@ use esp_hal::{
     gpio::{Input, InputConfig, Pull},
     rng::Rng,
     timer::timg::TimerGroup,
-    uart::{Config as UartConfig, Uart, UartRx, UartTx},
-    usb::otg::{
-        Usb,
-        embassy_usb_device::{Config as OtgConfig, Driver},
+    usb::{
+        otg::{
+            Usb,
+            embassy_usb_device::{Config as OtgConfig, Driver},
+        },
+        usb_serial_jtag::{UsbSerialJtag, UsbSerialJtagRx, UsbSerialJtagTx},
     },
 };
 use esp_radio::wifi::{ControllerConfig, Interface, WifiController};
@@ -119,61 +121,13 @@ async fn main(spawner: Spawner) {
 
     spawner.spawn(net_task(runner).unwrap());
 
-    // Improv Serial shares UART0 (the USB-UART port) with the log output.
-    let uart = Uart::new(peripherals.UART0, UartConfig::default())
-        .unwrap()
-        .with_rx(peripherals.GPIO44)
-        .with_tx(peripherals.GPIO43)
-        .into_async();
-    let (uart_rx, uart_tx) = uart.split();
+    // Improv Serial runs over the USB-Serial-JTAG (the native USB port, the only one some
+    // ESP32-S3 boards expose). It shares the port with the log output and with the OTG
+    // controller, so the OTG (MSC) is only started once the device is CONFIGURED.
+    let (jtag_rx, jtag_tx) = UsbSerialJtag::new(peripherals.USB_DEVICE).into_async().split();
     let manager = WifiManager::new(wifi::EspWifiTransport::new(controller, stack), wifi_space);
-    spawner.spawn(improv_task(uart_rx).unwrap());
-    spawner.spawn(wifi_task(manager, uart_tx).unwrap());
-
-    let usb = Usb::new_fs(
-        peripherals.USB_FS,
-        peripherals.GPIO20,
-        peripherals.GPIO19,
-    );
-
-    let mut ep_out_buffer = [0u8; 1024];
-    let driver = Driver::new(usb, &mut ep_out_buffer, OtgConfig::default());
-
-    let mut usb_config = embassy_usb::Config::new(0x303A, 0x4001);
-    usb_config.manufacturer = Some("IOBEWI");
-    usb_config.product = Some("USB Radio POC");
-    usb_config.serial_number = Some("RADIO-POC-0002");
-    // Bus-powered by the player: Wi-Fi bursts draw far more than the former 100 mA declared.
-    // 500 mA is the USB 2.0 maximum for a bus-powered device.
-    usb_config.max_power = 500;
-    usb_config.composite_with_iads = false;
-    usb_config.device_class = 0x00;
-    usb_config.device_sub_class = 0x00;
-    usb_config.device_protocol = 0x00;
-
-    let mut config_descriptor = [0u8; 256];
-    let mut bos_descriptor = [0u8; 256];
-    let mut control_buf = [0u8; 64];
-
-    let mut msc_state = MscState::new();
-    #[cfg(feature = "usb-debug")]
-    let mut bus_log = BusLog;
-
-    let mut builder = Builder::new(
-        driver,
-        usb_config,
-        &mut config_descriptor,
-        &mut bos_descriptor,
-        &mut [],
-        &mut control_buf,
-    );
-
-    #[cfg(feature = "usb-debug")]
-    builder.handler(&mut bus_log);
-
-    let mut msc = MscClass::new(&mut builder, &mut msc_state);
-    let mut usb_device = builder.build();
-    let mut disk = VirtualFat16::new(SharedStreamSource::new(&STREAM));
+    spawner.spawn(improv_task(jtag_rx).unwrap());
+    spawner.spawn(wifi_task(manager, jtag_tx).unwrap());
 
     let stream_fut = stream::run(stack, &STREAM);
 
@@ -202,6 +156,51 @@ async fn main(spawner: Spawner) {
         esp_println::println!("stream: prebuffer bytes={}", written);
         esp_println::println!("usb: enabling MSC for Metronic");
 
+        let usb = Usb::new_fs(
+            peripherals.USB_FS,
+            peripherals.GPIO20,
+            peripherals.GPIO19,
+        );
+
+        let mut ep_out_buffer = [0u8; 1024];
+        let driver = Driver::new(usb, &mut ep_out_buffer, OtgConfig::default());
+
+        let mut usb_config = embassy_usb::Config::new(0x303A, 0x4001);
+        usb_config.manufacturer = Some("IOBEWI");
+        usb_config.product = Some("USB Radio POC");
+        usb_config.serial_number = Some("RADIO-POC-0002");
+        // Bus-powered by the player: Wi-Fi bursts draw far more than the former 100 mA declared.
+        // 500 mA is the USB 2.0 maximum for a bus-powered device.
+        usb_config.max_power = 500;
+        usb_config.composite_with_iads = false;
+        usb_config.device_class = 0x00;
+        usb_config.device_sub_class = 0x00;
+        usb_config.device_protocol = 0x00;
+
+        let mut config_descriptor = [0u8; 256];
+        let mut bos_descriptor = [0u8; 256];
+        let mut control_buf = [0u8; 64];
+
+        let mut msc_state = MscState::new();
+        #[cfg(feature = "usb-debug")]
+        let mut bus_log = BusLog;
+
+        let mut builder = Builder::new(
+            driver,
+            usb_config,
+            &mut config_descriptor,
+            &mut bos_descriptor,
+            &mut [],
+            &mut control_buf,
+        );
+
+        #[cfg(feature = "usb-debug")]
+        builder.handler(&mut bus_log);
+
+        let mut msc = MscClass::new(&mut builder, &mut msc_state);
+        let mut usb_device = builder.build();
+        let mut disk = VirtualFat16::new(SharedStreamSource::new(&STREAM));
+
         let device_fut = usb_device.run();
         let msc_fut = async {
             if let Err(err) = msc.run(&mut disk).await {
@@ -216,12 +215,12 @@ async fn main(spawner: Spawner) {
 }
 
 #[embassy_executor::task]
-async fn improv_task(rx: UartRx<'static, esp_hal::Async>) {
+async fn improv_task(rx: UsbSerialJtagRx<'static, esp_hal::Async>) {
     wifi::improv_reader(rx).await
 }
 
 #[embassy_executor::task]
-async fn wifi_task(manager: wifi::Manager, tx: UartTx<'static, esp_hal::Async>) {
+async fn wifi_task(manager: wifi::Manager, tx: UsbSerialJtagTx<'static, esp_hal::Async>) {
     wifi::wifi_task(manager, tx).await
 }
 
