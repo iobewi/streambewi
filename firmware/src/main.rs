@@ -22,6 +22,7 @@ use esp_alloc as _;
 use esp_backtrace as _;
 use esp_hal::{
     clock::CpuClock,
+    gpio::{Input, InputConfig, Pull},
     rng::Rng,
     timer::timg::TimerGroup,
     uart::{Config as UartConfig, Uart, UartRx, UartTx},
@@ -94,6 +95,10 @@ async fn main(spawner: Spawner) {
         Mutex::new(RefCell::new(FlashStorage::new(peripherals.FLASH)))
     );
     let mut config_manager = ConfigManager::new(FlashConfigBackend::new(flash));
+    // Recovery: BOOT (GPIO0) is a strapping pin, so it cannot be held at power-up (low at reset
+    // enters the ROM download mode). It is watched once the firmware runs instead.
+    let boot_button = Input::new(peripherals.GPIO0, InputConfig::default().with_pull(Pull::Up));
+    spawner.spawn(recovery_task(boot_button, FlashConfigBackend::new(flash)).unwrap());
     let wifi_space = config_manager
         .claim("wifi", CONFIG_BUDGET)
         .expect("wifi config space");
@@ -173,6 +178,13 @@ async fn main(spawner: Spawner) {
     let stream_fut = stream::run(stack, &STREAM);
 
     let usb_fut = async {
+        // UNCONFIGURED (no Wi-Fi network saved): no stream is possible, MSC stays off.
+        while !wifi::is_configured() {
+            esp_println::println!("provisioning: UNCONFIGURED, MSC off (waiting for Improv)");
+            Timer::after(Duration::from_secs(5)).await;
+        }
+        esp_println::println!("provisioning: CONFIGURED");
+
         // The USB disk is only presented once the stream has delivered the prebuffer: a visible
         // RADIO.MP3 with no audio behind it (Wi-Fi not provisioned/connected, stream down)
         // would look like an empty file to the host. Without data there is no USB device.
@@ -211,6 +223,11 @@ async fn improv_task(rx: UartRx<'static, esp_hal::Async>) {
 #[embassy_executor::task]
 async fn wifi_task(manager: wifi::Manager, tx: UartTx<'static, esp_hal::Async>) {
     wifi::wifi_task(manager, tx).await
+}
+
+#[embassy_executor::task]
+async fn recovery_task(button: Input<'static>, backend: FlashConfigBackend) {
+    wifi::recovery_watch(button, backend).await
 }
 
 #[embassy_executor::task]

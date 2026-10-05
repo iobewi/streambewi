@@ -7,16 +7,23 @@
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
+use core::sync::atomic::{AtomicBool, Ordering};
+
 use embassy_futures::select::{Either, select};
 use embassy_net::Stack;
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel};
 use embassy_time::{Duration, Timer, with_timeout};
-use esp_hal::{Async, uart::{UartRx, UartTx}};
+use esp_hal::{
+    Async,
+    gpio::Input,
+    uart::{UartRx, UartTx},
+};
 use esp_radio::wifi::{
     AuthenticationMethod, AuthenticationMethodConfig, Config as WifiConfig, WifiController,
     scan::ScanConfig, sta::StationConfig,
 };
 use improv_serial::{self as improv, Command, ImprovError, ParsedCommand, Parser, State};
+use iobewi_config_space::ConfigBackend;
 use iobewi_wifi_core::{Network, WifiProvisioning, WifiTransport};
 use iobewi_wifi_manager::{LinkObserver, MaintainError, Sleep, WifiManager};
 
@@ -163,6 +170,31 @@ impl LinkObserver<Stack<'static>> for LogObserver {
     }
 }
 
+/// How long BOOT must be held while running to forget the saved Wi-Fi network.
+const RECOVERY_HOLD: Duration = Duration::from_secs(3);
+
+/// True once a Wi-Fi network is saved (CONFIGURED); false while UNCONFIGURED.
+static CONFIGURED: AtomicBool = AtomicBool::new(false);
+
+pub fn is_configured() -> bool {
+    CONFIGURED.load(Ordering::Relaxed)
+}
+
+/// Watches the (active-low) BOOT button: held for `RECOVERY_HOLD`, it erases the saved Wi-Fi
+/// network and restarts, which brings the device back to UNCONFIGURED.
+pub async fn recovery_watch(mut button: Input<'static>, backend: FlashConfigBackend) -> ! {
+    loop {
+        button.wait_for_low().await;
+        if with_timeout(RECOVERY_HOLD, button.wait_for_high()).await.is_err() {
+            match backend.clear("wifi").await {
+                Ok(_) => esp_println::println!("provisioning: BOOT held, Wi-Fi config erased; restarting"),
+                Err(_) => esp_println::println!("provisioning: BOOT held, erase FAILED; restarting"),
+            }
+            esp_hal::system::software_reset();
+        }
+    }
+}
+
 pub type Manager = WifiManager<EspWifiTransport, FlashConfigBackend>;
 
 static IMPROV_COMMANDS: Channel<CriticalSectionRawMutex, ParsedCommand, 2> = Channel::new();
@@ -195,6 +227,7 @@ pub async fn wifi_task(mut manager: Manager, mut tx: UartTx<'static, Async>) -> 
     let mut state = State::Authorized;
 
     loop {
+        CONFIGURED.store(true, Ordering::Relaxed);
         *(&mut state) = if manager.is_online() { State::Provisioned } else { State::Authorized };
         match select(
             manager.maintain(&sleep, &mut observer),
@@ -203,6 +236,7 @@ pub async fn wifi_task(mut manager: Manager, mut tx: UartTx<'static, Async>) -> 
         .await
         {
             Either::First(MaintainError::NotProvisioned) => {
+                CONFIGURED.store(false, Ordering::Relaxed);
                 esp_println::println!("wifi: no saved credentials; waiting for Improv provisioning");
                 let command = IMPROV_COMMANDS.receive().await;
                 handle(command, &mut tx, &mut state, &mut manager).await;
