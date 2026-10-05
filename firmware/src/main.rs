@@ -22,6 +22,7 @@ use esp_alloc as _;
 use esp_backtrace as _;
 use esp_hal::{
     clock::CpuClock,
+    gpio::{Input, InputConfig, Pull},
     rng::Rng,
     timer::timg::TimerGroup,
     uart::{Config as UartConfig, Uart, UartRx, UartTx},
@@ -98,6 +99,16 @@ async fn main(spawner: Spawner) {
         .claim("wifi", CONFIG_BUDGET)
         .expect("wifi config space");
 
+    // Recovery: holding BOOT (GPIO0) for RECOVERY_HOLD at power-up forgets the saved Wi-Fi
+    // network, which puts the device back in UNCONFIGURED (MSC off, waiting for Improv).
+    let boot_button = Input::new(peripherals.GPIO0, InputConfig::default().with_pull(Pull::Up));
+    if wifi::recovery_requested(&boot_button).await {
+        match wifi_space.clear().await {
+            Ok(_) => esp_println::println!("provisioning: BOOT held, Wi-Fi config erased"),
+            Err(_) => esp_println::println!("provisioning: BOOT held, erase FAILED"),
+        }
+    }
+
     let wifi_interface = Interface::station();
     let controller =
         WifiController::new(peripherals.WIFI, ControllerConfig::default()).unwrap();
@@ -173,6 +184,13 @@ async fn main(spawner: Spawner) {
     let stream_fut = stream::run(stack, &STREAM);
 
     let usb_fut = async {
+        // UNCONFIGURED (no Wi-Fi network saved): no stream is possible, MSC stays off.
+        while !wifi::is_configured() {
+            esp_println::println!("provisioning: UNCONFIGURED, MSC off (waiting for Improv)");
+            Timer::after(Duration::from_secs(5)).await;
+        }
+        esp_println::println!("provisioning: CONFIGURED");
+
         // The USB disk is only presented once the stream has delivered the prebuffer: a visible
         // RADIO.MP3 with no audio behind it (Wi-Fi not provisioned/connected, stream down)
         // would look like an empty file to the host. Without data there is no USB device.

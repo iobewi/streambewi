@@ -7,11 +7,17 @@
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
+use core::sync::atomic::{AtomicBool, Ordering};
+
 use embassy_futures::select::{Either, select};
 use embassy_net::Stack;
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel};
 use embassy_time::{Duration, Timer, with_timeout};
-use esp_hal::{Async, uart::{UartRx, UartTx}};
+use esp_hal::{
+    Async,
+    gpio::Input,
+    uart::{UartRx, UartTx},
+};
 use esp_radio::wifi::{
     AuthenticationMethod, AuthenticationMethodConfig, Config as WifiConfig, WifiController,
     scan::ScanConfig, sta::StationConfig,
@@ -163,6 +169,30 @@ impl LinkObserver<Stack<'static>> for LogObserver {
     }
 }
 
+/// How long BOOT must be held at power-up to forget the saved Wi-Fi network.
+const RECOVERY_HOLD: Duration = Duration::from_secs(3);
+
+/// True once a Wi-Fi network is saved (CONFIGURED); false while UNCONFIGURED.
+static CONFIGURED: AtomicBool = AtomicBool::new(false);
+
+pub fn is_configured() -> bool {
+    CONFIGURED.load(Ordering::Relaxed)
+}
+
+/// True if the (active-low) BOOT button stays pressed for `RECOVERY_HOLD` from now.
+pub async fn recovery_requested(button: &Input<'_>) -> bool {
+    let mut held = Duration::from_millis(0);
+    let step = Duration::from_millis(50);
+    while button.is_low() {
+        if held >= RECOVERY_HOLD {
+            return true;
+        }
+        Timer::after(step).await;
+        held += step;
+    }
+    false
+}
+
 pub type Manager = WifiManager<EspWifiTransport, FlashConfigBackend>;
 
 static IMPROV_COMMANDS: Channel<CriticalSectionRawMutex, ParsedCommand, 2> = Channel::new();
@@ -195,6 +225,7 @@ pub async fn wifi_task(mut manager: Manager, mut tx: UartTx<'static, Async>) -> 
     let mut state = State::Authorized;
 
     loop {
+        CONFIGURED.store(true, Ordering::Relaxed);
         *(&mut state) = if manager.is_online() { State::Provisioned } else { State::Authorized };
         match select(
             manager.maintain(&sleep, &mut observer),
@@ -203,6 +234,7 @@ pub async fn wifi_task(mut manager: Manager, mut tx: UartTx<'static, Async>) -> 
         .await
         {
             Either::First(MaintainError::NotProvisioned) => {
+                CONFIGURED.store(false, Ordering::Relaxed);
                 esp_println::println!("wifi: no saved credentials; waiting for Improv provisioning");
                 let command = IMPROV_COMMANDS.receive().await;
                 handle(command, &mut tx, &mut state, &mut manager).await;
