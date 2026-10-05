@@ -23,13 +23,14 @@ use esp_hal::{
     clock::CpuClock,
     gpio::{Input, InputConfig, Pull},
     rng::Rng,
+    uart::{Config as UartConfig, Uart, UartRx},
     timer::timg::TimerGroup,
     usb::{
         otg::{
             Usb,
             embassy_usb_device::{Config as OtgConfig, Driver},
         },
-        usb_serial_jtag::{UsbSerialJtag, UsbSerialJtagRx, UsbSerialJtagTx},
+        usb_serial_jtag::{UsbSerialJtag, UsbSerialJtagRx},
     },
 };
 use esp_radio::wifi::{ControllerConfig, Interface, WifiController};
@@ -145,13 +146,22 @@ async fn main(spawner: Spawner) {
 
     spawner.spawn(net_task(runner).unwrap());
 
-    // Improv Serial runs over the USB-Serial-JTAG (the native USB port, the only one some
-    // ESP32-S3 boards expose). It shares the port with the log output and with the OTG
-    // controller, so the OTG (MSC) is only started once the device is CONFIGURED.
+    // Improv Serial is served on both the USB-UART bridge (UART0) and the native USB-Serial-JTAG,
+    // since boards expose one or both. The JTAG port shares GPIO19/20 with the OTG controller,
+    // so the OTG (MSC) is only started once the device is CONFIGURED.
+    let uart = Uart::new(peripherals.UART0, UartConfig::default())
+        .unwrap()
+        .with_rx(peripherals.GPIO44)
+        .with_tx(peripherals.GPIO43)
+        .into_async();
+    let (uart_rx, uart_tx) = uart.split();
     let (jtag_rx, jtag_tx) = UsbSerialJtag::new(peripherals.USB_DEVICE).into_async().split();
     let manager = WifiManager::new(wifi::EspWifiTransport::new(controller, stack), wifi_space);
-    spawner.spawn(improv_task(jtag_rx).unwrap());
-    spawner.spawn(wifi_task(manager, jtag_tx).unwrap());
+    spawner.spawn(improv_uart_task(uart_rx).unwrap());
+    spawner.spawn(improv_jtag_task(jtag_rx).unwrap());
+    spawner.spawn(
+        wifi_task(manager, wifi::Ports { uart: uart_tx, jtag: jtag_tx }).unwrap(),
+    );
 
     let stream_fut = stream::run(stack, &STREAM);
 
@@ -240,13 +250,18 @@ async fn main(spawner: Spawner) {
 }
 
 #[embassy_executor::task]
-async fn improv_task(rx: UsbSerialJtagRx<'static, esp_hal::Async>) {
-    wifi::improv_reader(rx).await
+async fn improv_uart_task(rx: UartRx<'static, esp_hal::Async>) {
+    wifi::improv_reader(wifi::Port::Uart, rx).await
 }
 
 #[embassy_executor::task]
-async fn wifi_task(manager: wifi::Manager, tx: UsbSerialJtagTx<'static, esp_hal::Async>) {
-    wifi::wifi_task(manager, tx).await
+async fn improv_jtag_task(rx: UsbSerialJtagRx<'static, esp_hal::Async>) {
+    wifi::improv_reader(wifi::Port::Jtag, rx).await
+}
+
+#[embassy_executor::task]
+async fn wifi_task(manager: wifi::Manager, ports: wifi::Ports) {
+    wifi::wifi_task(manager, ports).await
 }
 
 #[embassy_executor::task]

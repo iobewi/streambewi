@@ -165,13 +165,13 @@ cargo +esp run -p usb-radio-firmware --release \
 
 ## Wi-Fi provisioning (Improv Serial)
 
-Wi-Fi is configured over the USB-Serial-JTAG (native USB) port with [Improv Serial](https://www.improv-wifi.com/serial/),
+Wi-Fi is configured over the USB-UART bridge (UART0) or the native USB-Serial-JTAG port, whichever the board exposes (both are served; replies go back on the requesting port), with [Improv Serial](https://www.improv-wifi.com/serial/),
 the protocol ESP Web Tools speaks after flashing.
 
 - `improv-serial` and IOBEWI's portable `iobewi-wifi-manager` / `iobewi-wifi-core` /
   `iobewi-config-space` crates are used as-is (git-pinned). IOBEWI's ESP adapters are **not**
   yet used: the POC still carries its own small adapters (`firmware/src/wifi.rs`: esp-radio
-  transport + USB-Serial-JTAG; `firmware/src/flash_config.rs`: config backend), to be replaced by
+  transport + UART0/USB-Serial-JTAG; `firmware/src/flash_config.rs`: config backend), to be replaced by
   the IOBEWI ESP drivers (IOBEWI main is on `esp-hal 1.2`, like this repository).
 - Credentials are validated first (association + DHCP) and only then committed to two flash
   sectors of the default NVS partition (`0x9000`/`0xA000`, A/B with generation + CRC, see

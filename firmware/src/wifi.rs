@@ -17,7 +17,8 @@ use embedded_io_async::{Read, Write};
 use esp_hal::{
     Async,
     gpio::Input,
-    usb::usb_serial_jtag::{UsbSerialJtagRx, UsbSerialJtagTx},
+    uart::UartTx,
+    usb::usb_serial_jtag::UsbSerialJtagTx,
 };
 use esp_radio::wifi::{
     AuthenticationMethod, AuthenticationMethodConfig, Config as WifiConfig, WifiController,
@@ -198,11 +199,51 @@ pub async fn recovery_watch(mut button: Input<'static>, backend: FlashConfigBack
 
 pub type Manager = WifiManager<EspWifiTransport, FlashConfigBackend>;
 
-static IMPROV_COMMANDS: Channel<CriticalSectionRawMutex, ParsedCommand, 2> = Channel::new();
+static IMPROV_COMMANDS: Channel<CriticalSectionRawMutex, (Port, ParsedCommand), 2> = Channel::new();
 
-/// Reads the USB-Serial-JTAG port (the one ESP Web Tools talks to) and forwards parsed Improv
-/// commands. Log lines on the same wire are ignored by the parser (it resynchronises).
-pub async fn improv_reader(mut rx: UsbSerialJtagRx<'static, Async>) -> ! {
+/// A serial port Improv can be provisioned over. Boards expose the USB-UART bridge (UART0),
+/// the native USB-Serial-JTAG, or both: both are served and each reply goes back on the port
+/// the request came from.
+#[derive(Clone, Copy)]
+pub enum Port {
+    Uart,
+    Jtag,
+}
+
+/// The transmit halves of every Improv port.
+pub struct Ports {
+    pub uart: UartTx<'static, Async>,
+    pub jtag: UsbSerialJtagTx<'static, Async>,
+}
+
+struct Reply<'a> {
+    ports: &'a mut Ports,
+    port: Port,
+}
+
+impl Reply<'_> {
+    async fn send(&mut self, frame: &[u8]) {
+        match self.port {
+            Port::Uart => write_all(&mut self.ports.uart, frame).await,
+            Port::Jtag => write_all(&mut self.ports.jtag, frame).await,
+        }
+    }
+}
+
+async fn write_all<W: Write>(tx: &mut W, frame: &[u8]) {
+    let mut rest = frame;
+    while !rest.is_empty() {
+        match tx.write(rest).await {
+            Ok(n) => rest = &rest[n..],
+            Err(_) => return,
+        }
+    }
+    let _ = tx.flush().await;
+}
+
+/// Reads one port (the one ESP Web Tools talks to) and forwards parsed Improv commands. Log
+/// lines on the same wire are ignored by the parser (it resynchronises).
+pub async fn improv_reader<R: Read>(port: Port, mut rx: R) -> ! {
     let mut parser = Parser::new();
     let mut buf = [0u8; 64];
     loop {
@@ -210,7 +251,7 @@ pub async fn improv_reader(mut rx: UsbSerialJtagRx<'static, Async>) -> ! {
             Ok(n) => {
                 for &byte in &buf[..n] {
                     if let Some(command) = parser.feed(byte) {
-                        IMPROV_COMMANDS.send(command).await;
+                        IMPROV_COMMANDS.send((port, command)).await;
                     }
                 }
             }
@@ -222,7 +263,7 @@ pub async fn improv_reader(mut rx: UsbSerialJtagRx<'static, Async>) -> ! {
 /// Owns the Wi-Fi manager: keeps the saved network connected and serves Improv requests.
 /// A request pre-empts `maintain()`; it restarts afterwards (and `connect` is a no-op when the
 /// link is already up on the same credentials).
-pub async fn wifi_task(mut manager: Manager, mut tx: UsbSerialJtagTx<'static, Async>) -> ! {
+pub async fn wifi_task(mut manager: Manager, mut ports: Ports) -> ! {
     let sleep = EmbassySleep;
     let mut observer = LogObserver;
     let mut state = State::Authorized;
@@ -239,37 +280,28 @@ pub async fn wifi_task(mut manager: Manager, mut tx: UsbSerialJtagTx<'static, As
             Either::First(MaintainError::NotProvisioned) => {
                 CONFIGURED.store(false, Ordering::Relaxed);
                 log::info!("wifi: no saved credentials; waiting for Improv provisioning");
-                let command = IMPROV_COMMANDS.receive().await;
-                handle(command, &mut tx, &mut state, &mut manager).await;
+                let (port, command) = IMPROV_COMMANDS.receive().await;
+                handle(command, Reply { ports: &mut ports, port }, &mut state, &mut manager).await;
             }
-            Either::Second(command) => handle(command, &mut tx, &mut state, &mut manager).await,
+            Either::Second((port, command)) => {
+                handle(command, Reply { ports: &mut ports, port }, &mut state, &mut manager).await
+            }
         }
     }
-}
-
-async fn send(tx: &mut UsbSerialJtagTx<'static, Async>, frame: &[u8]) {
-    let mut rest = frame;
-    while !rest.is_empty() {
-        match Write::write(tx, rest).await {
-            Ok(n) => rest = &rest[n..],
-            Err(_) => return,
-        }
-    }
-    let _ = tx.flush().await;
 }
 
 async fn handle(
     command: ParsedCommand,
-    tx: &mut UsbSerialJtagTx<'static, Async>,
+    mut tx: Reply<'_>,
     state: &mut State,
     manager: &mut Manager,
 ) {
     match command {
         ParsedCommand::GetCurrentState => {
-            send(tx, &improv::state_frame(*state)).await;
+            tx.send(&improv::state_frame(*state)).await;
             // ESP Web Tools also awaits an RPC result when already provisioned.
             if *state == State::Provisioned {
-                send(tx, &improv::rpc_response_frame(Command::GetCurrentState, &[])).await;
+                tx.send(&improv::rpc_response_frame(Command::GetCurrentState, &[])).await;
             }
         }
         ParsedCommand::GetDeviceInfo => {
@@ -277,7 +309,7 @@ async fn handle(
                 Command::GetDeviceInfo,
                 &[b"usb-radio-poc", b"0.2.0", b"ESP32-S3", b"usb-radio"],
             );
-            send(tx, &frame).await;
+            tx.send(&frame).await;
         }
         ParsedCommand::GetWifiNetworks => {
             for network in WifiProvisioning::scan(manager).await {
@@ -287,33 +319,33 @@ async fn handle(
                     Command::GetWifiNetworks,
                     &[network.ssid.as_bytes(), signal.as_bytes(), secured],
                 );
-                send(tx, &frame).await;
+                tx.send(&frame).await;
             }
-            send(tx, &improv::rpc_response_frame(Command::GetWifiNetworks, &[])).await;
+            tx.send(&improv::rpc_response_frame(Command::GetWifiNetworks, &[])).await;
         }
         ParsedCommand::GetNetworkState => {
             let flags: &[u8] = if manager.is_online() { b"3" } else { b"2" };
-            send(tx, &improv::rpc_response_frame(Command::GetNetworkState, &[flags])).await;
+            tx.send(&improv::rpc_response_frame(Command::GetNetworkState, &[flags])).await;
         }
         ParsedCommand::WifiSettings(settings) => {
             log::info!("improv: provisioning ssid={}", settings.ssid);
             *state = State::Provisioning;
-            send(tx, &improv::state_frame(*state)).await;
+            tx.send(&improv::state_frame(*state)).await;
             if WifiProvisioning::provision(manager, &settings.ssid, settings.password).await {
                 log::info!("improv: provisioned, credentials saved");
                 *state = State::Provisioned;
-                send(tx, &improv::state_frame(*state)).await;
-                send(tx, &improv::rpc_response_frame(Command::WifiSettings, &[])).await;
+                tx.send(&improv::state_frame(*state)).await;
+                tx.send(&improv::rpc_response_frame(Command::WifiSettings, &[])).await;
             } else {
                 log::info!("improv: provisioning failed");
                 *state = State::Authorized;
-                send(tx, &improv::error_frame(ImprovError::UnableToConnect)).await;
-                send(tx, &improv::state_frame(*state)).await;
+                tx.send(&improv::error_frame(ImprovError::UnableToConnect)).await;
+                tx.send(&improv::state_frame(*state)).await;
             }
         }
         ParsedCommand::Unsupported(command) => {
             log::info!("improv: unsupported command 0x{:02X}", command);
-            send(tx, &improv::error_frame(ImprovError::UnknownRpc)).await;
+            tx.send(&improv::error_frame(ImprovError::UnknownRpc)).await;
         }
     }
 }
