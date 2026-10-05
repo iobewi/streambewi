@@ -16,14 +16,6 @@ use reqwless::{
 use iobewi_fat16::{FileSource, ReadStatus, SECTOR_SIZE};
 use usb_radio_core::{PREBUFFER_BYTES, Stream, StreamFile, is_ready, new_stream, progress};
 
-macro_rules! mk_static {
-    ($t:ty, $val:expr) => {{
-        static CELL: static_cell::StaticCell<$t> = static_cell::StaticCell::new();
-        CELL.uninit().write($val)
-    }};
-}
-use mk_static;
-
 pub const STREAM_URL: &str =
     "http://icecast.radiofrance.fr/monpetitfranceinter-midfi.mp3";
 

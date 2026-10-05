@@ -20,12 +20,24 @@ stream.
 
 ## Architecture
 
-The USB radio mechanics come from IOBEWI (pinned by git rev in `firmware/Cargo.toml`):
-`iobewi-fat16` (virtual FAT16), `iobewi-rolling-stream` (live window), `iobewi-usb-msc`
-(read-only Mass Storage class), plus the Wi-Fi / config crates. This repository keeps the product
-policy only: `core/` (1 GiB `RADIO.MP3` geometry, prebuffer, far-ahead probe policy) and
-`firmware/` (composition root, ICY HTTP stream, retry policy). Logs use the `log` facade, installed
-through `iobewi-log` + `iobewi-esp-console`.
+```text
+targets/esp32   ESP32-S3 entry point: peripherals + IOBEWI ESP drivers (the only chip-specific code)
+      |  Platform ports
+      v
+app/            `streambewi`: portable product logic (provisioning, stream, USB radio); no HAL
+      |
+      +--> core/   `usb-radio-core`: pure policy (1 GiB RADIO.MP3 geometry, prebuffer, far-ahead)
+      +--> IOBEWI portable crates: iobewi-fat16, iobewi-rolling-stream, iobewi-usb-msc,
+           iobewi-wifi-core/manager, iobewi-config-space
+```
+
+`streambewi::run` receives its platform as ports: a `WifiTransport`, a `ConfigBackend`, up to two
+`embedded-io-async` serial ports for Improv, an `embedded-hal-async` button, a reset function and
+a factory for the `embassy-usb` driver (called late: the USB pins can be shared with the serial
+port used for provisioning). `targets/esp32` builds them from the IOBEWI ESP drivers
+(`iobewi-esp-wifi`, `iobewi-esp-config-space`, `iobewi-esp-console`, `iobewi-esp-reset`). Another
+chip needs a new `targets/<chip>` only. Logs use the `log` facade, installed by the target through
+`iobewi-log`. IOBEWI crates are pinned by git rev.
 
 ## Stages
 
@@ -146,7 +158,7 @@ From the repository root:
 
 ```sh
 # (already at the repository root)
-cargo test -p usb-radio-core
+cargo test -p usb-radio-core -p streambewi
 
 cargo +esp build -p usb-radio-firmware --release \
   -Z build-std=core,alloc \
@@ -169,11 +181,9 @@ cargo +esp run -p usb-radio-firmware --release \
 Wi-Fi is configured over the USB-UART bridge (UART0) or the native USB-Serial-JTAG port, whichever the board exposes (both are served; replies go back on the requesting port), with [Improv Serial](https://www.improv-wifi.com/serial/),
 the protocol ESP Web Tools speaks after flashing.
 
-- `improv-serial` and IOBEWI's `iobewi-wifi-manager` / `iobewi-wifi-core` / `iobewi-config-space`
-  drive provisioning; the radio, flash and storage are the IOBEWI ESP drivers
-  (`iobewi-esp-wifi`, `iobewi-esp-flash`, `iobewi-esp-config-space` over NVS). Only the serial
-  transports (UART0 / USB-Serial-JTAG), the BOOT button and the USB OTG driver are still wired
-  in `firmware/src/` (no IOBEWI capability yet).
+- `improv-serial` and IOBEWI's `iobewi-wifi-manager` / `iobewi-wifi-core` /
+  `iobewi-config-space` drive provisioning in `app/src/provisioning.rs`; the radio, flash and
+  storage are the IOBEWI ESP drivers plugged in by `targets/esp32`.
 - Credentials are validated first (association + DHCP) and only then committed to the `nvs`
   partition of the default espflash partition table (`0x9000`, 24 KiB) through ConfigSpace.
   A previous image's raw A/B records at that address are not valid NVS: flash with the erase

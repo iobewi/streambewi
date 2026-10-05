@@ -1,26 +1,26 @@
-//! Wi-Fi provisioning for StreamBeWI: Improv Serial (ESP Web Tools) on UART0 and USB-Serial-JTAG,
-//! on top of IOBEWI's `WifiManager` (portable policy) and the IOBEWI ESP Wi-Fi driver, with
-//! credentials persisted in ConfigSpace over NVS. Nothing is baked in at build time.
+//! Wi-Fi provisioning for StreamBeWI: Improv Serial (ESP Web Tools) over up to two serial ports,
+//! on top of IOBEWI's `WifiManager` (portable policy). Credentials persist through ConfigSpace.
+//! Nothing platform-specific lives here: transports, storage, button and reset are ports.
 
 use alloc::string::ToString;
 
+use core::convert::Infallible;
+use core::fmt::{Debug, Display};
 use core::sync::atomic::{AtomicBool, Ordering};
 
 use embassy_futures::select::{Either, select};
 use embassy_net::Stack;
-use embassy_sync::{blocking_mutex::raw::{CriticalSectionRawMutex, NoopRawMutex}, channel::Channel, signal::Signal};
-use embassy_time::{Duration, Timer, with_timeout};
-use embedded_io_async::{Read, Write};
-use esp_hal::{
-    Async,
-    gpio::Input,
-    uart::UartTx,
-    usb::usb_serial_jtag::UsbSerialJtagTx,
+use embassy_sync::{
+    blocking_mutex::raw::{CriticalSectionRawMutex, NoopRawMutex},
+    channel::Channel,
+    signal::Signal,
 };
+use embassy_time::{Duration, Timer, with_timeout};
+use embedded_hal_async::digital::Wait;
+use embedded_io_async::{ErrorType, Read, Write};
 use improv_serial::{self as improv, Command, ImprovError, ParsedCommand, Parser, State};
 use iobewi_config_space::ConfigBackend;
-use iobewi_esp_config_space::NvsConfigBackend;
-use iobewi_wifi_core::WifiProvisioning;
+use iobewi_wifi_core::{WifiProvisioning, WifiTransport};
 use iobewi_wifi_manager::{LinkObserver, MaintainError, Sleep, WifiManager};
 
 struct EmbassySleep;
@@ -31,9 +31,9 @@ impl Sleep for EmbassySleep {
     }
 }
 
-/// Publishes the network stack once the link is up: the driver creates the stack lazily, so it
+/// Publishes the network stack once the link is up: the transport creates the stack lazily, so it
 /// is only known after the first connection. Not `Send` (the stack is single-executor), hence a
-/// local signal owned by the composition root rather than a static.
+/// local signal owned by `run` rather than a static.
 pub type NetworkSignal = Signal<NoopRawMutex, Stack<'static>>;
 
 struct LogObserver<'a> {
@@ -50,7 +50,7 @@ impl LinkObserver<Stack<'static>> for LogObserver<'_> {
     }
 }
 
-/// How long BOOT must be held while running to forget the saved Wi-Fi network.
+/// How long the recovery button must be held while running to forget the saved Wi-Fi network.
 const RECOVERY_HOLD: Duration = Duration::from_secs(3);
 
 /// True once a Wi-Fi network is saved (CONFIGURED); false while UNCONFIGURED.
@@ -60,53 +60,57 @@ pub fn is_configured() -> bool {
     CONFIGURED.load(Ordering::Relaxed)
 }
 
-/// Watches the (active-low) BOOT button: held for `RECOVERY_HOLD`, it erases the saved Wi-Fi
-/// network and restarts, which brings the device back to UNCONFIGURED.
-pub async fn recovery_watch(mut button: Input<'static>, backend: NvsConfigBackend) -> ! {
+/// Watches the active-low recovery button: held for `RECOVERY_HOLD`, it erases the saved Wi-Fi
+/// network and restarts the device through `reset`, which brings it back to UNCONFIGURED.
+pub async fn recovery_watch<Btn: Wait, B: ConfigBackend>(
+    mut button: Btn,
+    backend: B,
+    reset: fn() -> !,
+) -> ! {
     loop {
-        button.wait_for_low().await;
+        if button.wait_for_low().await.is_err() {
+            Timer::after(Duration::from_millis(100)).await;
+            continue;
+        }
         if with_timeout(RECOVERY_HOLD, button.wait_for_high()).await.is_err() {
             match backend.clear("wifi").await {
-                Ok(_) => log::info!("provisioning: BOOT held, Wi-Fi config erased; restarting"),
-                Err(_) => log::info!("provisioning: BOOT held, erase FAILED; restarting"),
+                Ok(_) => log::info!("provisioning: button held, Wi-Fi config erased; restarting"),
+                Err(_) => log::info!("provisioning: button held, erase FAILED; restarting"),
             }
-            iobewi_esp_reset::software_reset();
+            reset();
         }
     }
 }
 
-/// Sockets reserved in the network stack: the HTTP stream, DNS and DHCP.
-pub const NET_SOCKETS: usize = 3;
-
-pub type Manager = WifiManager<iobewi_esp_wifi::WifiManager<NET_SOCKETS>, NvsConfigBackend>;
+pub type Manager<T, B> = WifiManager<T, B>;
 
 static IMPROV_COMMANDS: Channel<CriticalSectionRawMutex, (Port, ParsedCommand), 2> = Channel::new();
 
-/// A serial port Improv can be provisioned over. Boards expose the USB-UART bridge (UART0),
-/// the native USB-Serial-JTAG, or both: both are served and each reply goes back on the port
-/// the request came from.
+/// A serial port Improv can be provisioned over. Boards expose a USB-UART bridge, a native
+/// USB-Serial-JTAG, or both: both are served and each reply goes back on the port the request
+/// came from.
 #[derive(Clone, Copy)]
 pub enum Port {
-    Uart,
-    Jtag,
+    A,
+    B,
 }
 
 /// The transmit halves of every Improv port.
-pub struct Ports {
-    pub uart: UartTx<'static, Async>,
-    pub jtag: UsbSerialJtagTx<'static, Async>,
+pub struct Ports<W1, W2> {
+    pub a: W1,
+    pub b: W2,
 }
 
-struct Reply<'a> {
-    ports: &'a mut Ports,
+struct Reply<'a, W1, W2> {
+    ports: &'a mut Ports<W1, W2>,
     port: Port,
 }
 
-impl Reply<'_> {
+impl<W1: Write, W2: Write> Reply<'_, W1, W2> {
     async fn send(&mut self, frame: &[u8]) {
         match self.port {
-            Port::Uart => write_all(&mut self.ports.uart, frame).await,
-            Port::Jtag => write_all(&mut self.ports.jtag, frame).await,
+            Port::A => write_all(&mut self.ports.a, frame).await,
+            Port::B => write_all(&mut self.ports.b, frame).await,
         }
     }
 }
@@ -120,6 +124,28 @@ async fn write_all<W: Write>(tx: &mut W, frame: &[u8]) {
         }
     }
     let _ = tx.flush().await;
+}
+
+/// A serial port that does not exist on this board: never receives, discards everything.
+pub struct NoSerial;
+
+impl ErrorType for NoSerial {
+    type Error = Infallible;
+}
+
+impl Read for NoSerial {
+    async fn read(&mut self, _buf: &mut [u8]) -> Result<usize, Self::Error> {
+        core::future::pending().await
+    }
+}
+
+impl Write for NoSerial {
+    async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
+        Ok(buf.len())
+    }
+    async fn flush(&mut self) -> Result<(), Self::Error> {
+        Ok(())
+    }
 }
 
 /// Reads one port (the one ESP Web Tools talks to) and forwards parsed Improv commands. Log
@@ -142,9 +168,22 @@ pub async fn improv_reader<R: Read>(port: Port, mut rx: R) -> ! {
 }
 
 /// Owns the Wi-Fi manager: keeps the saved network connected and serves Improv requests.
-/// A request pre-empts `maintain()`; it restarts afterwards (and `connect` is a no-op when the
-/// link is already up on the same credentials).
-pub async fn wifi_task(mut manager: Manager, mut ports: Ports, network: &NetworkSignal) -> ! {
+/// A request pre-empts `maintain()`; it restarts afterwards (and the transport keeps a link that
+/// is already up on the same credentials).
+pub async fn wifi_task<T, B, W1, W2>(
+    mut manager: Manager<T, B>,
+    mut ports: Ports<W1, W2>,
+    network: &NetworkSignal,
+    chip: &'static [u8],
+) -> !
+where
+    T: WifiTransport<NetworkHandle = Stack<'static>>,
+    T::Address: Display,
+    B: ConfigBackend,
+    B::Error: Debug,
+    W1: Write,
+    W2: Write,
+{
     let sleep = EmbassySleep;
     let mut observer = LogObserver { network };
     let mut state = State::Authorized;
@@ -162,21 +201,29 @@ pub async fn wifi_task(mut manager: Manager, mut ports: Ports, network: &Network
                 CONFIGURED.store(false, Ordering::Relaxed);
                 log::info!("wifi: no saved credentials; waiting for Improv provisioning");
                 let (port, command) = IMPROV_COMMANDS.receive().await;
-                handle(command, Reply { ports: &mut ports, port }, &mut state, &mut manager).await;
+                handle(command, Reply { ports: &mut ports, port }, &mut state, &mut manager, chip).await;
             }
             Either::Second((port, command)) => {
-                handle(command, Reply { ports: &mut ports, port }, &mut state, &mut manager).await
+                handle(command, Reply { ports: &mut ports, port }, &mut state, &mut manager, chip).await
             }
         }
     }
 }
 
-async fn handle(
+async fn handle<T, B, W1, W2>(
     command: ParsedCommand,
-    mut tx: Reply<'_>,
+    mut tx: Reply<'_, W1, W2>,
     state: &mut State,
-    manager: &mut Manager,
-) {
+    manager: &mut Manager<T, B>,
+    chip: &'static [u8],
+) where
+    T: WifiTransport<NetworkHandle = Stack<'static>>,
+    T::Address: Display,
+    B: ConfigBackend,
+    B::Error: Debug,
+    W1: Write,
+    W2: Write,
+{
     match command {
         ParsedCommand::GetCurrentState => {
             tx.send(&improv::state_frame(*state)).await;
@@ -188,7 +235,7 @@ async fn handle(
         ParsedCommand::GetDeviceInfo => {
             let frame = improv::rpc_response_frame(
                 Command::GetDeviceInfo,
-                &[b"usb-radio-poc", b"0.2.0", b"ESP32-S3", b"usb-radio"],
+                &[b"usb-radio-poc", b"0.2.0", chip, b"usb-radio"],
             );
             tx.send(&frame).await;
         }

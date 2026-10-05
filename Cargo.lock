@@ -614,6 +614,7 @@ dependencies = [
  "critical-section",
  "document-features",
  "embassy-time-driver",
+ "embassy-time-queue-utils",
  "embedded-hal 0.2.7",
  "embedded-hal 1.0.0",
  "embedded-hal-async",
@@ -2312,6 +2313,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "streambewi"
+version = "0.1.0"
+dependencies = [
+ "critical-section",
+ "embassy-futures",
+ "embassy-net",
+ "embassy-sync 0.8.0",
+ "embassy-time",
+ "embassy-usb",
+ "embedded-hal-async",
+ "embedded-io-async 0.7.0",
+ "improv-serial",
+ "iobewi-config-space",
+ "iobewi-fat16",
+ "iobewi-usb-msc",
+ "iobewi-wifi-core",
+ "iobewi-wifi-manager",
+ "log",
+ "reqwless",
+ "static_cell",
+ "usb-radio-core",
+]
+
+[[package]]
 name = "strsim"
 version = "0.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2532,12 +2557,7 @@ name = "usb-radio-firmware"
 version = "0.1.0"
 dependencies = [
  "embassy-executor",
- "embassy-futures",
  "embassy-net",
- "embassy-sync 0.8.0",
- "embassy-time",
- "embassy-usb",
- "embedded-io-async 0.7.0",
  "esp-alloc",
  "esp-backtrace",
  "esp-bootloader-esp-idf",
@@ -2545,22 +2565,15 @@ dependencies = [
  "esp-println",
  "esp-radio",
  "esp-rtos",
- "improv-serial",
- "iobewi-config-space",
  "iobewi-esp-config-space",
  "iobewi-esp-console",
  "iobewi-esp-flash",
  "iobewi-esp-reset",
  "iobewi-esp-wifi",
- "iobewi-fat16",
  "iobewi-log",
- "iobewi-usb-msc",
- "iobewi-wifi-core",
- "iobewi-wifi-manager",
  "log",
- "reqwless",
  "static_cell",
- "usb-radio-core",
+ "streambewi",
 ]
 
 [[package]]
