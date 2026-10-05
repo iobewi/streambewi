@@ -1,6 +1,6 @@
 repository:   https://github.com/iobewi/streambewi
 branch:       feat/iobewi-esp-drivers
-source:       28f48534fbb4e8997fdefb72e1af13e804cfa318 (+ uncommitted source changes in the repository)
+source:       9d59d1e8bf3d2c6dd0d76837771bd6d43d11df51 (+ uncommitted source changes in the repository)
 target:       xtensa-esp32s3-none-elf (ESP32-S3)
 profile:      release
 delivery:     credential-free (Wi-Fi provisioned at runtime via Improv Serial)
@@ -10,17 +10,17 @@ rustc (core): rustc 1.95.0 (59807616e 2026-04-14)
 espflash:     espflash 4.6.0
 
 RUSTFLAGS:    -C force-frame-pointers  --remap-path-prefix=/tmp/claude-0/-workspace/bca747e8-f0e5-44c7-9c43-ac010af737e0/scratchpad/streambewi=/src  --remap-path-prefix=/opt/cargo=/cargo  --remap-path-prefix=/opt/rustup/toolchains/esp=/sysroot
-SOURCE_DATE_EPOCH: 1791206682
+SOURCE_DATE_EPOCH: 1791208865
 build (cwd repo root):
-  cargo +1.95.0 test -p usb-radio-core --target x86_64-unknown-linux-gnu
-  cargo +esp build -p usb-radio-firmware --release -Z build-std=core,alloc --target xtensa-esp32s3-none-elf
+  cargo +1.95.0 test -p streambewi-core -p streambewi --target x86_64-unknown-linux-gnu
+  cargo +esp build -p streambewi-esp32 --release -Z build-std=core,alloc --target xtensa-esp32s3-none-elf
 image (cwd repo root):
-  espflash save-image --chip esp32s3 --merge --skip-padding target/xtensa-esp32s3-none-elf/release/usb-radio-firmware /tmp/claude-0/-workspace/bca747e8-f0e5-44c7-9c43-ac010af737e0/scratchpad/streambewi/dist/usb-radio-poc-esp32s3.bin
+  espflash save-image --chip esp32s3 --merge --skip-padding target/xtensa-esp32s3-none-elf/release/streambewi-esp32 /tmp/claude-0/-workspace/bca747e8-f0e5-44c7-9c43-ac010af737e0/scratchpad/streambewi/dist/streambewi-esp32s3.bin
 
 flash layout: single merged image (bootloader + partition table + app) at 0x0
-  0x0 -> usb-radio-poc-esp32s3.bin
+  0x0 -> streambewi-esp32s3.bin
   (espflash default bootloader and partition table; no custom partitions)
 
 sha256:
-  adaf135779d5c6ccaf019c0228f629706a914dbd05ae1113e24b1ae2d8031819  usb-radio-poc-esp32s3.bin
-  b73a74556caff44d2bf20bc5e465ab9c7203538376c877bd2142a40c9e2acf27  usb-radio-poc-esp32s3.elf
+  2eebf261c4e4221eb34ebb5b7ff1b7705179bb3e10ab9ad22ddba9c32471c4b0  streambewi-esp32s3.bin
+  45c92a1a79fdbd5ec81061e7eec0e415e81d44dd77b792afd1504c2f328d8f57  streambewi-esp32s3.elf

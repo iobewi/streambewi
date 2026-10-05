@@ -1,4 +1,4 @@
-//! The USB radio: a read-only Mass Storage disk with one virtual `RADIO.MP3` backed by the live
+//! The StreamBeWI USB radio: a read-only Mass Storage disk with one virtual `RADIO.MP3` backed by the live
 //! stream window. The USB device/PHY driver is a port: it is only created once the product is
 //! CONFIGURED and the stream is ready (on some boards the USB pins are shared with the serial
 //! port Improv uses).
@@ -10,7 +10,7 @@ use embassy_usb::{Builder, driver::Driver};
 use embassy_usb::Handler;
 use iobewi_fat16::{ReadStatus, VirtualFat16};
 use iobewi_usb_msc::{InquiryIdentity, MscClass, ReadAction, ReadPolicy, State as MscState};
-use usb_radio_core::FAT16_CONFIG;
+use streambewi_core::FAT16_CONFIG;
 
 use crate::provisioning;
 use crate::stream::{STREAM, SharedStreamSource};
@@ -20,7 +20,7 @@ const PENDING_TIMEOUT: Duration = Duration::from_secs(5);
 
 const MSC_IDENTITY: InquiryIdentity = InquiryIdentity {
     vendor: *b"IOBEWI  ",
-    product: *b"USB RADIO POC   ",
+    product: *b"StreamBeWI      ",
     revision: *b"0001",
 };
 
@@ -93,8 +93,8 @@ where
 
     let mut usb_config = embassy_usb::Config::new(0x303A, 0x4001);
     usb_config.manufacturer = Some("IOBEWI");
-    usb_config.product = Some("USB Radio POC");
-    usb_config.serial_number = Some("RADIO-POC-0002");
+    usb_config.product = Some("StreamBeWI");
+    usb_config.serial_number = Some("STREAMBEWI-0001");
     // Bus-powered by the player: Wi-Fi bursts draw far more than the former 100 mA declared.
     // 500 mA is the USB 2.0 maximum for a bus-powered device.
     usb_config.max_power = 500;

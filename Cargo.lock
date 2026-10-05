@@ -2333,7 +2333,39 @@ dependencies = [
  "log",
  "reqwless",
  "static_cell",
- "usb-radio-core",
+ "streambewi-core",
+]
+
+[[package]]
+name = "streambewi-core"
+version = "0.1.0"
+dependencies = [
+ "iobewi-fat16",
+ "iobewi-rolling-stream",
+]
+
+[[package]]
+name = "streambewi-esp32"
+version = "0.1.0"
+dependencies = [
+ "embassy-executor",
+ "embassy-net",
+ "esp-alloc",
+ "esp-backtrace",
+ "esp-bootloader-esp-idf",
+ "esp-hal",
+ "esp-println",
+ "esp-radio",
+ "esp-rtos",
+ "iobewi-esp-config-space",
+ "iobewi-esp-console",
+ "iobewi-esp-flash",
+ "iobewi-esp-reset",
+ "iobewi-esp-wifi",
+ "iobewi-log",
+ "log",
+ "static_cell",
+ "streambewi",
 ]
 
 [[package]]
@@ -2543,38 +2575,6 @@ name = "unsafe-libyaml"
 version = "0.2.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "673aac59facbab8a9007c7f6108d11f63b603f7cabff99fabf650fea5c32b861"
-
-[[package]]
-name = "usb-radio-core"
-version = "0.1.0"
-dependencies = [
- "iobewi-fat16",
- "iobewi-rolling-stream",
-]
-
-[[package]]
-name = "usb-radio-firmware"
-version = "0.1.0"
-dependencies = [
- "embassy-executor",
- "embassy-net",
- "esp-alloc",
- "esp-backtrace",
- "esp-bootloader-esp-idf",
- "esp-hal",
- "esp-println",
- "esp-radio",
- "esp-rtos",
- "iobewi-esp-config-space",
- "iobewi-esp-console",
- "iobewi-esp-flash",
- "iobewi-esp-reset",
- "iobewi-esp-wifi",
- "iobewi-log",
- "log",
- "static_cell",
- "streambewi",
-]
 
 [[package]]
 name = "valuable"

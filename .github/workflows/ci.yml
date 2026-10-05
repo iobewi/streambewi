@@ -13,7 +13,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: "1.95.0"
-      - run: cargo +1.95.0 test -p usb-radio-core -p streambewi --target x86_64-unknown-linux-gnu
+      - run: cargo +1.95.0 test -p streambewi-core -p streambewi --target x86_64-unknown-linux-gnu
 
   esp32s3:
     runs-on: ubuntu-latest
@@ -29,14 +29,14 @@ jobs:
         with:
           tool: espflash
       - name: Release build (real link)
-        run: cargo +esp build -p usb-radio-firmware --release -Z build-std=core,alloc --target xtensa-esp32s3-none-elf
+        run: cargo +esp build -p streambewi-esp32 --release -Z build-std=core,alloc --target xtensa-esp32s3-none-elf
       - name: Flashable image
         run: |
           mkdir -p ci-out
           espflash save-image --chip esp32s3 --merge --skip-padding \
-            target/xtensa-esp32s3-none-elf/release/usb-radio-firmware ci-out/usb-radio-poc-esp32s3.bin
+            target/xtensa-esp32s3-none-elf/release/streambewi-esp32 ci-out/streambewi-esp32s3.bin
           sha256sum ci-out/*
       - uses: actions/upload-artifact@v4
         with:
-          name: usb-radio-poc-esp32s3-ci
+          name: streambewi-esp32s3-ci
           path: ci-out/

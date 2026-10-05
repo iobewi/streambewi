@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>USB Radio POC — Flash</title>
+    <title>StreamBeWI — Flash</title>
     <script type="module" src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"></script>
     <style>
         body { font-family: system-ui, sans-serif; max-width: 40rem; margin: 2rem auto; padding: 0 1rem; }
@@ -11,11 +11,11 @@
     </style>
 </head>
 <body>
-    <h1>USB Radio POC — P1</h1>
+    <h1>StreamBeWI</h1>
     <p>ESP32-S3: live HTTP MP3 stream exposed as a virtual read-only FAT16 USB mass-storage disk (<code>RADIO.MP3</code>).</p>
 
     <esp-web-install-button manifest="manifest.json">
-        <button slot="activate">Flash the POC</button>
+        <button slot="activate">Flash StreamBeWI</button>
         <span slot="unsupported">Web Serial not supported: use Chrome or Edge.</span>
         <span slot="not-allowed">Serve this page over HTTPS or from localhost.</span>
     </esp-web-install-button>

@@ -1,10 +1,11 @@
-# USB radio POC
+# StreamBeWI
 
-Standalone ESP32-S3 proof of concept for the Metronic 477144 children's player.
+StreamBeWI turns an ESP32-S3 into a live internet-radio source for USB players such as the
+Metronic 477144 children's player: the board streams an HTTP MP3 over Wi-Fi and presents it to
+the player as a read-only USB disk holding one virtual `RADIO.MP3`.
 
-The POC deliberately does **not** use IOBEWI. Its purpose is to discover the real
-hardware/USB behaviour first, then later provide a stable reference implementation for
-a separate IOBEWI porting exercise.
+It is built on the IOBEWI framework (see Architecture). The stages below record how the USB and
+stream behaviour was established on real hardware.
 
 Target stream:
 
@@ -26,7 +27,7 @@ targets/esp32   ESP32-S3 entry point: peripherals + IOBEWI ESP drivers (the only
       v
 app/            `streambewi`: portable product logic (provisioning, stream, USB radio); no HAL
       |
-      +--> core/   `usb-radio-core`: pure policy (1 GiB RADIO.MP3 geometry, prebuffer, far-ahead)
+      +--> core/   `streambewi-core`: pure policy (1 GiB RADIO.MP3 geometry, prebuffer, far-ahead)
       +--> IOBEWI portable crates: iobewi-fat16, iobewi-rolling-stream, iobewi-usb-msc,
            iobewi-wifi-core/manager, iobewi-config-space
 ```
@@ -43,7 +44,7 @@ chip needs a new `targets/<chip>` only. Logs use the `log` facade, installed by 
 
 ### P0 — virtual FAT16 model
 
-The pure `usb-radio-core` crate implements a deterministic read-only FAT16 disk:
+The pure `streambewi-core` crate implements a deterministic read-only FAT16 disk:
 
 - 512-byte sectors;
 - 4 MiB virtual medium;
@@ -56,7 +57,7 @@ This layer has no ESP or USB dependency.
 
 ### P1 — ESP32-S3 USB MSC
 
-The `usb-radio-firmware` crate exposes the virtual disk through the ESP32-S3 native
+The `streambewi-esp32` crate exposes the virtual disk through the ESP32-S3 native
 USB OTG peripheral using `esp-hal` + `embassy-usb`.
 
 The MSC implementation is intentionally small and read-only. It supports the SCSI
@@ -158,9 +159,9 @@ From the repository root:
 
 ```sh
 # (already at the repository root)
-cargo test -p usb-radio-core -p streambewi
+cargo test -p streambewi-core -p streambewi
 
-cargo +esp build -p usb-radio-firmware --release \
+cargo +esp build -p streambewi-esp32 --release \
   -Z build-std=core,alloc \
   --target xtensa-esp32s3-none-elf
 ```
@@ -171,7 +172,7 @@ The firmware contains **no Wi-Fi credentials**: they are entered at runtime (see
 Flash/monitor, assuming `espflash` is installed:
 
 ```sh
-cargo +esp run -p usb-radio-firmware --release \
+cargo +esp run -p streambewi-esp32 --release \
   -Z build-std=core,alloc \
   --target xtensa-esp32s3-none-elf
 ```
@@ -205,13 +206,13 @@ improv: provisioned, credentials saved
 On later boots the saved network is connected automatically (`wifi: ready`), with
 reconnection/backoff handled by `WifiManager`.
 
-## Flash the POC
+## Flash StreamBeWI
 
 Board: ESP32-S3. Two different USB connectors are involved:
 
 | Port | Pins | Role |
 | --- | --- | --- |
-| native USB OTG | D+ GPIO20, D- GPIO19 | the POC's USB mass-storage device: plug into the Metronic |
+| native USB OTG | D+ GPIO20, D- GPIO19 | the StreamBeWI USB mass-storage device: plug into the Metronic |
 | USB-UART (CP210x/CH340 bridge, "UART" label) | UART0 | flashing and serial console: plug into the PC |
 
 The firmware owns GPIO19/20 as USB OTG, so the native port does **not** show a serial
@@ -226,7 +227,7 @@ at `0x0`; the matching ELF is emitted beside it.
 ### Browser (ESP Web Tools)
 
 Serve `dist/` (it has its own `index.html` + `manifest.json`). If your local
-web flasher expects the image under `web/firmware/esp32s3-usb-radio/`, copy the BIN there;
+web flasher expects the image under `web/firmware/esp32s3-streambewi/`, copy the BIN there;
 that directory is ignored by Git.
 
 ### Command line
@@ -248,15 +249,14 @@ scripts/build-release.sh
 Runs the core tests, the release build (real link), and `espflash save-image --merge`.
 Regenerates `dist/`.
 
-`SOURCE_DATE_EPOCH` is the date of the last commit touching the POC sources, excluding
+`SOURCE_DATE_EPOCH` is the date of the last commit touching the sources, excluding
 both delivery directories. This also avoids the old false "uncommitted changes" report
 caused solely by regenerating `dist/`.
 
 ### Expected boot log
 
 ```text
-usb-radio POC: P3 continuous HTTP MP3 -> USB MSC
-usb-radio POC: DP=GPIO20 DM=GPIO19
+streambewi: continuous HTTP MP3 -> USB MSC
 stream: http://icecast.radiofrance.fr/monpetitfranceinter-midfi.mp3
 ```
 
@@ -279,7 +279,7 @@ Other lines: `msc: bulk-only reset`, `msc: unsupported SCSI opcode=0x.. xfer=..`
 
 ## Gate P1-METRONIC (hardware, manual)
 
-Precondition: POC flashed on the ESP32-S3.
+Precondition: StreamBeWI flashed on the ESP32-S3.
 
 1. Start the serial monitor on the USB-UART port.
 2. Plug the **native OTG** port into the Metronic 477144.

@@ -235,7 +235,7 @@ async fn handle<T, B, W1, W2>(
         ParsedCommand::GetDeviceInfo => {
             let frame = improv::rpc_response_frame(
                 Command::GetDeviceInfo,
-                &[b"usb-radio-poc", b"0.2.0", chip, b"usb-radio"],
+                &[b"streambewi", b"0.2.0", chip, b"streambewi"],
             );
             tx.send(&frame).await;
         }

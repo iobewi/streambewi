@@ -10,7 +10,7 @@ default = []
 usb-debug = ["embassy-usb/log", "iobewi-usb-msc/usb-debug"]
 
 [dependencies]
-usb-radio-core = { path = "../core" }
+streambewi-core = { path = "../core" }
 
 embassy-futures = "0.1.2"
 embassy-net = { version = "0.9.0", features = ["dhcpv4", "medium-ethernet", "tcp", "dns"] }

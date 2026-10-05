@@ -137,7 +137,7 @@ mod tests {
     }
 
     #[test]
-    fn read_classification_matches_the_poc() {
+    fn read_classification_matches_the_reference() {
         let mut s = filled(80 * 1024);
         let mut file = StreamFile::new(&mut s);
         file.begin_session();
