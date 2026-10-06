@@ -22,8 +22,8 @@ stream.
 ## Architecture
 
 ```text
-targets/esp32   ESP32-S3 entry point: peripherals + IOBEWI ESP drivers (the only chip-specific code)
-      |  Platform ports
+targets/esp32   ESP32-S3 entry! invocation (IOBEWI owns startup and board wiring)
+      |  Board
       v
 app/            `streambewi`: portable product logic (provisioning, stream, USB radio); no HAL
       |
@@ -32,17 +32,23 @@ app/            `streambewi`: portable product logic (provisioning, stream, USB 
            iobewi-wifi-core/manager, iobewi-config-space
 ```
 
-`streambewi::run` receives its platform as ports: a `WifiTransport`, a `ConfigBackend`, up to two
-`embedded-io-async` serial ports for Improv, an `embedded-hal-async` button,
-a boot policy, a consuming reset port and an optional `embassy-usb` driver factory.
-The persisted USB mode is read before either native USB controller is constructed:
-provisioning keeps JTAG for the entire boot, while an MSC boot starts OTG after prebuffer.
-See [USB boot policy](docs/usb-boot-policy.md) for error and recovery semantics. `targets/esp32` builds them from the IOBEWI ESP drivers
-(`iobewi-esp-wifi`, `iobewi-esp-config-space`, `iobewi-esp-reset`). Another
-chip needs a new `targets/<chip>` only. Logs use the `log` facade, installed by the target through
-`iobewi-log`. IOBEWI crates are pinned to `596d180a3188823b125ede3444ca013ab62558e9`
-(merged flash fix, PR #26), without local Git-source patches. See the reproducible
-baseline and remaining hardware validations in [USB boot policy](docs/usb-boot-policy.md).
+`streambewi::run<B: Board>(board)` consumes the board once. IOBEWI owns the ESP
+peripherals, GPIO profile, allocator, Wi-Fi startup, shared flash and NVS discovery
+by partition label. The product declares three sockets, a 96 KiB heap and a
+16 KiB minimum linker stack reservation in `BOARD_RESOURCES`. Its network bound
+remains Embassy `Stack<'static>`; the Board contract itself does not impose it.
+
+The product reads the persisted USB flag before consuming the boot I/O factory.
+Provisioning keeps JTAG for the entire boot; MSC selects OTG at boot but waits
+for the stream prebuffer before enumerating. Improv consumes every serial-bank
+port and routes replies to the originating port. Chip identity comes from Board
+metadata. See [USB boot policy](docs/usb-boot-policy.md).
+
+All IOBEWI dependencies are pinned to `f0360f51a61c2a475924ab4633b77757b2a832b7`
+(the published candidate in [IOBEWI PR #24](https://github.com/iobewi/iobewi/pull/24)),
+without local patches. This migration therefore depends on that framework PR.
+See [migration validation](docs/board-entry-migration.md) for actual future measurements
+and the hardware acceptance still required.
 
 ## Stages
 
@@ -190,7 +196,7 @@ the protocol ESP Web Tools speaks after flashing.
   `iobewi-config-space` drive provisioning in `app/src/provisioning.rs`; the radio, flash and
   storage are the IOBEWI ESP drivers plugged in by `targets/esp32`.
 - Credentials are validated first (association + DHCP) and only then committed to the `nvs`
-  partition of the default espflash partition table (`0x9000`, 24 KiB) through ConfigSpace.
+  partition discovered by the `nvs` label through IOBEWI Board startup and ConfigSpace.
   A previous image's raw A/B records at that address are not valid NVS: flash with the erase
   option once.
 - Reflashing the merged image rewrites that region: provision again after each flash.

@@ -5,9 +5,9 @@
 
 use embassy_futures::join::join;
 use embassy_time::{Duration, Timer};
-use embassy_usb::{Builder, driver::Driver};
 #[cfg(feature = "usb-debug")]
 use embassy_usb::Handler;
+use embassy_usb::{Builder, driver::Driver};
 use iobewi_fat16::{ReadStatus, VirtualFat16};
 use iobewi_usb_msc::{InquiryIdentity, MscClass, ReadAction, ReadPolicy, State as MscState};
 use streambewi_core::FAT16_CONFIG;
@@ -62,12 +62,10 @@ impl Handler for BusLog {
     }
 }
 
-/// Presents the USB disk once the product is configured and the stream has data. `start_driver`
-/// creates the platform USB driver at that moment.
-pub async fn serve<D, F>(start_driver: F)
+/// Enumerates the boot-selected USB driver once configuration and prebuffer are ready.
+pub async fn serve<D>(driver: D)
 where
     D: Driver<'static>,
-    F: FnOnce() -> D,
 {
     // UNCONFIGURED (no Wi-Fi network saved): no stream is possible, MSC stays off.
     while !provisioning::is_configured() {
@@ -81,15 +79,17 @@ where
     // would look like an empty file to the host. Without data there is no USB device.
     while !STREAM.is_ready() {
         let (written, consumed) = STREAM.progress();
-        log::info!("stream: prebuffer written={} consumed={}", written, consumed);
+        log::info!(
+            "stream: prebuffer written={} consumed={}",
+            written,
+            consumed
+        );
         Timer::after(Duration::from_millis(500)).await;
     }
 
     let (written, _) = STREAM.progress();
     log::info!("stream: prebuffer bytes={}", written);
     log::info!("usb: enabling MSC for Metronic");
-
-    let driver = start_driver();
 
     let mut usb_config = embassy_usb::Config::new(0x303A, 0x4001);
     usb_config.manufacturer = Some("IOBEWI");

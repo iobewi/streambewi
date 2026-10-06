@@ -1,4 +1,6 @@
 use super::*;
+use core::convert::Infallible;
+use embedded_io_async::ErrorType;
 use iobewi_config_space::{Budget, Snapshot};
 use std::{
     cell::RefCell,
@@ -86,13 +88,12 @@ fn ready<F: core::future::Future>(f: F) -> F::Output {
 }
 #[test]
 fn flag_failure_sends_an_improv_error_on_the_requesting_port_and_retry_succeeds() {
-    for port in [Port::A, Port::B] {
+    for port in [Port(0), Port(1), Port(2)] {
         let backend = Backend::default();
         let (boot, wifi_space) = ready(BootPolicy::prepare(backend.clone())).unwrap();
         let mut manager = WifiManager::new(Radio, wifi_space);
         let mut ports = Ports {
-            a: Tx::default(),
-            b: Tx::default(),
+            tx: (0..3).map(|_| Tx::default()).collect(),
         };
         let mut state = State::Authorized;
         let mut flag_committed = false;
@@ -124,15 +125,20 @@ fn flag_failure_sends_an_improv_error_on_the_requesting_port_and_retry_succeeds(
             improv::state_frame(State::Authorized),
         ]
         .concat();
-        let (request, other) = match port {
-            Port::A => (&ports.a.0, &ports.b.0),
-            Port::B => (&ports.b.0, &ports.a.0),
-        };
+        let (request, other) = (&ports.tx[port.0].0, &ports.tx[(port.0 + 1) % 3].0);
         assert_eq!(*request, expected);
         assert!(other.is_empty());
+        assert!(
+            ports
+                .tx
+                .iter()
+                .enumerate()
+                .all(|(i, tx)| i == port.0 || tx.0.is_empty())
+        );
         backend.0.borrow_mut().fail_flag = false;
-        ports.a.0.clear();
-        ports.b.0.clear();
+        for tx in &mut ports.tx {
+            tx.0.clear();
+        }
         ready(handle(
             settings(),
             Reply {
@@ -153,16 +159,68 @@ fn flag_failure_sends_an_improv_error_on_the_requesting_port_and_retry_succeeds(
             improv::rpc_response_frame(Command::WifiSettings, &[]),
         ]
         .concat();
-        let (request, other) = match port {
-            Port::A => (&ports.a.0, &ports.b.0),
-            Port::B => (&ports.b.0, &ports.a.0),
-        };
+        let (request, other) = (&ports.tx[port.0].0, &ports.tx[(port.0 + 1) % 3].0);
         assert_eq!(*request, expected);
         assert!(other.is_empty());
+        assert!(
+            ports
+                .tx
+                .iter()
+                .enumerate()
+                .all(|(i, tx)| i == port.0 || tx.0.is_empty())
+        );
         assert_eq!(boot.mode(), BootMode::Provisioning);
         assert_eq!(
             ready(BootPolicy::prepare(backend)).unwrap().0.mode(),
             BootMode::MassStorage
+        );
+    }
+}
+
+struct Rx(usize);
+impl ErrorType for Rx {
+    type Error = Infallible;
+}
+impl Read for Rx {
+    async fn read(&mut self, _: &mut [u8]) -> Result<usize, Infallible> {
+        core::future::pending().await
+    }
+}
+struct Bank(std::vec::IntoIter<iobewi_board::Serial<Rx, Tx>>);
+impl SerialBank for Bank {
+    type Rx = Rx;
+    type Tx = Tx;
+    fn take_next(&mut self) -> Option<iobewi_board::Serial<Rx, Tx>> {
+        self.0.next()
+    }
+}
+#[test]
+fn finite_banks_preserve_order_and_empty_readers_stay_pending() {
+    for count in [0, 3] {
+        let bank = Bank(
+            (0..count)
+                .map(|i| iobewi_board::Serial {
+                    rx: Rx(i),
+                    tx: Tx(vec![i as u8]),
+                })
+                .collect::<Vec<_>>()
+                .into_iter(),
+        );
+        let (rx, ports) = take_ports(bank);
+        assert_eq!(
+            rx.iter().map(|r| r.0).collect::<Vec<_>>(),
+            (0..count).collect::<Vec<_>>()
+        );
+        assert_eq!(
+            ports.tx.iter().map(|tx| tx.0[0]).collect::<Vec<_>>(),
+            (0..count as u8).collect::<Vec<_>>()
+        );
+        let mut future = std::pin::pin!(readers(rx));
+        assert!(
+            future
+                .as_mut()
+                .poll(&mut Context::from_waker(Waker::noop()))
+                .is_pending()
         );
     }
 }

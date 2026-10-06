@@ -1,9 +1,7 @@
 # Persisted USB boot policy
 
 This is product policy, implemented in `app/src/boot_policy.rs`, shared by Improv
-and recovery. It precedes StreamBeWI's migration onto the IOBEWI Board contract.
-The legacy S3 target still exists and now binds this same policy; no Board/entry
-migration is performed by this change.
+and recovery. `run<B: Board>` reads it before consuming the board boot I/O factory.
 
 ## Configuration and startup
 
@@ -17,16 +15,15 @@ boots into provisioning; reprovision once to publish the flag.
 | Flag read at boot | Native USB mode |
 | --- | --- |
 | Absent or false | Provisioning: JTAG initialized, no OTG constructor |
-| True | Mass storage: no JTAG constructor; OTG starts after stream prebuffer |
+| True | Mass storage: no JTAG constructor; OTG constructed at boot; enumeration waits for prebuffer |
 | Read error, malformed/oversized or unsupported version | Error logged; provisioning for this boot, no writes or erasure |
 
 UART0 remains an Improv transport in both modes. In MSC mode the native serial
 port is absent. The boot decision remains immutable even when persistence
 changes. A restart or board power cycle reads the new flag; replug is a power
 cycle only if that port is the board's sole power source. There is no hot handover.
-The S3 target reads the flag before constructing either native USB controller.
-The legacy target still has its existing hardcoded NVS partition; discovery by
-label is supplied by the pending IOBEWI Board migration, not duplicated here.
+The product reads the flag before `BootIoFactory::select`. IOBEWI discovers the
+NVS partition by label during board startup, with no hardcoded-address fallback.
 
 ## Provisioning and partial states
 
@@ -62,12 +59,10 @@ sequence. The current mode never changes before reset.
 
 ## Console and panic
 
-The legacy target no longer installs a physical console callback and removes
-esp-println/esp-backtrace dependencies. Logging remains in the framework's bounded
-ring; the panic handler silently halts without accessing USB/JTAG. This is a
-firmware policy change: historical serial-monitor logs in the stage descriptions
-are not an available console in this composition. Startup-fatal UART diagnostics
-will come from IOBEWI Board startup during migration.
+IOBEWI entry installs no physical console sink. Its panic handler silently halts
+without accessing USB/JTAG. Logs stay in the bounded framework ring. Only fatal
+board-startup errors use best-effort UART diagnostics, before Improv starts.
+Historical serial-monitor logs below describe earlier compositions.
 
 ## Validation
 
@@ -76,7 +71,7 @@ writes, combined budget admission, connection/credential/flag failures, restart
 selection, reprovisioning retry, recovery ordering and both partial persistence
 states, plus provisioning/recovery serialization. An additional test drives the
 actual Improv command handler with the real Wi-Fi manager and a fake radio/backend,
-checking error/success frames and response routing on both ports.
+checking error/success frames and response routing on three ports, finite banks of zero and three ports.
 
 ```sh
 cargo +1.95.0 test -p streambewi-core -p streambewi --locked --target x86_64-unknown-linux-gnu
