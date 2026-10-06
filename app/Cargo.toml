@@ -24,11 +24,11 @@ reqwless = { version = "0.14.0", default-features = false }
 static_cell = "2.1.1"
 
 improv-serial = { git = "https://github.com/iobewi/improv-serial", rev = "8e9d2c437d07cc22fe848ec0493ea3a3c5ecaea3" }
-iobewi-config-space = { git = "https://github.com/iobewi/iobewi", rev = "ddfa839a15836c3eebedc24fa34efc1d7bd3bc84" }
-iobewi-fat16 = { git = "https://github.com/iobewi/iobewi", rev = "ddfa839a15836c3eebedc24fa34efc1d7bd3bc84" }
-iobewi-usb-msc = { git = "https://github.com/iobewi/iobewi", rev = "ddfa839a15836c3eebedc24fa34efc1d7bd3bc84" }
-iobewi-wifi-core = { git = "https://github.com/iobewi/iobewi", rev = "ddfa839a15836c3eebedc24fa34efc1d7bd3bc84" }
-iobewi-wifi-manager = { git = "https://github.com/iobewi/iobewi", rev = "ddfa839a15836c3eebedc24fa34efc1d7bd3bc84" }
+iobewi-config-space = { git = "https://github.com/iobewi/iobewi", rev = "596d180a3188823b125ede3444ca013ab62558e9" }
+iobewi-fat16 = { git = "https://github.com/iobewi/iobewi", rev = "596d180a3188823b125ede3444ca013ab62558e9" }
+iobewi-usb-msc = { git = "https://github.com/iobewi/iobewi", rev = "596d180a3188823b125ede3444ca013ab62558e9" }
+iobewi-wifi-core = { git = "https://github.com/iobewi/iobewi", rev = "596d180a3188823b125ede3444ca013ab62558e9" }
+iobewi-wifi-manager = { git = "https://github.com/iobewi/iobewi", rev = "596d180a3188823b125ede3444ca013ab62558e9" }
 
 [dev-dependencies]
 embassy-time = { version = "0.5.1", features = ["std", "generic-queue-8"] }

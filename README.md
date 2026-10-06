@@ -40,7 +40,9 @@ provisioning keeps JTAG for the entire boot, while an MSC boot starts OTG after 
 See [USB boot policy](docs/usb-boot-policy.md) for error and recovery semantics. `targets/esp32` builds them from the IOBEWI ESP drivers
 (`iobewi-esp-wifi`, `iobewi-esp-config-space`, `iobewi-esp-reset`). Another
 chip needs a new `targets/<chip>` only. Logs use the `log` facade, installed by the target through
-`iobewi-log`. IOBEWI crates are pinned by git rev.
+`iobewi-log`. IOBEWI crates are pinned to `596d180a3188823b125ede3444ca013ab62558e9`
+(merged flash fix, PR #26), without local Git-source patches. See the reproducible
+baseline and remaining hardware validations in [USB boot policy](docs/usb-boot-policy.md).
 
 ## Stages
 

@@ -88,3 +88,27 @@ Hardware remains required for Improv provisioning, native USB enumeration, BOOT
 hold/reset, RTC reset/PHY reinitialization and panic behavior. Build evidence is
 not those hardware gates. Versioned dist images remain historical until rebuilt
 and qualified; this change does not flash hardware or regenerate delivery images.
+
+## Reproducible flash-fix baseline (2026-10-06)
+
+All IOBEWI Git dependencies are pinned to
+`596d180a3188823b125ede3444ca013ab62558e9` (merged PR #26). This restores
+`esp-storage/critical-section` in the shared flash and partition adapters without
+product-side dependency patches. The old `ddfa839` branch-only Wi-Fi change
+(keeping an already-live association on repeated connect) is not in this main
+revision. It is not silently reintroduced by this pin update.
+
+Human-reported image 13A used product `03bef9b` against IOBEWI `26fbd2f`
+through local Git-source patches. Provisioning, restart/power-cycle persistence,
+ten minutes of Metronic playback and three recovery/reprovisioning/MSC cycles
+succeeded. Its merged-image SHA-256 was
+`7167978b1d3c6e34b42e7c2ba30695106433aba5ffb6d08202b35dfca0f84b02`.
+Those observations describe that image; they do not qualify a new binary built
+from this published pin. Error injection, panic in OTG, constructor counts and
+separate RTC/system/replug reset identification remain open.
+
+For this baseline, replay provisioning -> restart -> MSC -> long-BOOT recovery
+-> reprovisioning on the normal CI-produced merged image. Record its product
+SHA and image hash. No repeated-write stress campaign is needed for this product
+replay. Flash latency and OTA limitations are recorded in IOBEWI PR #26; this
+baseline does not declare global flash/OTA hardware acceptance.
