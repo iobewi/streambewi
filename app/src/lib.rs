@@ -2,17 +2,10 @@
 
 //! StreamBeWI: a live internet radio presented to a USB host as a virtual `RADIO.MP3`.
 //!
-//! This crate is the product logic and is portable: it knows no chip, HAL or board. A target
-//! (`targets/<chip>`) builds the platform ports and hands them to [`run`]:
-//!
-//! - Wi-Fi transport ([`WifiTransport`](iobewi_wifi_core::WifiTransport)) and persistent
-//!   configuration ([`ConfigBackend`](iobewi_config_space::ConfigBackend)): IOBEWI adapters;
-//! - up to two serial ports for Improv provisioning (`embedded-io-async`);
-//! - a recovery button (`embedded-hal-async` [`Wait`](embedded_hal_async::digital::Wait));
-//! - a consuming restart port;
-//! - a factory creating the USB device driver (`embassy-usb` `Driver`), called late.
-//!
-//! Logging uses the `log` facade; the target installs the logger.
+//! The product consumes an IOBEWI [`Board`](iobewi_board::Board). The target delegates
+//! startup to `entry!`; configuration policy, Improv, streaming and MSC remain here.
+//! The persisted USB mode is read before selecting the boot I/O. MSC enumeration waits
+//! for the audio prebuffer. No physical console shares the Improv transport.
 
 extern crate alloc;
 
@@ -29,97 +22,83 @@ pub mod stream;
 pub mod usb;
 
 use core::fmt::{Debug, Display};
-
 use embassy_futures::join::{join, join3};
 use embassy_net::Stack;
-use embassy_usb::driver::Driver;
-use embedded_hal_async::digital::Wait;
-use embedded_io_async::{Read, Write};
-use iobewi_config_space::{ConfigBackend, ConfigSpace};
+use iobewi_board::{Board, BootIoFactory, ResourceRequest, UsbBootMode};
+use iobewi_config_space::ConfigBackend;
+use iobewi_device::DeviceMetadata;
 use iobewi_wifi_core::WifiTransport;
 use iobewi_wifi_manager::WifiManager;
 
-pub use provisioning::NoSerial;
+/// Product requirements, validated by the board before startup.
+/// DHCP, DNS and HTTP each need one socket.
+pub const BOARD_RESOURCES: ResourceRequest = ResourceRequest {
+    sockets: 3,
+    heap_bytes: 96 * 1024,
+    minimum_stack_bytes: 16 * 1024,
+};
 
-/// One serial port: both directions.
-pub struct Serial<R, W> {
-    pub rx: R,
-    pub tx: W,
-}
-
-/// Consuming platform reset capability.
-pub trait Reset {
-    fn reset(self) -> !;
-}
-
-/// Everything the legacy target provides.
-pub struct Platform<T, B: ConfigBackend, R1, W1, R2, W2, Btn, F, R> {
-    /// Wi-Fi station transport; its network handle is the Embassy stack.
-    pub wifi: T,
-    /// Immutable boot selection and serialized persistence/recovery policy.
-    pub boot: boot_policy::BootPolicy<B>,
-    /// Wi-Fi space reserved together with the boot-policy budget.
-    pub wifi_config: ConfigSpace<B>,
-    /// First Improv serial port (use [`NoSerial`] when the board has none).
-    pub serial_a: Serial<R1, W1>,
-    /// Second Improv serial port.
-    pub serial_b: Serial<R2, W2>,
-    /// Active-low recovery button.
-    pub button: Btn,
-    /// Restarts the device.
-    pub reset: R,
-    /// Chip name reported over Improv (for example `b"ESP32-S3"`).
-    pub chip: &'static [u8],
-    /// None for a provisioning boot; Some creates the driver after prebuffer.
-    pub usb: Option<F>,
-}
-
-/// Runs the product. Returns only if the USB disk stops.
-pub async fn run<T, B, R1, W1, R2, W2, Btn, D, F, R>(
-    platform: Platform<T, B, R1, W1, R2, W2, Btn, F, R>,
-) where
-    T: WifiTransport<NetworkHandle = Stack<'static>>,
-    T::Address: Display,
-    B: ConfigBackend + Clone,
-    B::Error: Debug,
-    R1: Read,
-    W1: Write,
-    R2: Read,
-    W2: Write,
-    Btn: Wait,
-    D: Driver<'static>,
-    F: FnOnce() -> D,
-    R: Reset,
+/// Runs the product on an owned board. Network bounds belong to this product.
+pub async fn run<B: Board>(board: B)
+where
+    B::Wifi: WifiTransport<NetworkHandle = Stack<'static>>,
+    <B::Wifi as WifiTransport>::Address: Display,
+    <B::Config as ConfigBackend>::Error: Debug,
 {
-    log::info!("streambewi: continuous HTTP MP3 -> USB MSC");
-    log::info!("stream: {}", stream::STREAM_URL);
-
-    let manager = WifiManager::new(platform.wifi, platform.wifi_config);
-    let boot = platform.boot;
-
-    let network = provisioning::NetworkSignal::new();
-    let ports = provisioning::Ports {
-        a: platform.serial_a.tx,
-        b: platform.serial_b.tx,
+    let parts = board.into_parts();
+    let (boot, wifi_config) = match boot_policy::BootPolicy::prepare(parts.config).await {
+        Ok(prepared) => prepared,
+        Err(error) => {
+            log::error!("configuration admission failed: {:?}", error);
+            core::future::pending::<()>().await;
+            return;
+        }
     };
-
-    let provisioning_fut = join3(
-        provisioning::wifi_task(manager, ports, &network, platform.chip, &boot),
-        provisioning::improv_reader(provisioning::Port::A, platform.serial_a.rx),
-        provisioning::improv_reader(provisioning::Port::B, platform.serial_b.rx),
+    if let Some(error) = boot.read_error() {
+        log::error!(
+            "USB boot flag unreadable: {:?}; provisioning this boot",
+            error
+        );
+    }
+    let mode = match boot.mode() {
+        boot_policy::BootMode::Provisioning => UsbBootMode::Provisioning,
+        boot_policy::BootMode::MassStorage => UsbBootMode::MassStorage,
+    };
+    let io = match parts.io.select(mode) {
+        Ok(io) => io,
+        Err(error) => {
+            log::error!("boot I/O selection failed: {:?}", error);
+            core::future::pending::<()>().await;
+            return;
+        }
+    };
+    if io.usb.is_some() != (mode == UsbBootMode::MassStorage) {
+        log::error!("board violated the USB boot-mode contract");
+        core::future::pending::<()>().await;
+        return;
+    }
+    let manager = WifiManager::new(parts.wifi, wifi_config);
+    let network = provisioning::NetworkSignal::new();
+    let (readers, ports) = provisioning::take_ports(io.serial);
+    let provisioning_fut = join(
+        provisioning::wifi_task(
+            manager,
+            ports,
+            &network,
+            parts.identity.chip_name().as_bytes(),
+            &boot,
+        ),
+        provisioning::readers(readers),
     );
-    let recovery_fut = provisioning::recovery_watch(platform.button, &boot, platform.reset);
-
+    let recovery_fut = provisioning::recovery_watch(parts.button, &boot, parts.reset);
     let stream_fut = async {
-        // The transport creates the network stack lazily: wait for the first link-up.
         let stack = network.wait().await;
         stream::run(stack, &stream::STREAM).await
     };
-
     join(join3(provisioning_fut, recovery_fut, stream_fut), async {
-        match (boot.mode(), platform.usb) {
-            (boot_policy::BootMode::MassStorage, Some(driver)) => usb::serve(driver).await,
-            _ => core::future::pending::<()>().await,
+        match io.usb {
+            Some(driver) => usb::serve(driver).await,
+            None => core::future::pending::<()>().await,
         }
     })
     .await;

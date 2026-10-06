@@ -30,6 +30,10 @@ jobs:
           tool: espflash
       - name: Release build (real link)
         run: cargo +esp build -p streambewi-esp32 --release --locked -Z build-std=core,alloc --target xtensa-esp32s3-none-elf
+      - name: Product descriptor and real future layout
+        run: |
+          mkdir -p ci-out
+          python3 tools/inspect_entry_elf.py target/xtensa-esp32s3-none-elf/release/streambewi-esp32 > ci-out/entry-layout.json
       - name: Flashable image
         run: |
           mkdir -p ci-out

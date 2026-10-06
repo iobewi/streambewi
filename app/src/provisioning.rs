@@ -1,11 +1,12 @@
-//! Wi-Fi provisioning for StreamBeWI: Improv Serial (ESP Web Tools) over up to two serial ports,
+//! Wi-Fi provisioning for StreamBeWI: Improv Serial (ESP Web Tools) over the board serial bank,
 //! on top of IOBEWI's `WifiManager` (portable policy). Credentials persist through ConfigSpace.
 //! Nothing platform-specific lives here: transports, storage, button and reset are ports.
 
 use crate::boot_policy::{BootMode, BootPolicy, ProvisionError, Recovery};
-use alloc::string::ToString;
+use alloc::{boxed::Box, string::ToString, vec::Vec};
+use core::{future::Future, task::Poll};
+use iobewi_board::{Reset, SerialBank};
 
-use core::convert::Infallible;
 use core::fmt::{Debug, Display};
 use core::sync::atomic::{AtomicBool, Ordering};
 
@@ -18,7 +19,7 @@ use embassy_sync::{
 };
 use embassy_time::{Duration, Timer, with_timeout};
 use embedded_hal_async::digital::Wait;
-use embedded_io_async::{ErrorType, Read, Write};
+use embedded_io_async::{Read, Write};
 use improv_serial::{self as improv, Command, ImprovError, ParsedCommand, Parser, State};
 use iobewi_config_space::ConfigBackend;
 use iobewi_wifi_core::{WifiProvisioning, WifiTransport};
@@ -63,7 +64,7 @@ pub fn is_configured() -> bool {
 
 /// BOOT recovery persists provisioning first, then clears Wi-Fi and restarts.
 /// A failed flag commit preserves credentials and does not request reset.
-pub async fn recovery_watch<Btn: Wait, B: ConfigBackend, R: crate::Reset>(
+pub async fn recovery_watch<Btn: Wait, B: ConfigBackend, R: Reset>(
     mut button: Btn,
     boot: &BootPolicy<B>,
     reset: R,
@@ -104,31 +105,51 @@ pub type Manager<T, B> = WifiManager<T, B>;
 
 static IMPROV_COMMANDS: Channel<CriticalSectionRawMutex, (Port, ParsedCommand), 2> = Channel::new();
 
-/// A serial port Improv can be provisioned over. Boards expose a USB-UART bridge, a native
-/// USB-Serial-JTAG, or both: both are served and each reply goes back on the port the request
-/// came from.
-#[derive(Clone, Copy)]
-pub enum Port {
-    A,
-    B,
+/// Index assigned while consuming the finite serial bank.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Port(pub usize);
+
+/// Independently owned transmit halves, in bank order.
+pub struct Ports<W> {
+    pub tx: Vec<W>,
 }
 
-/// The transmit halves of every Improv port.
-pub struct Ports<W1, W2> {
-    pub a: W1,
-    pub b: W2,
+pub fn take_ports<S: SerialBank>(mut bank: S) -> (Vec<S::Rx>, Ports<S::Tx>) {
+    let mut rx = Vec::new();
+    let mut tx = Vec::new();
+    while let Some(serial) = bank.take_next() {
+        rx.push(serial.rx);
+        tx.push(serial.tx);
+    }
+    (rx, Ports { tx })
 }
 
-struct Reply<'a, W1, W2> {
-    ports: &'a mut Ports<W1, W2>,
+/// Poll each independently owned reader; an empty bank remains pending.
+pub async fn readers<R: Read>(rx: Vec<R>) -> ! {
+    let mut futures: Vec<_> = rx
+        .into_iter()
+        .enumerate()
+        .map(|(index, rx)| Box::pin(improv_reader(Port(index), rx)))
+        .collect();
+    core::future::poll_fn(|cx| {
+        for future in &mut futures {
+            let _ = future.as_mut().poll(cx);
+        }
+        Poll::<()>::Pending
+    })
+    .await;
+    unreachable!()
+}
+
+struct Reply<'a, W> {
+    ports: &'a mut Ports<W>,
     port: Port,
 }
 
-impl<W1: Write, W2: Write> Reply<'_, W1, W2> {
+impl<W: Write> Reply<'_, W> {
     async fn send(&mut self, frame: &[u8]) {
-        match self.port {
-            Port::A => write_all(&mut self.ports.a, frame).await,
-            Port::B => write_all(&mut self.ports.b, frame).await,
+        if let Some(tx) = self.ports.tx.get_mut(self.port.0) {
+            write_all(tx, frame).await;
         }
     }
 }
@@ -137,33 +158,12 @@ async fn write_all<W: Write>(tx: &mut W, frame: &[u8]) {
     let mut rest = frame;
     while !rest.is_empty() {
         match tx.write(rest).await {
+            Ok(0) => return,
             Ok(n) => rest = &rest[n..],
             Err(_) => return,
         }
     }
     let _ = tx.flush().await;
-}
-
-/// A serial port that does not exist on this board: never receives, discards everything.
-pub struct NoSerial;
-
-impl ErrorType for NoSerial {
-    type Error = Infallible;
-}
-
-impl Read for NoSerial {
-    async fn read(&mut self, _buf: &mut [u8]) -> Result<usize, Self::Error> {
-        core::future::pending().await
-    }
-}
-
-impl Write for NoSerial {
-    async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
-        Ok(buf.len())
-    }
-    async fn flush(&mut self) -> Result<(), Self::Error> {
-        Ok(())
-    }
 }
 
 /// Reads one port (the one ESP Web Tools talks to) and forwards parsed Improv commands. Log
@@ -173,6 +173,7 @@ pub async fn improv_reader<R: Read>(port: Port, mut rx: R) -> ! {
     let mut buf = [0u8; 64];
     loop {
         match rx.read(&mut buf).await {
+            Ok(0) => Timer::after(Duration::from_millis(10)).await,
             Ok(n) => {
                 for &byte in &buf[..n] {
                     if let Some(command) = parser.feed(byte) {
@@ -188,9 +189,9 @@ pub async fn improv_reader<R: Read>(port: Port, mut rx: R) -> ! {
 /// Owns the Wi-Fi manager: keeps the saved network connected and serves Improv requests.
 /// A request pre-empts `maintain()`; it restarts afterwards (and the transport keeps a link that
 /// is already up on the same credentials).
-pub async fn wifi_task<T, B, W1, W2>(
+pub async fn wifi_task<T, B, W>(
     mut manager: Manager<T, B>,
-    mut ports: Ports<W1, W2>,
+    mut ports: Ports<W>,
     network: &NetworkSignal,
     chip: &'static [u8],
     boot: &BootPolicy<B>,
@@ -200,8 +201,7 @@ where
     T::Address: Display,
     B: ConfigBackend,
     B::Error: Debug,
-    W1: Write,
-    W2: Write,
+    W: Write,
 {
     let sleep = EmbassySleep;
     let mut observer = LogObserver { network };
@@ -258,9 +258,9 @@ where
     }
 }
 
-async fn handle<T, B, W1, W2>(
+async fn handle<T, B, W>(
     command: ParsedCommand,
-    mut tx: Reply<'_, W1, W2>,
+    mut tx: Reply<'_, W>,
     state: &mut State,
     manager: &mut Manager<T, B>,
     chip: &'static [u8],
@@ -271,8 +271,7 @@ async fn handle<T, B, W1, W2>(
     T::Address: Display,
     B: ConfigBackend,
     B::Error: Debug,
-    W1: Write,
-    W2: Write,
+    W: Write,
 {
     match command {
         ParsedCommand::GetCurrentState => {
