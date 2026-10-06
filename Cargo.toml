@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["core", "firmware"]
+members = ["core", "app", "targets/esp32"]
 
 [profile.release]
 opt-level = "s"

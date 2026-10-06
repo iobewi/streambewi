@@ -14,15 +14,7 @@ use reqwless::{
     request::{Method, RequestBuilder},
 };
 use iobewi_fat16::{FileSource, ReadStatus, SECTOR_SIZE};
-use usb_radio_core::{PREBUFFER_BYTES, Stream, StreamFile, is_ready, new_stream, progress};
-
-macro_rules! mk_static {
-    ($t:ty, $val:expr) => {{
-        static CELL: static_cell::StaticCell<$t> = static_cell::StaticCell::new();
-        CELL.uninit().write($val)
-    }};
-}
-use mk_static;
+use streambewi_core::{PREBUFFER_BYTES, Stream, StreamFile, is_ready, new_stream, progress};
 
 pub const STREAM_URL: &str =
     "http://icecast.radiofrance.fr/monpetitfranceinter-midfi.mp3";
@@ -141,7 +133,7 @@ pub async fn run(stack: Stack<'static>, stream: &'static SharedStream) -> ! {
         let mut request = request.headers(&[
             ("Connection", "close"),
             ("Icy-MetaData", "0"),
-            ("User-Agent", "usb-radio-poc/0.3"),
+            ("User-Agent", "streambewi/0.1"),
         ]);
 
         let response = match request.send(&mut header_buf).await {

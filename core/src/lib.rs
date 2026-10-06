@@ -5,8 +5,6 @@
 //! rolling window and USB MSC themselves live in `iobewi-fat16`, `iobewi-rolling-stream` and
 //! `iobewi-usb-msc`.
 
-pub mod config_store;
-
 use iobewi_fat16::{FileSource, ReadStatus, SECTOR_SIZE};
 pub use iobewi_fat16::{Fat16Config, Geometry};
 use iobewi_rolling_stream::{ReadStatus as WindowStatus, RollingStream};
@@ -139,7 +137,7 @@ mod tests {
     }
 
     #[test]
-    fn read_classification_matches_the_poc() {
+    fn read_classification_matches_the_reference() {
         let mut s = filled(80 * 1024);
         let mut file = StreamFile::new(&mut s);
         file.begin_session();

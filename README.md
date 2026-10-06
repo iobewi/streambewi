@@ -1,10 +1,11 @@
-# USB radio POC
+# StreamBeWI
 
-Standalone ESP32-S3 proof of concept for the Metronic 477144 children's player.
+StreamBeWI turns an ESP32-S3 into a live internet-radio source for USB players such as the
+Metronic 477144 children's player: the board streams an HTTP MP3 over Wi-Fi and presents it to
+the player as a read-only USB disk holding one virtual `RADIO.MP3`.
 
-The POC deliberately does **not** use IOBEWI. Its purpose is to discover the real
-hardware/USB behaviour first, then later provide a stable reference implementation for
-a separate IOBEWI porting exercise.
+It is built on the IOBEWI framework (see Architecture). The stages below record how the USB and
+stream behaviour was established on real hardware.
 
 Target stream:
 
@@ -20,17 +21,34 @@ stream.
 
 ## Architecture
 
-The USB radio mechanics come from IOBEWI (pinned by git rev in `firmware/Cargo.toml`):
-`iobewi-fat16` (virtual FAT16), `iobewi-rolling-stream` (live window), `iobewi-usb-msc`
-(read-only Mass Storage class), plus the Wi-Fi / config crates. This repository keeps the product
-policy only: `core/` (1 GiB `RADIO.MP3` geometry, prebuffer, far-ahead probe policy) and
-`firmware/` (composition root, ICY HTTP stream, retry policy). Logs use the `log` facade.
+```text
+targets/esp32   ESP32-S3 entry point: peripherals + IOBEWI ESP drivers (the only chip-specific code)
+      |  Platform ports
+      v
+app/            `streambewi`: portable product logic (provisioning, stream, USB radio); no HAL
+      |
+      +--> core/   `streambewi-core`: pure policy (1 GiB RADIO.MP3 geometry, prebuffer, far-ahead)
+      +--> IOBEWI portable crates: iobewi-fat16, iobewi-rolling-stream, iobewi-usb-msc,
+           iobewi-wifi-core/manager, iobewi-config-space
+```
+
+`streambewi::run` receives its platform as ports: a `WifiTransport`, a `ConfigBackend`, up to two
+`embedded-io-async` serial ports for Improv, an `embedded-hal-async` button,
+a boot policy, a consuming reset port and an optional `embassy-usb` driver factory.
+The persisted USB mode is read before either native USB controller is constructed:
+provisioning keeps JTAG for the entire boot, while an MSC boot starts OTG after prebuffer.
+See [USB boot policy](docs/usb-boot-policy.md) for error and recovery semantics. `targets/esp32` builds them from the IOBEWI ESP drivers
+(`iobewi-esp-wifi`, `iobewi-esp-config-space`, `iobewi-esp-reset`). Another
+chip needs a new `targets/<chip>` only. Logs use the `log` facade, installed by the target through
+`iobewi-log`. IOBEWI crates are pinned to `596d180a3188823b125ede3444ca013ab62558e9`
+(merged flash fix, PR #26), without local Git-source patches. See the reproducible
+baseline and remaining hardware validations in [USB boot policy](docs/usb-boot-policy.md).
 
 ## Stages
 
 ### P0 — virtual FAT16 model
 
-The pure `usb-radio-core` crate implements a deterministic read-only FAT16 disk:
+The pure `streambewi-core` crate implements a deterministic read-only FAT16 disk:
 
 - 512-byte sectors;
 - 4 MiB virtual medium;
@@ -43,7 +61,7 @@ This layer has no ESP or USB dependency.
 
 ### P1 — ESP32-S3 USB MSC
 
-The `usb-radio-firmware` crate exposes the virtual disk through the ESP32-S3 native
+The `streambewi-esp32` crate exposes the virtual disk through the ESP32-S3 native
 USB OTG peripheral using `esp-hal` + `embassy-usb`.
 
 The MSC implementation is intentionally small and read-only. It supports the SCSI
@@ -145,9 +163,9 @@ From the repository root:
 
 ```sh
 # (already at the repository root)
-cargo test -p usb-radio-core
+cargo test -p streambewi-core -p streambewi
 
-cargo +esp build -p usb-radio-firmware --release \
+cargo +esp build -p streambewi-esp32 --release \
   -Z build-std=core,alloc \
   --target xtensa-esp32s3-none-elf
 ```
@@ -158,7 +176,7 @@ The firmware contains **no Wi-Fi credentials**: they are entered at runtime (see
 Flash/monitor, assuming `espflash` is installed:
 
 ```sh
-cargo +esp run -p usb-radio-firmware --release \
+cargo +esp run -p streambewi-esp32 --release \
   -Z build-std=core,alloc \
   --target xtensa-esp32s3-none-elf
 ```
@@ -168,16 +186,22 @@ cargo +esp run -p usb-radio-firmware --release \
 Wi-Fi is configured over the USB-UART bridge (UART0) or the native USB-Serial-JTAG port, whichever the board exposes (both are served; replies go back on the requesting port), with [Improv Serial](https://www.improv-wifi.com/serial/),
 the protocol ESP Web Tools speaks after flashing.
 
-- `improv-serial` and IOBEWI's portable `iobewi-wifi-manager` / `iobewi-wifi-core` /
-  `iobewi-config-space` crates are used as-is (git-pinned). IOBEWI's ESP adapters are **not**
-  yet used: the POC still carries its own small adapters (`firmware/src/wifi.rs`: esp-radio
-  transport + UART0/USB-Serial-JTAG; `firmware/src/flash_config.rs`: config backend), to be replaced by
-  the IOBEWI ESP drivers (IOBEWI main is on `esp-hal 1.2`, like this repository).
-- Credentials are validated first (association + DHCP) and only then committed to two flash
-  sectors of the default NVS partition (`0x9000`/`0xA000`, A/B with generation + CRC, see
-  `core/src/config_store.rs`). A write interrupted by a power cut keeps the previous record.
+- `improv-serial` and IOBEWI's `iobewi-wifi-manager` / `iobewi-wifi-core` /
+  `iobewi-config-space` drive provisioning in `app/src/provisioning.rs`; the radio, flash and
+  storage are the IOBEWI ESP drivers plugged in by `targets/esp32`.
+- Credentials are validated first (association + DHCP) and only then committed to the `nvs`
+  partition of the default espflash partition table (`0x9000`, 24 KiB) through ConfigSpace.
+  A previous image's raw A/B records at that address are not valid NVS: flash with the erase
+  option once.
 - Reflashing the merged image rewrites that region: provision again after each flash.
-- Flash writes stall interrupts for a few ms: provision with the OTG port **unplugged**.
+- During provisioning the native port serves JTAG and no OTG driver is created.
+- Credentials are committed first, then the OTG flag; a flag commit failure is an
+  Improv error and a fresh provisioning request retries it.
+- BOOT held 3 seconds while running commits provisioning mode before clearing
+  credentials and restarting. See the policy document for partial failures.
+
+After a successful provisioning, restart or power-cycle the board to enter MSC.
+Saving credentials/flag does not switch native USB in the current boot.
 
 Flow: flash with ESP Web Tools, choose **Connect to Wi-Fi** in its dialog (it lists the
 networks seen by the board), enter the password. Boot log on success:
@@ -193,17 +217,19 @@ improv: provisioned, credentials saved
 On later boots the saved network is connected automatically (`wifi: ready`), with
 reconnection/backoff handled by `WifiManager`.
 
-## Flash the POC
+## Flash StreamBeWI
 
 Board: ESP32-S3. Two different USB connectors are involved:
 
 | Port | Pins | Role |
 | --- | --- | --- |
-| native USB OTG | D+ GPIO20, D- GPIO19 | the POC's USB mass-storage device: plug into the Metronic |
+| native USB OTG | D+ GPIO20, D- GPIO19 | the StreamBeWI USB mass-storage device: plug into the Metronic |
 | USB-UART (CP210x/CH340 bridge, "UART" label) | UART0 | flashing and serial console: plug into the PC |
 
-The firmware owns GPIO19/20 as USB OTG, so the native port does **not** show a serial
-console; logs (`esp-println`, `uart` feature) come out on the USB-UART port only.
+The native port is JTAG in a provisioning boot and OTG in an MSC boot. UART0
+continues to serve Improv in both modes. This composition installs no physical
+console/panic output; stage logs below describe the historical measured firmware.
+The versioned dist image has not been rebuilt with the new boot policy.
 
 `dist/` holds the current (P2, Improv-provisioned) image; it contains no credentials. The
 older P1-only image remains in Git history (commit `5277330`).
@@ -214,7 +240,7 @@ at `0x0`; the matching ELF is emitted beside it.
 ### Browser (ESP Web Tools)
 
 Serve `dist/` (it has its own `index.html` + `manifest.json`). If your local
-web flasher expects the image under `web/firmware/esp32s3-usb-radio/`, copy the BIN there;
+web flasher expects the image under `web/firmware/esp32s3-streambewi/`, copy the BIN there;
 that directory is ignored by Git.
 
 ### Command line
@@ -236,15 +262,14 @@ scripts/build-release.sh
 Runs the core tests, the release build (real link), and `espflash save-image --merge`.
 Regenerates `dist/`.
 
-`SOURCE_DATE_EPOCH` is the date of the last commit touching the POC sources, excluding
+`SOURCE_DATE_EPOCH` is the date of the last commit touching the sources, excluding
 both delivery directories. This also avoids the old false "uncommitted changes" report
 caused solely by regenerating `dist/`.
 
 ### Expected boot log
 
 ```text
-usb-radio POC: P3 continuous HTTP MP3 -> USB MSC
-usb-radio POC: DP=GPIO20 DM=GPIO19
+streambewi: continuous HTTP MP3 -> USB MSC
 stream: http://icecast.radiofrance.fr/monpetitfranceinter-midfi.mp3
 ```
 
@@ -267,7 +292,7 @@ Other lines: `msc: bulk-only reset`, `msc: unsupported SCSI opcode=0x.. xfer=..`
 
 ## Gate P1-METRONIC (hardware, manual)
 
-Precondition: POC flashed on the ESP32-S3.
+Precondition: StreamBeWI flashed on the ESP32-S3.
 
 1. Start the serial monitor on the USB-UART port.
 2. Plug the **native OTG** port into the Metronic 477144.

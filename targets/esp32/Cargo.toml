@@ -1,0 +1,44 @@
+[package]
+name = "streambewi-esp32"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+streambewi = { path = "../../app" }
+
+embassy-executor = "0.10.0"
+embassy-net = { version = "0.9.0", default-features = false }
+static_cell = "2.1.1"
+log = "0.4"
+
+# IOBEWI ESP drivers: the platform adapters this target plugs into the product.
+iobewi-log = { git = "https://github.com/iobewi/iobewi", rev = "596d180a3188823b125ede3444ca013ab62558e9" }
+iobewi-esp-flash = { git = "https://github.com/iobewi/iobewi", rev = "596d180a3188823b125ede3444ca013ab62558e9", features = ["esp32s3"] }
+iobewi-esp-config-space = { git = "https://github.com/iobewi/iobewi", rev = "596d180a3188823b125ede3444ca013ab62558e9", features = ["esp32s3"] }
+iobewi-esp-wifi = { git = "https://github.com/iobewi/iobewi", rev = "596d180a3188823b125ede3444ca013ab62558e9", features = ["esp32s3"] }
+iobewi-esp-reset = { git = "https://github.com/iobewi/iobewi", rev = "596d180a3188823b125ede3444ca013ab62558e9", features = ["esp32s3"] }
+
+esp-alloc = { version = "0.11.0", features = ["esp32s3"] }
+esp-bootloader-esp-idf = { version = "0.6.0", features = ["esp32s3"] }
+esp-hal = { version = "1.2.0", features = [
+  "esp32s3",
+  "log-04",
+  "unstable",
+] }
+esp-rtos = { version = "0.4.0", features = [
+  "esp32s3",
+  "embassy",
+  "esp-radio",
+  "log-04",
+] }
+esp-radio = { version = "=1.0.0-beta.1", features = [
+  "esp32s3",
+  "log-04",
+  "unstable",
+  "wifi",
+] }
+
+[features]
+default = []
+usb-debug = ["streambewi/usb-debug"]

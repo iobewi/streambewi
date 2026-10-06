@@ -1,9 +1,9 @@
 [package]
-name = "usb-radio-core"
+name = "streambewi-core"
 version = "0.1.0"
 edition = "2024"
 publish = false
 
 [dependencies]
-iobewi-fat16 = { git = "https://github.com/iobewi/iobewi", rev = "879045a75f6f47c55994aaa243fde748f19083bf" }
-iobewi-rolling-stream = { git = "https://github.com/iobewi/iobewi", rev = "879045a75f6f47c55994aaa243fde748f19083bf" }
+iobewi-fat16 = { git = "https://github.com/iobewi/iobewi", rev = "596d180a3188823b125ede3444ca013ab62558e9" }
+iobewi-rolling-stream = { git = "https://github.com/iobewi/iobewi", rev = "596d180a3188823b125ede3444ca013ab62558e9" }

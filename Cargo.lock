@@ -614,6 +614,7 @@ dependencies = [
  "critical-section",
  "document-features",
  "embassy-time-driver",
+ "embassy-time-queue-utils",
  "embedded-hal 0.2.7",
  "embedded-hal 1.0.0",
  "embedded-hal-async",
@@ -821,22 +822,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "esp-backtrace"
-version = "0.20.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4fbfed00e884572d620a6958b13456fc2bb8ab75802b5adc8afc224f97cdebad"
-dependencies = [
- "document-features",
- "esp-config",
- "esp-metadata-generated",
- "esp-println",
- "heapless 0.9.3",
- "riscv",
- "semihosting",
- "xtensa-lx",
-]
-
-[[package]]
 name = "esp-bootloader-esp-idf"
 version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -950,6 +935,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "911aadae41ec99104efa865bd0b6e486b4b735999f9b571963748a46d16495ab"
 
 [[package]]
+name = "esp-nvs"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b61bade3acc39e566697bd215068384afba840999fcd8e9366702f267034c7c0"
+dependencies = [
+ "embedded-storage",
+ "strum",
+ "thiserror",
+]
+
+[[package]]
 name = "esp-phy"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -964,19 +960,6 @@ dependencies = [
  "esp-wifi-sys-esp32s3",
  "esp32s3 0.37.0",
  "log",
-]
-
-[[package]]
-name = "esp-println"
-version = "0.18.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ebf772a41bc642b57399632aa06ab55391de35b2b8fcbb1b270d282fbd0fe5ff"
-dependencies = [
- "document-features",
- "esp-metadata-generated",
- "esp-sync",
- "log",
- "portable-atomic",
 ]
 
 [[package]]
@@ -1090,6 +1073,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6ef0e785f54e316f64a1e14a7a2f061a2ea0b038b284902ca71e1e1f5574cf47"
 dependencies = [
  "document-features",
+ "embedded-storage",
  "esp-hal",
  "esp-hal-procmacros",
  "esp-metadata-generated",
@@ -1524,30 +1508,108 @@ dependencies = [
 [[package]]
 name = "iobewi-block"
 version = "0.1.0"
-source = "git+https://github.com/iobewi/iobewi?rev=879045a75f6f47c55994aaa243fde748f19083bf#879045a75f6f47c55994aaa243fde748f19083bf"
+source = "git+https://github.com/iobewi/iobewi?rev=596d180a3188823b125ede3444ca013ab62558e9#596d180a3188823b125ede3444ca013ab62558e9"
 
 [[package]]
 name = "iobewi-config-space"
 version = "0.1.0"
-source = "git+https://github.com/iobewi/iobewi?rev=879045a75f6f47c55994aaa243fde748f19083bf#879045a75f6f47c55994aaa243fde748f19083bf"
+source = "git+https://github.com/iobewi/iobewi?rev=596d180a3188823b125ede3444ca013ab62558e9#596d180a3188823b125ede3444ca013ab62558e9"
+
+[[package]]
+name = "iobewi-esp-config-space"
+version = "0.1.0"
+source = "git+https://github.com/iobewi/iobewi?rev=596d180a3188823b125ede3444ca013ab62558e9#596d180a3188823b125ede3444ca013ab62558e9"
+dependencies = [
+ "esp-nvs",
+ "iobewi-config-space",
+ "iobewi-esp-flash",
+ "iobewi-esp-nvs",
+ "iobewi-nvs-core",
+ "log",
+]
+
+[[package]]
+name = "iobewi-esp-flash"
+version = "0.1.0"
+source = "git+https://github.com/iobewi/iobewi?rev=596d180a3188823b125ede3444ca013ab62558e9#596d180a3188823b125ede3444ca013ab62558e9"
+dependencies = [
+ "embassy-sync 0.8.0",
+ "embedded-storage",
+ "esp-hal",
+ "esp-rom-sys",
+ "esp-storage",
+ "static_cell",
+]
+
+[[package]]
+name = "iobewi-esp-nvs"
+version = "0.1.0"
+source = "git+https://github.com/iobewi/iobewi?rev=596d180a3188823b125ede3444ca013ab62558e9#596d180a3188823b125ede3444ca013ab62558e9"
+dependencies = [
+ "embedded-storage",
+ "esp-nvs",
+ "esp-rom-sys",
+ "iobewi-esp-flash",
+]
+
+[[package]]
+name = "iobewi-esp-reset"
+version = "0.1.0"
+source = "git+https://github.com/iobewi/iobewi?rev=596d180a3188823b125ede3444ca013ab62558e9#596d180a3188823b125ede3444ca013ab62558e9"
+dependencies = [
+ "esp-hal",
+]
+
+[[package]]
+name = "iobewi-esp-wifi"
+version = "0.1.0"
+source = "git+https://github.com/iobewi/iobewi?rev=596d180a3188823b125ede3444ca013ab62558e9#596d180a3188823b125ede3444ca013ab62558e9"
+dependencies = [
+ "embassy-executor",
+ "embassy-net",
+ "embassy-time",
+ "esp-hal",
+ "esp-radio",
+ "iobewi-wifi-core",
+ "log",
+]
 
 [[package]]
 name = "iobewi-fat16"
 version = "0.1.0"
-source = "git+https://github.com/iobewi/iobewi?rev=879045a75f6f47c55994aaa243fde748f19083bf#879045a75f6f47c55994aaa243fde748f19083bf"
+source = "git+https://github.com/iobewi/iobewi?rev=596d180a3188823b125ede3444ca013ab62558e9#596d180a3188823b125ede3444ca013ab62558e9"
 dependencies = [
  "iobewi-block",
 ]
 
 [[package]]
+name = "iobewi-log"
+version = "0.1.0"
+source = "git+https://github.com/iobewi/iobewi?rev=596d180a3188823b125ede3444ca013ab62558e9#596d180a3188823b125ede3444ca013ab62558e9"
+dependencies = [
+ "critical-section",
+ "heapless 0.9.3",
+ "log",
+ "static_cell",
+]
+
+[[package]]
+name = "iobewi-nvs-core"
+version = "0.1.0"
+source = "git+https://github.com/iobewi/iobewi?rev=596d180a3188823b125ede3444ca013ab62558e9#596d180a3188823b125ede3444ca013ab62558e9"
+dependencies = [
+ "esp-nvs",
+]
+
+[[package]]
 name = "iobewi-rolling-stream"
 version = "0.1.0"
-source = "git+https://github.com/iobewi/iobewi?rev=879045a75f6f47c55994aaa243fde748f19083bf#879045a75f6f47c55994aaa243fde748f19083bf"
+source = "git+https://github.com/iobewi/iobewi?rev=596d180a3188823b125ede3444ca013ab62558e9#596d180a3188823b125ede3444ca013ab62558e9"
 
 [[package]]
 name = "iobewi-usb-msc"
 version = "0.1.0"
-source = "git+https://github.com/iobewi/iobewi?rev=879045a75f6f47c55994aaa243fde748f19083bf#879045a75f6f47c55994aaa243fde748f19083bf"
+source = "git+https://github.com/iobewi/iobewi?rev=596d180a3188823b125ede3444ca013ab62558e9#596d180a3188823b125ede3444ca013ab62558e9"
 dependencies = [
  "embassy-time",
  "embassy-usb",
@@ -1558,12 +1620,12 @@ dependencies = [
 [[package]]
 name = "iobewi-wifi-core"
 version = "0.1.0"
-source = "git+https://github.com/iobewi/iobewi?rev=879045a75f6f47c55994aaa243fde748f19083bf#879045a75f6f47c55994aaa243fde748f19083bf"
+source = "git+https://github.com/iobewi/iobewi?rev=596d180a3188823b125ede3444ca013ab62558e9#596d180a3188823b125ede3444ca013ab62558e9"
 
 [[package]]
 name = "iobewi-wifi-manager"
 version = "0.1.0"
-source = "git+https://github.com/iobewi/iobewi?rev=879045a75f6f47c55994aaa243fde748f19083bf#879045a75f6f47c55994aaa243fde748f19083bf"
+source = "git+https://github.com/iobewi/iobewi?rev=596d180a3188823b125ede3444ca013ab62558e9#596d180a3188823b125ede3444ca013ab62558e9"
 dependencies = [
  "iobewi-config-space",
  "iobewi-wifi-core",
@@ -2048,12 +2110,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "semihosting"
-version = "0.1.25"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f8e4abf97879f4e80db69a9fba7bd64998e9bdad25f58ef045a778e191172fd4"
-
-[[package]]
 name = "serde"
 version = "1.0.229"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2210,6 +2266,59 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0530892bb4fa575ee0da4b86f86c667132a94b74bb72160f58ee5a4afec74c23"
 dependencies = [
  "portable-atomic",
+]
+
+[[package]]
+name = "streambewi"
+version = "0.1.0"
+dependencies = [
+ "critical-section",
+ "embassy-futures",
+ "embassy-net",
+ "embassy-sync 0.8.0",
+ "embassy-time",
+ "embassy-usb",
+ "embedded-hal-async",
+ "embedded-io-async 0.7.0",
+ "improv-serial",
+ "iobewi-config-space",
+ "iobewi-fat16",
+ "iobewi-usb-msc",
+ "iobewi-wifi-core",
+ "iobewi-wifi-manager",
+ "log",
+ "reqwless",
+ "static_cell",
+ "streambewi-core",
+]
+
+[[package]]
+name = "streambewi-core"
+version = "0.1.0"
+dependencies = [
+ "iobewi-fat16",
+ "iobewi-rolling-stream",
+]
+
+[[package]]
+name = "streambewi-esp32"
+version = "0.1.0"
+dependencies = [
+ "embassy-executor",
+ "embassy-net",
+ "esp-alloc",
+ "esp-bootloader-esp-idf",
+ "esp-hal",
+ "esp-radio",
+ "esp-rtos",
+ "iobewi-esp-config-space",
+ "iobewi-esp-flash",
+ "iobewi-esp-reset",
+ "iobewi-esp-wifi",
+ "iobewi-log",
+ "log",
+ "static_cell",
+ "streambewi",
 ]
 
 [[package]]
@@ -2419,46 +2528,6 @@ name = "unsafe-libyaml"
 version = "0.2.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "673aac59facbab8a9007c7f6108d11f63b603f7cabff99fabf650fea5c32b861"
-
-[[package]]
-name = "usb-radio-core"
-version = "0.1.0"
-dependencies = [
- "iobewi-fat16",
- "iobewi-rolling-stream",
-]
-
-[[package]]
-name = "usb-radio-firmware"
-version = "0.1.0"
-dependencies = [
- "embassy-executor",
- "embassy-futures",
- "embassy-net",
- "embassy-sync 0.8.0",
- "embassy-time",
- "embassy-usb",
- "embedded-io-async 0.7.0",
- "embedded-storage",
- "esp-alloc",
- "esp-backtrace",
- "esp-bootloader-esp-idf",
- "esp-hal",
- "esp-println",
- "esp-radio",
- "esp-rtos",
- "esp-storage",
- "improv-serial",
- "iobewi-config-space",
- "iobewi-fat16",
- "iobewi-usb-msc",
- "iobewi-wifi-core",
- "iobewi-wifi-manager",
- "log",
- "reqwless",
- "static_cell",
- "usb-radio-core",
-]
 
 [[package]]
 name = "valuable"

@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
-# Build the USB-radio firmware and produce a flashable image.
+# Build the StreamBeWI firmware and produce a flashable image.
 # The firmware carries no Wi-Fi credentials (provisioned at runtime via Improv Serial),
 # so the output in dist/ is safe to version and share.
 # Re-runnable; run from anywhere. Requires: rustup toolchains 1.95.0 + esp, espflash.
 set -euo pipefail
 
-POC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-cd "$POC_DIR"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT_DIR"
 
 TARGET=xtensa-esp32s3-none-elf
-PKG=usb-radio-firmware
-NAME=usb-radio-poc-esp32s3
-DIST="$POC_DIR/dist"
+PKG=streambewi-esp32
+NAME=streambewi-esp32s3
+DIST="$ROOT_DIR/dist"
 BUILD_KIND="credential-free (Wi-Fi provisioned at runtime via Improv Serial)"
 if [[ -n "${WIFI_SSID:-}${WIFI_PASSWORD:-}" ]]; then
     echo "note: WIFI_SSID/WIFI_PASSWORD are ignored; the firmware is provisioned via Improv Serial." >&2
@@ -23,21 +23,21 @@ ELF_SRC="target/$TARGET/release/$PKG"
 SYSROOT="$(rustc +esp --print sysroot)"
 CARGO_HOME_DIR="${CARGO_HOME:-$HOME/.cargo}"
 export RUSTFLAGS="-C force-frame-pointers \
- --remap-path-prefix=$POC_DIR=/src \
+ --remap-path-prefix=$ROOT_DIR=/src \
  --remap-path-prefix=$CARGO_HOME_DIR=/cargo \
  --remap-path-prefix=$SYSROOT=/sysroot"
 
 # esp_app_desc embeds a build date/time; esp-bootloader-esp-idf honours
-# SOURCE_DATE_EPOCH. Tie it to the last commit touching the POC sources
+# SOURCE_DATE_EPOCH. Tie it to the last commit touching the sources
 # (generated delivery directories excluded, so rebuilding artefacts does not change it).
 SOURCE_DATE_EPOCH="$(git log -1 --format=%ct -- . ':(exclude)dist' ':(exclude)dist-local')"
 export SOURCE_DATE_EPOCH
 
-CORE_CMD="cargo +1.95.0 test -p usb-radio-core --target x86_64-unknown-linux-gnu"
+CORE_CMD="cargo +1.95.0 test -p streambewi-core -p streambewi --target x86_64-unknown-linux-gnu"
 BUILD_CMD="cargo +esp build -p $PKG --release -Z build-std=core,alloc --target $TARGET"
 IMAGE_CMD="espflash save-image --chip esp32s3 --merge --skip-padding $ELF_SRC $DIST/$NAME.bin"
 
-echo "== usb-radio-core tests"
+echo "== host tests"
 $CORE_CMD
 echo "== firmware release build"
 $BUILD_CMD
@@ -51,7 +51,7 @@ $IMAGE_CMD
 
 COMMIT="$(git rev-parse HEAD)"
 DIRTY=""
-[ -n "$(git status --porcelain --untracked-files=no -- "$POC_DIR" ':(exclude)dist' ':(exclude)dist-local')" ] && DIRTY=" (+ uncommitted source changes in the repository)"
+[ -n "$(git status --porcelain --untracked-files=no -- "$ROOT_DIR" ':(exclude)dist' ':(exclude)dist-local')" ] && DIRTY=" (+ uncommitted source changes in the repository)"
 {
   echo "repository:   $(git remote get-url origin 2>/dev/null || echo unknown)"
   echo "branch:       $(git rev-parse --abbrev-ref HEAD)"
