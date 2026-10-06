@@ -822,22 +822,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "esp-backtrace"
-version = "0.20.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4fbfed00e884572d620a6958b13456fc2bb8ab75802b5adc8afc224f97cdebad"
-dependencies = [
- "document-features",
- "esp-config",
- "esp-metadata-generated",
- "esp-println",
- "heapless 0.9.3",
- "riscv",
- "semihosting",
- "xtensa-lx",
-]
-
-[[package]]
 name = "esp-bootloader-esp-idf"
 version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -976,19 +960,6 @@ dependencies = [
  "esp-wifi-sys-esp32s3",
  "esp32s3 0.37.0",
  "log",
-]
-
-[[package]]
-name = "esp-println"
-version = "0.18.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ebf772a41bc642b57399632aa06ab55391de35b2b8fcbb1b270d282fbd0fe5ff"
-dependencies = [
- "document-features",
- "esp-metadata-generated",
- "esp-sync",
- "log",
- "portable-atomic",
 ]
 
 [[package]]
@@ -1554,15 +1525,6 @@ dependencies = [
  "iobewi-esp-flash",
  "iobewi-esp-nvs",
  "iobewi-nvs-core",
- "log",
-]
-
-[[package]]
-name = "iobewi-esp-console"
-version = "0.1.0"
-source = "git+https://github.com/iobewi/iobewi?rev=ddfa839a15836c3eebedc24fa34efc1d7bd3bc84#ddfa839a15836c3eebedc24fa34efc1d7bd3bc84"
-dependencies = [
- "esp-println",
  "log",
 ]
 
@@ -2148,12 +2110,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "semihosting"
-version = "0.1.25"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f8e4abf97879f4e80db69a9fba7bd64998e9bdad25f58ef045a778e191172fd4"
-
-[[package]]
 name = "serde"
 version = "1.0.229"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2351,14 +2307,11 @@ dependencies = [
  "embassy-executor",
  "embassy-net",
  "esp-alloc",
- "esp-backtrace",
  "esp-bootloader-esp-idf",
  "esp-hal",
- "esp-println",
  "esp-radio",
  "esp-rtos",
  "iobewi-esp-config-space",
- "iobewi-esp-console",
  "iobewi-esp-flash",
  "iobewi-esp-reset",
  "iobewi-esp-wifi",

@@ -33,10 +33,12 @@ app/            `streambewi`: portable product logic (provisioning, stream, USB 
 ```
 
 `streambewi::run` receives its platform as ports: a `WifiTransport`, a `ConfigBackend`, up to two
-`embedded-io-async` serial ports for Improv, an `embedded-hal-async` button, a reset function and
-a factory for the `embassy-usb` driver (called late: the USB pins can be shared with the serial
-port used for provisioning). `targets/esp32` builds them from the IOBEWI ESP drivers
-(`iobewi-esp-wifi`, `iobewi-esp-config-space`, `iobewi-esp-console`, `iobewi-esp-reset`). Another
+`embedded-io-async` serial ports for Improv, an `embedded-hal-async` button,
+a boot policy, a consuming reset port and an optional `embassy-usb` driver factory.
+The persisted USB mode is read before either native USB controller is constructed:
+provisioning keeps JTAG for the entire boot, while an MSC boot starts OTG after prebuffer.
+See [USB boot policy](docs/usb-boot-policy.md) for error and recovery semantics. `targets/esp32` builds them from the IOBEWI ESP drivers
+(`iobewi-esp-wifi`, `iobewi-esp-config-space`, `iobewi-esp-reset`). Another
 chip needs a new `targets/<chip>` only. Logs use the `log` facade, installed by the target through
 `iobewi-log`. IOBEWI crates are pinned by git rev.
 
@@ -190,7 +192,14 @@ the protocol ESP Web Tools speaks after flashing.
   A previous image's raw A/B records at that address are not valid NVS: flash with the erase
   option once.
 - Reflashing the merged image rewrites that region: provision again after each flash.
-- Flash writes stall interrupts for a few ms: provision with the OTG port **unplugged**.
+- During provisioning the native port serves JTAG and no OTG driver is created.
+- Credentials are committed first, then the OTG flag; a flag commit failure is an
+  Improv error and a fresh provisioning request retries it.
+- BOOT held 3 seconds while running commits provisioning mode before clearing
+  credentials and restarting. See the policy document for partial failures.
+
+After a successful provisioning, restart or power-cycle the board to enter MSC.
+Saving credentials/flag does not switch native USB in the current boot.
 
 Flow: flash with ESP Web Tools, choose **Connect to Wi-Fi** in its dialog (it lists the
 networks seen by the board), enter the password. Boot log on success:
@@ -215,8 +224,10 @@ Board: ESP32-S3. Two different USB connectors are involved:
 | native USB OTG | D+ GPIO20, D- GPIO19 | the StreamBeWI USB mass-storage device: plug into the Metronic |
 | USB-UART (CP210x/CH340 bridge, "UART" label) | UART0 | flashing and serial console: plug into the PC |
 
-The firmware owns GPIO19/20 as USB OTG, so the native port does **not** show a serial
-console; logs (`esp-println`, `uart` feature) come out on the USB-UART port only.
+The native port is JTAG in a provisioning boot and OTG in an MSC boot. UART0
+continues to serve Improv in both modes. This composition installs no physical
+console/panic output; stage logs below describe the historical measured firmware.
+The versioned dist image has not been rebuilt with the new boot policy.
 
 `dist/` holds the current (P2, Improv-provisioned) image; it contains no credentials. The
 older P1-only image remains in Git history (commit `5277330`).

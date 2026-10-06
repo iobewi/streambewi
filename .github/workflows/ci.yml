@@ -13,7 +13,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: "1.95.0"
-      - run: cargo +1.95.0 test -p streambewi-core -p streambewi --target x86_64-unknown-linux-gnu
+      - run: cargo +1.95.0 test -p streambewi-core -p streambewi --locked --target x86_64-unknown-linux-gnu
 
   esp32s3:
     runs-on: ubuntu-latest
@@ -29,7 +29,7 @@ jobs:
         with:
           tool: espflash
       - name: Release build (real link)
-        run: cargo +esp build -p streambewi-esp32 --release -Z build-std=core,alloc --target xtensa-esp32s3-none-elf
+        run: cargo +esp build -p streambewi-esp32 --release --locked -Z build-std=core,alloc --target xtensa-esp32s3-none-elf
       - name: Flashable image
         run: |
           mkdir -p ci-out

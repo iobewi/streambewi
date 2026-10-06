@@ -2,6 +2,7 @@
 //! on top of IOBEWI's `WifiManager` (portable policy). Credentials persist through ConfigSpace.
 //! Nothing platform-specific lives here: transports, storage, button and reset are ports.
 
+use crate::boot_policy::{BootMode, BootPolicy, ProvisionError, Recovery};
 use alloc::string::ToString;
 
 use core::convert::Infallible;
@@ -60,24 +61,41 @@ pub fn is_configured() -> bool {
     CONFIGURED.load(Ordering::Relaxed)
 }
 
-/// Watches the active-low recovery button: held for `RECOVERY_HOLD`, it erases the saved Wi-Fi
-/// network and restarts the device through `reset`, which brings it back to UNCONFIGURED.
-pub async fn recovery_watch<Btn: Wait, B: ConfigBackend>(
+/// BOOT recovery persists provisioning first, then clears Wi-Fi and restarts.
+/// A failed flag commit preserves credentials and does not request reset.
+pub async fn recovery_watch<Btn: Wait, B: ConfigBackend, R: crate::Reset>(
     mut button: Btn,
-    backend: B,
-    reset: fn() -> !,
+    boot: &BootPolicy<B>,
+    reset: R,
 ) -> ! {
     loop {
         if button.wait_for_low().await.is_err() {
             Timer::after(Duration::from_millis(100)).await;
             continue;
         }
-        if with_timeout(RECOVERY_HOLD, button.wait_for_high()).await.is_err() {
-            match backend.clear("wifi").await {
-                Ok(_) => log::info!("provisioning: button held, Wi-Fi config erased; restarting"),
-                Err(_) => log::info!("provisioning: button held, erase FAILED; restarting"),
+        if with_timeout(RECOVERY_HOLD, button.wait_for_high())
+            .await
+            .is_err()
+        {
+            match boot.recover().await {
+                Ok(Recovery::Cleared) => {
+                    log::info!("recovery: provisioning flag and Wi-Fi cleared; restarting");
+                    reset.reset();
+                }
+                Ok(Recovery::ResidualCredentials(_)) => {
+                    log::error!(
+                        "recovery: provisioning flag saved, Wi-Fi clear FAILED; restarting with residual credentials"
+                    );
+                    reset.reset();
+                }
+                Err(_) => {
+                    log::error!("recovery: flag commit FAILED; credentials unchanged, no reset")
+                }
             }
-            reset();
+            // A failed recovery needs a new press, not a busy retry on held BOOT.
+            while button.wait_for_high().await.is_err() {
+                Timer::after(Duration::from_millis(100)).await;
+            }
         }
     }
 }
@@ -175,6 +193,7 @@ pub async fn wifi_task<T, B, W1, W2>(
     mut ports: Ports<W1, W2>,
     network: &NetworkSignal,
     chip: &'static [u8],
+    boot: &BootPolicy<B>,
 ) -> !
 where
     T: WifiTransport<NetworkHandle = Stack<'static>>,
@@ -187,10 +206,15 @@ where
     let sleep = EmbassySleep;
     let mut observer = LogObserver { network };
     let mut state = State::Authorized;
+    let mut flag_committed = boot.mode() == BootMode::MassStorage;
 
     loop {
         CONFIGURED.store(true, Ordering::Relaxed);
-        *(&mut state) = if manager.is_online() { State::Provisioned } else { State::Authorized };
+        *(&mut state) = if flag_committed && manager.is_online() {
+            State::Provisioned
+        } else {
+            State::Authorized
+        };
         match select(
             manager.maintain(&sleep, &mut observer),
             IMPROV_COMMANDS.receive(),
@@ -201,10 +225,34 @@ where
                 CONFIGURED.store(false, Ordering::Relaxed);
                 log::info!("wifi: no saved credentials; waiting for Improv provisioning");
                 let (port, command) = IMPROV_COMMANDS.receive().await;
-                handle(command, Reply { ports: &mut ports, port }, &mut state, &mut manager, chip).await;
+                handle(
+                    command,
+                    Reply {
+                        ports: &mut ports,
+                        port,
+                    },
+                    &mut state,
+                    &mut manager,
+                    chip,
+                    boot,
+                    &mut flag_committed,
+                )
+                .await;
             }
             Either::Second((port, command)) => {
-                handle(command, Reply { ports: &mut ports, port }, &mut state, &mut manager, chip).await
+                handle(
+                    command,
+                    Reply {
+                        ports: &mut ports,
+                        port,
+                    },
+                    &mut state,
+                    &mut manager,
+                    chip,
+                    boot,
+                    &mut flag_committed,
+                )
+                .await
             }
         }
     }
@@ -216,6 +264,8 @@ async fn handle<T, B, W1, W2>(
     state: &mut State,
     manager: &mut Manager<T, B>,
     chip: &'static [u8],
+    boot: &BootPolicy<B>,
+    flag_committed: &mut bool,
 ) where
     T: WifiTransport<NetworkHandle = Stack<'static>>,
     T::Address: Display,
@@ -229,7 +279,8 @@ async fn handle<T, B, W1, W2>(
             tx.send(&improv::state_frame(*state)).await;
             // ESP Web Tools also awaits an RPC result when already provisioned.
             if *state == State::Provisioned {
-                tx.send(&improv::rpc_response_frame(Command::GetCurrentState, &[])).await;
+                tx.send(&improv::rpc_response_frame(Command::GetCurrentState, &[]))
+                    .await;
             }
         }
         ParsedCommand::GetDeviceInfo => {
@@ -249,25 +300,44 @@ async fn handle<T, B, W1, W2>(
                 );
                 tx.send(&frame).await;
             }
-            tx.send(&improv::rpc_response_frame(Command::GetWifiNetworks, &[])).await;
+            tx.send(&improv::rpc_response_frame(Command::GetWifiNetworks, &[]))
+                .await;
         }
         ParsedCommand::GetNetworkState => {
             let flags: &[u8] = if manager.is_online() { b"3" } else { b"2" };
-            tx.send(&improv::rpc_response_frame(Command::GetNetworkState, &[flags])).await;
+            tx.send(&improv::rpc_response_frame(
+                Command::GetNetworkState,
+                &[flags],
+            ))
+            .await;
         }
         ParsedCommand::WifiSettings(settings) => {
             log::info!("improv: provisioning ssid={}", settings.ssid);
             *state = State::Provisioning;
             tx.send(&improv::state_frame(*state)).await;
-            if WifiProvisioning::provision(manager, &settings.ssid, settings.password).await {
-                log::info!("improv: provisioned, credentials saved");
+            let result = boot
+                .provision(manager, &settings.ssid, settings.password)
+                .await;
+            if result.is_ok() {
+                *flag_committed = true;
+                log::info!("improv: credentials and OTG flag saved; restart required for MSC");
                 *state = State::Provisioned;
                 tx.send(&improv::state_frame(*state)).await;
-                tx.send(&improv::rpc_response_frame(Command::WifiSettings, &[])).await;
+                tx.send(&improv::rpc_response_frame(Command::WifiSettings, &[]))
+                    .await;
             } else {
-                log::info!("improv: provisioning failed");
+                match result {
+                    Err(ProvisionError::Flag(_)) => {
+                        *flag_committed = false;
+                        log::error!(
+                            "improv: credentials saved but OTG flag commit FAILED; reprovision to retry"
+                        );
+                    }
+                    _ => log::info!("improv: provisioning failed"),
+                }
                 *state = State::Authorized;
-                tx.send(&improv::error_frame(ImprovError::UnableToConnect)).await;
+                tx.send(&improv::error_frame(ImprovError::UnableToConnect))
+                    .await;
                 tx.send(&improv::state_frame(*state)).await;
             }
         }
@@ -277,3 +347,7 @@ async fn handle<T, B, W1, W2>(
         }
     }
 }
+
+#[cfg(test)]
+#[path = "provisioning_tests.rs"]
+mod tests;
