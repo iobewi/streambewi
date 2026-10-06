@@ -17,6 +17,7 @@ macro_rules! mk_static {
 }
 
 pub mod boot_policy;
+pub mod logging;
 pub mod provisioning;
 pub mod stream;
 pub mod usb;
@@ -45,6 +46,7 @@ where
     <B::Wifi as WifiTransport>::Address: Display,
     <B::Config as ConfigBackend>::Error: Debug,
 {
+    logging::install();
     let parts = board.into_parts();
     let (boot, wifi_config) = match boot_policy::BootPolicy::prepare(parts.config).await {
         Ok(prepared) => prepared,

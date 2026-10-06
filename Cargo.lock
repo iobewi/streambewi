@@ -1700,6 +1700,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "iobewi-log"
+version = "0.1.0"
+source = "git+https://github.com/iobewi/iobewi?rev=f0360f51a61c2a475924ab4633b77757b2a832b7#f0360f51a61c2a475924ab4633b77757b2a832b7"
+dependencies = [
+ "critical-section",
+ "heapless 0.9.3",
+ "log",
+ "static_cell",
+]
+
+[[package]]
 name = "iobewi-nvs-core"
 version = "0.1.0"
 source = "git+https://github.com/iobewi/iobewi?rev=f0360f51a61c2a475924ab4633b77757b2a832b7#f0360f51a61c2a475924ab4633b77757b2a832b7"
@@ -2396,6 +2407,7 @@ dependencies = [
  "iobewi-config-space",
  "iobewi-device",
  "iobewi-fat16",
+ "iobewi-log",
  "iobewi-usb-msc",
  "iobewi-wifi-core",
  "iobewi-wifi-manager",

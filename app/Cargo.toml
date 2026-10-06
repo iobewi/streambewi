@@ -25,6 +25,7 @@ static_cell = "2.1.1"
 
 improv-serial = { git = "https://github.com/iobewi/improv-serial", rev = "8e9d2c437d07cc22fe848ec0493ea3a3c5ecaea3" }
 iobewi-config-space = { git = "https://github.com/iobewi/iobewi", rev = "f0360f51a61c2a475924ab4633b77757b2a832b7" }
+iobewi-log = { git = "https://github.com/iobewi/iobewi", rev = "f0360f51a61c2a475924ab4633b77757b2a832b7" }
 iobewi-fat16 = { git = "https://github.com/iobewi/iobewi", rev = "f0360f51a61c2a475924ab4633b77757b2a832b7" }
 iobewi-usb-msc = { git = "https://github.com/iobewi/iobewi", rev = "f0360f51a61c2a475924ab4633b77757b2a832b7" }
 iobewi-wifi-core = { git = "https://github.com/iobewi/iobewi", rev = "f0360f51a61c2a475924ab4633b77757b2a832b7" }

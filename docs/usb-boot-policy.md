@@ -60,8 +60,15 @@ sequence. The current mode never changes before reset.
 ## Console and panic
 
 IOBEWI entry installs no physical console sink. Its panic handler silently halts
-without accessing USB/JTAG. Logs stay in the bounded framework ring. Only fatal
-board-startup errors use best-effort UART diagnostics, before Improv starts.
+without accessing USB/JTAG. `entry!` installs no logger either: the product
+installs `iobewi-log` first thing in `run` (`app/src/logging.rs`) with a no-op
+console callback, so `log::*` lines are captured in the bounded `iobewi-log` ring
+and written nowhere. The ring holds 24 lines of at most 160 bytes; once full, new
+lines are dropped (oldest kept) until a consumer drains it, and no consumer exists
+yet (`log-stream` is tracked in #3). In practice the ring keeps the first lines
+after boot. The product target is captured at Info, other targets at Warn and
+above; Debug/Trace are never captured. Only fatal board-startup errors use
+best-effort UART diagnostics, before Improv starts.
 Historical serial-monitor logs below describe earlier compositions.
 
 ## Validation
