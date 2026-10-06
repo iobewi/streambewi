@@ -51,7 +51,7 @@ join of provisioning, recovery, streaming and MSC, not the experiment fixture:
 | Chip metadata | `ESP32-S3` |
 | Monomorphized product future | 8,632 bytes, alignment 8 |
 | Entry task future | 8,680 bytes, alignment 8 |
-| Linker stack reservation | 57,744 bytes |
+| Linker stack reservation | 51,616 bytes (57,744 before `iobewi-log` added its static ring) |
 | Declared heap | 98,304 bytes |
 | Requested minimum stack reservation | 16,384 bytes |
 | Requested sockets | 3 (DHCP, DNS, HTTP) |
