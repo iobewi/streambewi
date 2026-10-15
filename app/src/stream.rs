@@ -1,5 +1,5 @@
 use core::cell::{Cell, RefCell};
-use core::sync::atomic::{AtomicU32, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
 use embassy_net::{
     Stack,
@@ -27,6 +27,8 @@ const CHUNK_BYTES: usize = 2048;
 pub struct SharedStream {
     inner: Mutex<CriticalSectionRawMutex, RefCell<Stream>>,
     reconnects: AtomicU32,
+    /// Keep the consumer session across the next reconnection of the host (see `hold_session`).
+    hold: AtomicBool,
     /// Ticks of the last accepted push (0: nothing pushed yet); a critical section, since the target
     /// has no 64-bit atomics.
     last_push: Mutex<CriticalSectionRawMutex, Cell<u64>>,
@@ -43,6 +45,7 @@ impl SharedStream {
         Self {
             inner: Mutex::new(RefCell::new(new_stream())),
             reconnects: AtomicU32::new(0),
+            hold: AtomicBool::new(false),
             last_push: Mutex::new(Cell::new(0)),
         }
     }
@@ -77,12 +80,15 @@ impl SharedStream {
         }
     }
 
-    /// End the consumer session without the MSC class: the window stops waiting for a reader and the
-    /// producer runs free until the next `begin_session`.
-    pub fn release_session(&self) {
-        self.inner.lock(|cell| {
-            cell.borrow_mut().end_session();
-        });
+    /// Keep the current consumer session across the host's next disconnection and reconnection:
+    /// the end of the MSC session and the beginning of the next one leave the window untouched.
+    ///
+    /// A player that was disconnected for a while resumes at its previous file offset; rebasing on
+    /// the live edge would put that offset ahead of the stream (it would wait for data that arrives
+    /// much later) or serve it expired data. Keeping the session keeps the offsets continuous: the
+    /// bytes after the interruption are simply the data that arrived since.
+    pub fn hold_session(&self) {
+        self.hold.store(true, Ordering::Release);
     }
 
     fn mark_reconnect(&self) -> u32 {
@@ -110,12 +116,19 @@ impl SharedStreamSource {
 
 impl FileSource for SharedStreamSource {
     fn begin_session(&mut self) {
+        if self.stream.hold.swap(false, Ordering::AcqRel) {
+            log::info!("stream: session kept across the reconnection");
+            return;
+        }
         self.with_file(|file| file.begin_session());
         let (live, _) = self.stream.progress();
         log::info!("stream: session start live={}", live);
     }
 
     fn end_session(&mut self) {
+        if self.stream.hold.load(Ordering::Acquire) {
+            return;
+        }
         self.with_file(|file| file.end_session());
         let (live, consumed) = self.stream.progress();
         log::info!("stream: session end consumed={} live={}", consumed, live);

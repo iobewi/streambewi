@@ -121,8 +121,8 @@ impl LinkSupervisor {
         self.stall.wait().await;
         let (written_at_stall, _) = self.stream.progress();
         log::info!("usb: stream stalled, leaving the bus");
-        // No reader is served any more: let the producer run free so that fresh data can arrive.
-        self.stream.release_session();
+        // The player will resume at the offset it had: keep the session through the reconnection.
+        self.stream.hold_session();
         self.link.set_connected(false);
         Timer::after(self.hold).await;
         while self.stream.progress().0 < written_at_stall + PREBUFFER_BYTES {
@@ -307,18 +307,25 @@ mod tests {
     }
 
     #[test]
-    fn a_stall_leaves_the_bus_and_rejoins_after_a_fresh_prebuffer() {
-        use iobewi_fat16::FileSource;
+    fn a_stall_leaves_the_bus_and_rejoins_after_a_fresh_prebuffer_keeping_the_session() {
+        use iobewi_fat16::{FileSource, SECTOR_SIZE};
         let stream: &'static SharedStream = Box::leak(Box::new(SharedStream::new()));
         let stall: &'static Signal<CriticalSectionRawMutex, ()> =
             Box::leak(Box::new(Signal::new()));
         let link: &'static FakeLink = Box::leak(Box::new(FakeLink(Default::default())));
-        // A session is open and the window holds data, as when a reader is being served.
         let data = [0x55u8; 1024];
         for _ in 0..80 {
             stream.push(&data);
         }
-        SharedStreamSource::new(stream).begin_session();
+        // A reader is served and has drained the window: it starves, as in a stream interruption.
+        let mut source = SharedStreamSource::new(stream);
+        source.begin_session();
+        let mut sector = [0u8; SECTOR_SIZE];
+        let mut index = 0;
+        while source.read_file_sector(index, &mut sector) == ReadStatus::Ready {
+            index += 1;
+        }
+        let (written_at_stall, consumed) = stream.progress();
         let supervisor = LinkSupervisor {
             stream,
             stall,
@@ -327,23 +334,33 @@ mod tests {
             poll: Duration::from_millis(5),
         };
         stall.signal(());
-        let (written_at_stall, _) = stream.progress();
         embassy_futures::block_on(embassy_futures::join::join(supervisor.cycle(), async {
-            // Nothing is pushed while the device is off the bus for the hold time.
             Timer::after(Duration::from_millis(10)).await;
             assert_eq!(*link.0.lock().unwrap(), vec![false]);
-            // The window no longer waits for a reader, so the producer can refill it.
-            assert_eq!(stream.progress().0, written_at_stall);
             Timer::after(Duration::from_millis(60)).await;
             // Held down: the stream has not delivered a fresh prebuffer yet.
             assert_eq!(*link.0.lock().unwrap(), vec![false]);
             for _ in 0..70 {
-                stream.push(&data);
+                assert_eq!(stream.push(&data), data.len());
             }
         }));
         assert_eq!(*link.0.lock().unwrap(), vec![false, true]);
         assert!(stream.progress().0 >= written_at_stall + PREBUFFER_BYTES);
         // Reads that kept waiting during the hold do not drop the link again at once.
         assert!(!stall.signaled());
+        // The host re-enumerates: ending and beginning its MSC session leaves the window alone, so
+        // the player resumes at its own offset, on the data that arrived meanwhile.
+        source.end_session();
+        source.begin_session();
+        assert_eq!(stream.progress().1, consumed);
+        assert_eq!(
+            source.read_file_sector(index, &mut sector),
+            ReadStatus::Ready
+        );
+        assert!(sector.iter().all(|b| *b == 0x55));
+        // Only that one reconnection is kept: the next session starts on the live edge as usual.
+        source.end_session();
+        source.begin_session();
+        assert_ne!(stream.progress().1, consumed);
     }
 }
