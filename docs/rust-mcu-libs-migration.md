@@ -337,3 +337,48 @@ Trois relectures par la compétence `code-review` (niveau élevé, tous les cons
 8. Improv `GetDeviceInfo` annonce la version **0.2.0** alors que le descripteur de l'image est **0.1.0** : **confirmé par mes mesures** (la réponse `info` renvoyait `0.2.0`).
 
 **Verdict de la revue** : aucun défaut bloquant dans la logique de #10, #11 et #78 ; les défauts fonctionnels trouvés dans cette série (producteur freiné pris pour muet) ont déjà été corrigés avant le firmware testé. Restent deux lacunes de robustesse que les essais ne pouvaient pas atteindre (constat 1 de la pile : producteur sans délai de lecture ; constat 1 de #78 : référence de reset par session). **Les corriger change les révisions, donc l'image nominale, et demande de la rebâtir et de la revalider sur la S3 Zero avec le Metronic.** Aucune correction n'a été faite.
+
+### Corrections après revue et qualification finale (15 octobre 2026)
+
+Suite à la revue indépendante, quatre corrections ciblées ont été apportées, puis la pile a été requalifiée sur la DevKitC-1 (UART, Windows et Metronic) sans refaire toute la qualification des briques.
+
+**Révisions finales**
+
+| Dépôt | Branche | Révision | Contenu |
+| --- | --- | --- | --- |
+| `rust-mcu-libs` (#78) | `feat/67-read-command-budget` | `a525c33` | référence des resets du bus prise **par commande** (test ciblé `a_bus_reset_before_a_command_does_not_abandon_it`) |
+| `streambewi` | `fix/67-identity-and-build` | `ee06c9e` | identité Improv tirée des mêmes sources que le descripteur ; une seule commande de fabrication pour la CI et le script de livraison ; version de GCC Xtensa consignée ; configuration illisible ou formatage interrompu : refus au montage, documenté (`docs/config-recovery.md`), pas de reformatage automatique |
+| `streambewi` | `fix/67-read-budget` | `f049122` | budget d'attente par commande |
+| `streambewi` (#11) | `feat/67-stall-soft-disconnect` | `668905f` | délai de lecture réseau (`READ_TIMEOUT` 8 s, `CONNECT_TIMEOUT` 15 s) avec abandon et reconnexion existante, bibliothèque `a525c33`, limite des lectures concurrentes documentée (`docs/concurrent-readers.md`) |
+
+**Images**
+
+| Image | Source | SHA-256 |
+| --- | --- | --- |
+| **nominale finale**, application à 0x50000 | `streambewi@668905ff254761345b960ab6654eec8fec2415fe`, `rust-mcu-libs@a525c33` | `88b5f5e1336bb9064587d3eddc78963105dc15843082612c9296e09368f0eb06` (741 824 o) |
+| nominale finale, image complète | idem | `5a4668b18e95bef2cbf7a93d2f9bb108509aedbc488c1be83064113016367b5b` |
+| nominale finale, ELF | idem | `6cc18bebb490a738737e734aee42729a1c8a586247864816b329df6255109493` |
+| **instrumentée finale**, application à 0x50000 | même commit + `apply_qual.py` (console UART0, journaux ZEROFILL/REBASE/MSC) | `b305d25ca8c62f7ae3502d62bb44d8b8dadee8f55aa48681c79e455b31037dfe` |
+
+Les deux images sont fabriquées par `scripts/build-image.sh` (même commande que la CI, GCC Xtensa esp-16.2.0 en local). L'artefact de la CI diffère de l'image locale de 65 octets (GCC esp-15.2.0 contre esp-16.2.0 : objets de démarrage du compilateur, `app_elf_sha256` et condensat) ; le reste est identique. Les empreintes ci-dessus sont celles des images **réellement flashées** : la nominale sur la S3 Zero puis la DevKitC-1, l'instrumentée sur la DevKitC-1.
+
+**Résultats (heures UTC ; le mainteneur est à UTC+2)**
+
+| Essai | Carte / image | Résultat | Preuve |
+| --- | --- | --- | --- |
+| Improv annonce la version du firmware | S3 Zero, nominale finale | **PASS** | `info` = `streambewi / 0.1.0 / ESP32-S3` |
+| A : pause et contre-pression (90 s sans lecture) | DevKitC-1, instrumentée finale | **PASS** sur le critère visé | aucun `no data for 8 s` pendant environ 4 min de freinage ; la seule reconnexion est une fermeture par le serveur |
+| B : connexion devenue silencieuse, Wi-Fi associé | DevKitC-1, instrumentée finale (`96ea363`) | **PASS** | `no data for 8 s, abandoning the connection` à 16:21:27, reconnexions, HTTP 200 à 16:22:02, `rejoining the bus` ; 1 `ZEROFILL` isolé avant le retour |
+| Stop/pause/play, séquences minutées (7 reprises, stop de 2 s à 33 s) | DevKitC-1 + Metronic, instrumentée finale (`668905f`) | **PASS** | aucun `ZEROFILL`, stall, fin de session, avertissement ; `consumed` repart après chaque rebasage ; retour « RAS » du mainteneur |
+| Lecture continue 10 min 12 s | idem | **PASS** | environ 16 Kio/s, `lead` à 81 920, mémoire stable (`min_free` 41 380, marge de pile 26 392), aucun événement |
+| Blocage du WAN 69 s (Wi-Fi associé), Metronic en lecture | idem | **PASS** | `stream stalled` 17:09:17, `no data for 8 s` 17:09:19, tentatives 4 à 7, HTTP 200 17:10:19, `rejoining the bus` ; le son revient seul |
+
+**Non démontré ou non expliqué**
+
+1. **S3 Zero, 18:34 (heure du mainteneur), image nominale finale** : première lecture après reprovisionnement, un stop de 5 s a été suivi d'un play qui n'a pas repris ; le redémarrage de la carte a rétabli la lecture. La Zero n'a pas d'UART et son port natif porte le disque : **aucune trace**. Non reproduit ensuite sur la DevKitC-1 (instrumentée, même source) : 7 reprises minutées et un stop de 33 s sans anomalie. **Cause non établie** ; consigné comme anomalie isolée. Le premier essai Improv de reprovisionnement avait aussi répondu `unable to connect` (réussi au second essai), cause non établie.
+2. **L'image nominale n'a pas été rejouée à l'oreille sur la DevKitC-1** après la séquence instrumentée : le mainteneur a jugé inutile de la rejouer, la logique étant celle de l'instrumentée (seule la journalisation diffère). Cette équivalence est un argument, pas une mesure.
+3. **Lectures concurrentes** (`docs/concurrent-readers.md`) : un second lecteur qui relit le secteur 0 pendant qu'un premier lit plus loin déplace la session ; les lectures du premier au-delà du bord et de l'avance maximale ne peuvent plus aboutir (secteurs nuls après 5 s). Observé à 16:07:54 avec Windows et le script de vérification en même temps ; **limite connue, non corrigée** (le correctif ZeroFill rapide a été écarté : il masquerait le déplacement de session). Le Metronic, lecteur unique, n'y est pas exposé.
+4. Le figement isolé du Metronic reste non expliqué.
+5. La validation sur la cible (S3 Zero) n'a plus d'intérêt pour la suite : la DevKitC-1 est identique et sert de banc.
+
+**Fusion** : rien n'est fusionné, #67 reste ouverte.
