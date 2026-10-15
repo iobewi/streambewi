@@ -3,7 +3,7 @@
 //! CONFIGURED and the stream is ready (on some boards the USB pins are shared with the serial
 //! port Improv uses).
 
-use embassy_futures::join::join3;
+use embassy_futures::{join::join3, select::select};
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal};
 use embassy_time::{Duration, Instant, Timer};
 #[cfg(feature = "usb-debug")]
@@ -24,6 +24,11 @@ const PENDING_TIMEOUT: Duration = Duration::from_secs(5);
 /// A host that is starving for data while the producer has been silent this long finds nothing
 /// valid to read: the device leaves the bus instead of answering with data it does not have.
 const STALL_BEFORE_DROP: Duration = Duration::from_secs(2);
+/// The stream has delivered nothing for longer than the buffer can cover, whatever the host does:
+/// the device is off the bus until the stream is back, so that no host is left with a disk that
+/// cannot be read. A reader that starves earlier (the Metronic, at the end of its buffered 5 s)
+/// triggers `STALL_BEFORE_DROP` first.
+const STALL_ABSOLUTE: Duration = Duration::from_secs(6);
 /// How long the device stays off the bus, so that the host registers the removal.
 const DISCONNECT_HOLD: Duration = Duration::from_millis(1500);
 const RECONNECT_POLL: Duration = Duration::from_millis(200);
@@ -108,6 +113,7 @@ struct LinkSupervisor {
     link: &'static dyn UsbLink,
     hold: Duration,
     poll: Duration,
+    absolute: Duration,
 }
 
 impl LinkSupervisor {
@@ -117,8 +123,18 @@ impl LinkSupervisor {
         }
     }
 
+    /// Resolves when the producer has been silent for `absolute`, whether or not a reader starves.
+    async fn watch_idle(&self) {
+        loop {
+            Timer::after(self.poll).await;
+            if self.stream.producer_idle() >= self.absolute {
+                return;
+            }
+        }
+    }
+
     async fn cycle(&self) {
-        self.stall.wait().await;
+        select(self.stall.wait(), self.watch_idle()).await;
         let (written_at_stall, _) = self.stream.progress();
         log::info!("usb: stream stalled, leaving the bus");
         // The player will resume at the offset it had: keep the session through the reconnection.
@@ -240,6 +256,7 @@ where
         link,
         hold: DISCONNECT_HOLD,
         poll: RECONNECT_POLL,
+        absolute: STALL_ABSOLUTE,
     };
     join3(device_fut, msc_fut, supervisor.run()).await;
 }
@@ -332,6 +349,7 @@ mod tests {
             link,
             hold: Duration::from_millis(30),
             poll: Duration::from_millis(5),
+            absolute: Duration::from_secs(3600),
         };
         stall.signal(());
         embassy_futures::block_on(embassy_futures::join::join(supervisor.cycle(), async {
@@ -362,5 +380,45 @@ mod tests {
         source.end_session();
         source.begin_session();
         assert_ne!(stream.progress().1, consumed);
+    }
+
+    #[test]
+    fn a_silent_producer_leaves_the_bus_even_when_no_reader_starves() {
+        let stream: &'static SharedStream = Box::leak(Box::new(SharedStream::new()));
+        let stall: &'static Signal<CriticalSectionRawMutex, ()> =
+            Box::leak(Box::new(Signal::new()));
+        let link: &'static FakeLink = Box::leak(Box::new(FakeLink(Default::default())));
+        let data = [0x55u8; 1024];
+        for _ in 0..80 {
+            stream.push(&data);
+        }
+        let supervisor = LinkSupervisor {
+            stream,
+            stall,
+            link,
+            hold: Duration::from_millis(10),
+            poll: Duration::from_millis(5),
+            absolute: Duration::from_millis(60),
+        };
+        let (written_at_stall, _) = stream.progress();
+        embassy_futures::block_on(embassy_futures::join::join(supervisor.cycle(), async {
+            // The producer delivers nothing: after `absolute` the device has left the bus.
+            Timer::after(Duration::from_millis(120)).await;
+            assert_eq!(*link.0.lock().unwrap(), vec![false]);
+            for _ in 0..70 {
+                assert_eq!(stream.push(&data), data.len());
+            }
+        }));
+        assert_eq!(*link.0.lock().unwrap(), vec![false, true]);
+        assert!(stream.progress().0 >= written_at_stall + PREBUFFER_BYTES);
+    }
+
+    #[test]
+    fn a_throttled_producer_is_not_idle() {
+        let stream = SharedStream::new();
+        stream.push(&[0u8; 16]);
+        assert!(stream.producer_idle() < Duration::from_secs(1));
+        stream.note_throttled();
+        assert!(stream.producer_idle() < Duration::from_secs(1));
     }
 }
