@@ -33,6 +33,9 @@ python3 tools/inspect_firmware_elf.py "$ELF_SRC" > "$OUT/firmware-layout.json"
   echo "source:            $(git rev-parse HEAD)${FEATURES:+  (features: $FEATURES)}"
   echo "rustc (esp):       $(rustc +esp --version)"
   echo "espflash:          $(espflash --version)"
+  # The linker driver brings the C start-up objects; another GCC build gives another ELF (and so another
+  # app_elf_sha256 in the descriptor) with the same application code and data.
+  echo "xtensa gcc:        $(for g in xtensa-esp32s3-elf-gcc xtensa-esp-elf-gcc; do command -v "$g" >/dev/null && "$g" --version | head -1 && break; done || echo unknown)"
   echo "RUSTFLAGS:         $RUSTFLAGS"
   echo "SOURCE_DATE_EPOCH: $SOURCE_DATE_EPOCH"
   echo "build:             $BUILD_CMD"
