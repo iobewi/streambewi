@@ -19,9 +19,9 @@ embassy-net = { version = "0.9.1", default-features = false, features = ["dhcpv4
 embedded-io-async = "0.7"
 static_cell = "2.1"
 log = "0.4"
-iobewi-config-space = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "0b68389801e9e15a40c37a8808f84a478a79776b" }
-iobewi-esp-config-space = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "0b68389801e9e15a40c37a8808f84a478a79776b", features = ["esp32s3"] }
-iobewi-esp-flash = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "0b68389801e9e15a40c37a8808f84a478a79776b", features = ["esp32s3"] }
-iobewi-esp-wifi = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "0b68389801e9e15a40c37a8808f84a478a79776b", features = ["esp32s3"] }
-iobewi-esp-usb = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "0b68389801e9e15a40c37a8808f84a478a79776b", features = ["esp32s3"] }
-iobewi-wifi-manager = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "0b68389801e9e15a40c37a8808f84a478a79776b" }
+iobewi-config-space = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "a525c33a38f15f14e9863edf494cfb0afb406026" }
+iobewi-esp-config-space = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "a525c33a38f15f14e9863edf494cfb0afb406026", features = ["esp32s3"] }
+iobewi-esp-flash = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "a525c33a38f15f14e9863edf494cfb0afb406026", features = ["esp32s3"] }
+iobewi-esp-wifi = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "a525c33a38f15f14e9863edf494cfb0afb406026", features = ["esp32s3"] }
+iobewi-esp-usb = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "a525c33a38f15f14e9863edf494cfb0afb406026", features = ["esp32s3"] }
+iobewi-wifi-manager = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "a525c33a38f15f14e9863edf494cfb0afb406026" }
