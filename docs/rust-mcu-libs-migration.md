@@ -177,7 +177,7 @@ L'image nominale est **muette** (journaux en RAM seulement). Les mesures interne
 | 5 | Aucune bascule JTAG → OTG pendant ce boot | **PASS** | 0 événement `usb:`/`msc:` entre le provisioning et le redémarrage |
 | 6 | Redémarrage : credentials, Wi-Fi, vrai flux HTTP, prébuffer 64 Kio avant MSC | **PASS** | HTTP 200 ; prébuffer 83–92 Kio avant `enabling MSC` ; boot → disque ≈ 10 s |
 | 7 | Volume et fichier virtuel | **PASS** | `RADIOUSB`, `RADIO.MP3` 1 073 741 824 o, 32 Kio/cluster, 2 097 413 secteurs |
-| 8 | Identité USB/SCSI relue côté hôte | **PASS (chaînes INQUIRY) / VID-PID en attente** | sur la **S3 Zero** avec l'image nominale `e3840c3` : `IOBEWI  ` / `StreamBeWI      ` / `0001`, type 0 amovible, dernier LBA 2 097 412 (1 073 875 456 o), protégé en écriture, erreurs SCSI `5/0x21` et `5/0x20`. VID/PID `303A:4001` annoncés par le firmware ; **relecture côté hôte (`Get-PnpDevice`) non fournie** |
+| 8 | Identité USB/SCSI relue côté hôte | **PASS** | sur la **S3 Zero** avec l'image nominale `e3840c3` : INQUIRY `IOBEWI  ` / `StreamBeWI      ` / `0001`, type 0 amovible, dernier LBA 2 097 412, protégé en écriture, erreurs SCSI `5/0x21` et `5/0x20` ; **descripteur USB lu par Windows** : `USB\VID_303A&PID_4001\STREAMBEWI-0001`, `HardwareIds` `USB\VID_303A&PID_4001&REV_0010`, chaîne produit `StreamBeWI` |
 | 9 | Lecture continue de 10 min, vrai flux, > 131 s | **PASS (PC)** | 619 s, 12,8 Mo, 0 secteur nul au milieu du flux, 0 reconnexion HTTP |
 | 10 | **Metronic : lecture continue de 10 min** (firmware sans correctif d'attente, `b4f0289`) | **PASS** | 620 s, 10,14 Mo à 15,98 Kio/s, 0 `ZEROFILL`, 0 rebasage, 0 reset, 0 reconnexion ; audio sans défaut selon le mainteneur |
 | 11 | **Metronic : pause puis reprise** | **PASS** | reprise à la même position, 0 `ZEROFILL`, ni reconnexion ni reset (vérifié sur `b4f0289` et sur le firmware final) |
@@ -282,4 +282,4 @@ Le banc a dû être adapté : sa page ne tirait les commandes distantes que sur 
 
 Sur la **carte et le lecteur cibles**, avec l'image nominale correspondant aux révisions relues, la chaîne StreamBeWI complète fonctionne : énumération et identité, lecture continue de 10 min, pause, stop/play, coupure longue du Wi-Fi avec retour automatique.
 
-**Pas encore acquis pour la fusion** : (1) relecture du VID/PID côté hôte ; (2) relecture indépendante de `streambewi#10`, `streambewi#11` et `rust-mcu-libs#78` (la relecture faite est celle de l'auteur) ; (3) le **figement isolé du Metronic** reste non expliqué ; (4) la validation sur la cible est auditive, sans mesure.
+**Pas encore acquis pour la fusion** : (1) relecture indépendante de `streambewi#10`, `streambewi#11` et `rust-mcu-libs#78` (la relecture faite est celle de l'auteur) ; (2) le **figement isolé du Metronic** reste non expliqué ; (3) la validation sur la cible est auditive, sans mesure. Le VID/PID `303A:4001` est relu côté hôte (essai 8).
