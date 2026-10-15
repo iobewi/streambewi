@@ -177,7 +177,7 @@ L'image nominale est **muette** (journaux en RAM seulement). Les mesures interne
 | 5 | Aucune bascule JTAG → OTG pendant ce boot | **PASS** | 0 événement `usb:`/`msc:` entre le provisioning et le redémarrage |
 | 6 | Redémarrage : credentials, Wi-Fi, vrai flux HTTP, prébuffer 64 Kio avant MSC | **PASS** | HTTP 200 ; prébuffer 83–92 Kio avant `enabling MSC` ; boot → disque ≈ 10 s |
 | 7 | Volume et fichier virtuel | **PASS** | `RADIOUSB`, `RADIO.MP3` 1 073 741 824 o, 32 Kio/cluster, 2 097 413 secteurs |
-| 8 | Identité USB/SCSI relue côté hôte (VID/PID, chaînes INQUIRY) | **NON EXÉCUTÉ** | INQUIRY observé côté carte, chaînes non relues |
+| 8 | Identité USB/SCSI relue côté hôte | **PASS (chaînes INQUIRY) / VID-PID en attente** | sur la **S3 Zero** avec l'image nominale `e3840c3` : `IOBEWI  ` / `StreamBeWI      ` / `0001`, type 0 amovible, dernier LBA 2 097 412 (1 073 875 456 o), protégé en écriture, erreurs SCSI `5/0x21` et `5/0x20`. VID/PID `303A:4001` annoncés par le firmware ; **relecture côté hôte (`Get-PnpDevice`) non fournie** |
 | 9 | Lecture continue de 10 min, vrai flux, > 131 s | **PASS (PC)** | 619 s, 12,8 Mo, 0 secteur nul au milieu du flux, 0 reconnexion HTTP |
 | 10 | **Metronic : lecture continue de 10 min** (firmware sans correctif d'attente, `b4f0289`) | **PASS** | 620 s, 10,14 Mo à 15,98 Kio/s, 0 `ZEROFILL`, 0 rebasage, 0 reset, 0 reconnexion ; audio sans défaut selon le mainteneur |
 | 11 | **Metronic : pause puis reprise** | **PASS** | reprise à la même position, 0 `ZEROFILL`, ni reconnexion ni reset (vérifié sur `b4f0289` et sur le firmware final) |
@@ -193,7 +193,7 @@ L'image nominale est **muette** (journaux en RAM seulement). Les mesures interne
 | 18d | **Metronic figé une fois** (aucune lecture ni événement de bus après un stop/play) | **NON EXPLIQUÉ, non reproduit** | un seul cas sur 17 cycles stop/play et plusieurs séquences ; la carte était à l'écoute et c'est le lecteur qui n'envoyait plus rien (plantage du lecteur selon le mainteneur) ; les octets servis au rebasage sont journalisés depuis, sans corrélation trouvée (un début non aligné sur une trame passe) |
 | 18e | **Coupure amont sous Windows avec soft-déconnexion** | **Observation (hôte hors cible)** | le disque **reste monté** et sain pendant la coupure (35 s) : Windows balaie tout le fichier (lectures lointaines servies tout de suite, sondage de la fin) sans consommer au bord du direct, donc aucun lecteur n'est affamé ; le tampon plein freine le producteur, qui ne lit plus la connexion et ne voit pas la coupure. Aucune erreur ni reset. Un déclencheur « producteur muet depuis 6 s » essayé puis **retiré** (jamais validé sur le Metronic, sans effet sous Windows) |
 | 19 | **Retrait du câble en plein transfert, puis rebranchement** | **FAIL puis PASS** | avant : la carte ne répondait plus (INQUIRY sans suite) jusqu'à un reset ; avec l'adaptateur corrigé : trois essais de suite, séquence de commandes complète à chaque fois |
-| 20 | Lecture audio sur la S3 Zero | **NON EXÉCUTÉ** | carte indisponible |
+| 20 | **S3 Zero + Metronic, image nominale `e3840c3`** : lecture 10 min, pause, stop 5 s et 30 s, coupure Wi-Fi avec retour automatique | **PASS (jugé à l'oreille)** | de 17h06 à 17h19 (heure du mainteneur) : lecture continue 10 min, pause 5 s (17h08), stop 5 s (17h10), stop 30 s (17h13), coupure Wi-Fi (17h16) : « RAS » à chaque étape, le son revient seul. **Aucune mesure** : l'image nominale est muette et, sur la S3 Zero, le port natif est occupé par le disque |
 
 ### Stop puis play
 
@@ -263,3 +263,23 @@ Après ces corrections, les révisions relues sont : `streambewi` `feat/67-stall
 | **instrumentée v10** `streambewi-qual-v10-app.bin` | `streambewi@1d12daa` (avec le déclencheur « producteur muet 6 s », retiré ensuite) + instrumentation, `rust-mcu-libs@6b0e492` | `4b5eb28094c2a3a5eb63d084c483f229447b4dbf551f795b41b42c2f722d2a5b` | essais Windows de la coupure ; conservée avec sa capture (brute et SSID masqué) et son manifeste |
 
 La campagne sur le Metronic a été menée avec les variantes instrumentées `v7` à `v9` (`31779da` plus instrumentation, mêmes comportements) ; l'image nominale ci-dessus n'a **pas encore été exécutée** sur matériel.
+
+### Validation sur la cible : Waveshare ESP32-S3 Zero et Metronic (15 octobre 2026)
+
+| Élément | Valeur |
+| --- | --- |
+| Carte | **Waveshare ESP32-S3 Zero** : ESP32-S3 (QFN56) rév. v0.2, `efuse` v1.4, flash 4 Mo (XMC), PSRAM 2 Mo ; elle portait l'ancien firmware d'essai `usb-radio POC` |
+| Image | **nominale**, muette, `streambewi-esp32s3-e3840c3-factory.bin` `721140fa7fc74def7afaeabef6e7d59d021133cada27a2fbfb6659ed42b4d445` (`streambewi@e3840c3`, `rust-mcu-libs@e9f3061`) |
+| Flash | par la page du banc (`esptool-js`, réinitialisation USB-Serial-JTAG), à 0x0, sans effacement global ; table `config` data/0x40 @0x9000 + `factory` @0x50000 ; la carte redémarre seule sur la nouvelle image |
+| Provisioning | Improv sur l'USB natif, `authorized` → `provisioning` → `provisioned` du premier coup |
+| Lecteur | Metronic 477144 |
+
+Cette validation reprend les scénarios de la campagne sur la DevKitC-1 (qui tournait avec des variantes instrumentées), cette fois **sur la carte et l'image cibles**. Elle est jugée à l'oreille par le mainteneur : le comportement interne (`ZEROFILL`, resets, rebasages) n'est pas observable avec l'image nominale. Les mesures internes restent celles de la DevKitC-1.
+
+Le banc a dû être adapté : sa page ne tirait les commandes distantes que sur le pont UART ; elle les sert maintenant aussi sur le port USB natif (`reset`, `arm`, `io0` restant refusés), `esptool-js` 0.7 réinitialisant seul ce port.
+
+### Verdict mis à jour
+
+Sur la **carte et le lecteur cibles**, avec l'image nominale correspondant aux révisions relues, la chaîne StreamBeWI complète fonctionne : énumération et identité, lecture continue de 10 min, pause, stop/play, coupure longue du Wi-Fi avec retour automatique.
+
+**Pas encore acquis pour la fusion** : (1) relecture du VID/PID côté hôte ; (2) relecture indépendante de `streambewi#10`, `streambewi#11` et `rust-mcu-libs#78` (la relecture faite est celle de l'auteur) ; (3) le **figement isolé du Metronic** reste non expliqué ; (4) la validation sur la cible est auditive, sans mesure.
