@@ -3,6 +3,22 @@
 
 extern crate alloc;
 mod serial;
+#[cfg(feature = "qual")]
+mod qual_mem;
+
+#[cfg(feature = "qual")]
+fn qual_print(r: &log::Record<'_>) {
+    esp_println::println!("{} - {}: {}", r.level(), r.target(), r.args());
+}
+
+#[cfg(feature = "qual")]
+#[embassy_executor::task]
+async fn qual_probe() {
+    loop {
+        embassy_time::Timer::after_secs(30).await;
+        qual_mem::probe("streambewi::qual", "periodic");
+    }
+}
 
 use alloc::vec;
 use embassy_executor::Spawner;
@@ -167,9 +183,20 @@ async fn product(p: Resources, spawner: Spawner) {
 
 #[esp_hal::main]
 fn main() -> ! {
+    #[cfg(feature = "qual")]
+    qual_mem::paint();
     let p =
         esp_hal::init(esp_hal::Config::default().with_cpu_clock(esp_hal::clock::CpuClock::max()));
+    #[cfg(not(feature = "qual"))]
     streambewi::logging::install(); // Capture only; never write on Improv transports.
+    #[cfg(feature = "qual")]
+    {
+        iobewi_log::install(qual_print, streambewi::logging::LOG_TARGET); // qualification: console on UART0
+        let mut policy = iobewi_log::default_policy(streambewi::logging::LOG_TARGET).unwrap();
+        policy.add_target("iobewi_usb_msc", log::LevelFilter::Info).unwrap();
+        policy.add_target("embassy_usb", log::LevelFilter::Trace).unwrap();
+        iobewi_log::apply_policy(policy);
+    }
     esp_alloc::heap_allocator!(size: HEAP_BYTES);
     unsafe extern "C" {
         static _stack_start: u8;
@@ -200,6 +227,8 @@ fn main() -> ! {
         .init(esp_rtos::embassy::Executor::new())
         .run(|spawner| {
             spawner.spawn(product(resources, spawner).unwrap());
+            #[cfg(feature = "qual")]
+            spawner.spawn(qual_probe().unwrap());
         })
 }
 

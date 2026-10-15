@@ -1005,6 +1005,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "esp-println"
+version = "0.18.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ebf772a41bc642b57399632aa06ab55391de35b2b8fcbb1b270d282fbd0fe5ff"
+dependencies = [
+ "document-features",
+ "esp-metadata-generated",
+ "esp-sync",
+ "log",
+]
+
+[[package]]
 name = "esp-radio"
 version = "1.0.0-beta.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2387,16 +2399,19 @@ version = "0.1.0"
 dependencies = [
  "embassy-executor",
  "embassy-net",
+ "embassy-time",
  "embedded-io-async 0.7.0",
  "esp-alloc",
  "esp-bootloader-esp-idf",
  "esp-hal",
+ "esp-println",
  "esp-rtos",
  "iobewi-config-space",
  "iobewi-esp-config-space",
  "iobewi-esp-flash",
  "iobewi-esp-usb",
  "iobewi-esp-wifi",
+ "iobewi-log",
  "iobewi-wifi-manager",
  "log",
  "static_cell",

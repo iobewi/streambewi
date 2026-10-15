@@ -95,7 +95,13 @@ impl ReadPolicy for StreamReadPolicy {
         if is_stall(status, self.stream.producer_idle()) {
             self.stall.signal(());
         }
-        decide(status, self.command_start.elapsed())
+        let action = decide(status, self.command_start.elapsed());
+        #[cfg(feature = "qual")]
+        if action == ReadAction::ZeroFill {
+            // Qualification: evidence of every zero sector served.
+            log::warn!("usb: ZEROFILL status={:?} command_elapsed={} ms", status, self.command_start.elapsed().as_millis());
+        }
+        action
     }
 }
 

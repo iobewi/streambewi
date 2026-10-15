@@ -45,6 +45,9 @@ jobs:
         run: scripts/build-image.sh ci-out
       - name: USB debug build and layout
         run: FEATURES=usb-debug scripts/build-image.sh ci-out/usb-debug
+      # Same source, instrumentation on: it must keep compiling and linking (bench qualification image).
+      - name: Qualification build (instrumentation on)
+        run: FEATURES=qual scripts/build-image.sh ci-out/qual
       - uses: actions/upload-artifact@v4
         with:
           name: streambewi-esp32s3-ci
