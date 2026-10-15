@@ -180,6 +180,23 @@ pub async fn improv_reader<R: Read>(port: Port, mut rx: R) -> ! {
     }
 }
 
+/// Identity announced over Improv `GetDeviceInfo`. The target builds it from the same sources as
+/// the image descriptor (`esp_app_desc!`): the package version and the one chip name symbol, so the
+/// advertised identity cannot drift from the image's.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DeviceInfo {
+    pub chip: &'static [u8],
+    pub version: &'static [u8],
+}
+
+/// The `GetDeviceInfo` reply: firmware name, version, chip, device name.
+pub fn device_info_frame(info: DeviceInfo) -> impl AsRef<[u8]> {
+    improv::rpc_response_frame(
+        Command::GetDeviceInfo,
+        &[b"streambewi", info.version, info.chip, b"streambewi"],
+    )
+}
+
 /// Owns the Wi-Fi manager: keeps the saved network connected and serves Improv requests.
 /// A request pre-empts `maintain()`; it restarts afterwards (and the transport keeps a link that
 /// is already up on the same credentials).
@@ -187,7 +204,7 @@ pub async fn wifi_task<T, B, W>(
     mut manager: Manager<T, B>,
     mut ports: Ports<W>,
     network: &NetworkSignal,
-    chip: &'static [u8],
+    info: DeviceInfo,
     boot: &BootPolicy<B>,
 ) -> !
 where
@@ -226,7 +243,7 @@ where
                     },
                     &mut state,
                     &mut manager,
-                    chip,
+                    info,
                     boot,
                     &mut flag_committed,
                 )
@@ -241,7 +258,7 @@ where
                     },
                     &mut state,
                     &mut manager,
-                    chip,
+                    info,
                     boot,
                     &mut flag_committed,
                 )
@@ -256,7 +273,7 @@ async fn handle<T, B, W>(
     mut tx: Reply<'_, W>,
     state: &mut State,
     manager: &mut Manager<T, B>,
-    chip: &'static [u8],
+    info: DeviceInfo,
     boot: &BootPolicy<B>,
     flag_committed: &mut bool,
 ) where
@@ -276,11 +293,8 @@ async fn handle<T, B, W>(
             }
         }
         ParsedCommand::GetDeviceInfo => {
-            let frame = improv::rpc_response_frame(
-                Command::GetDeviceInfo,
-                &[b"streambewi", b"0.2.0", chip, b"streambewi"],
-            );
-            tx.send(&frame).await;
+            let frame = device_info_frame(info);
+            tx.send(frame.as_ref()).await;
         }
         ParsedCommand::GetWifiNetworks => {
             for network in WifiProvisioning::scan(manager).await {

@@ -20,7 +20,13 @@ jobs:
   esp32s3:
     runs-on: ubuntu-latest
     steps:
+      # The head commit itself (not the synthetic merge commit) with its full history: the image's
+      # build date comes from the last commit touching the sources, so the image is the one anyone
+      # rebuilds from that commit with scripts/build-image.sh.
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
       - name: Install Rust for Xtensa
         uses: esp-rs/xtensa-toolchain@v1.7.0
         with:
@@ -32,23 +38,13 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: espflash@4.6.0
-      - name: Release build (real link)
-        run: cargo +esp build -p streambewi-esp32 --release --locked -Z build-std=core,alloc --target xtensa-esp32s3-none-elf
-      - name: Product descriptor and native task storage
-        run: |
-          mkdir -p ci-out
-          python3 tools/inspect_firmware_elf.py target/xtensa-esp32s3-none-elf/release/streambewi-esp32 > ci-out/firmware-layout.json
       - name: Install image merge tool
         run: python3 -m pip install esptool==5.5.0
-      - name: Flashable image
-        run: |
-          mkdir -p ci-out
-          python3 tools/package_image.py target/xtensa-esp32s3-none-elf/release/streambewi-esp32 ci-out/streambewi-esp32s3.bin
-          sha256sum ci-out/*
+      # The same command and options as the release script (scripts/build-release.sh).
+      - name: Release image (real link, product descriptor, flashable image)
+        run: scripts/build-image.sh ci-out
       - name: USB debug build and layout
-        run: |
-          cargo +esp build -p streambewi-esp32 --release --locked --features usb-debug -Z build-std=core,alloc --target xtensa-esp32s3-none-elf
-          python3 tools/inspect_firmware_elf.py target/xtensa-esp32s3-none-elf/release/streambewi-esp32 > ci-out/debug-layout.json
+        run: FEATURES=usb-debug scripts/build-image.sh ci-out/usb-debug
       - uses: actions/upload-artifact@v4
         with:
           name: streambewi-esp32s3-ci

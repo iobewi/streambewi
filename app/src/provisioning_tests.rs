@@ -112,7 +112,10 @@ fn flag_failure_sends_an_improv_error_on_the_requesting_port_and_retry_succeeds(
             },
             &mut state,
             &mut manager,
-            b"fake",
+            DeviceInfo {
+                chip: b"fake",
+                version: b"0.0.0",
+            },
             &boot,
             &mut flag_committed,
         ));
@@ -147,7 +150,10 @@ fn flag_failure_sends_an_improv_error_on_the_requesting_port_and_retry_succeeds(
             },
             &mut state,
             &mut manager,
-            b"fake",
+            DeviceInfo {
+                chip: b"fake",
+                version: b"0.0.0",
+            },
             &boot,
             &mut flag_committed,
         ));
@@ -210,4 +216,29 @@ fn finite_banks_preserve_order_and_empty_readers_stay_pending() {
                 .is_pending()
         );
     }
+}
+
+/// The identity announced to ESP Web Tools is the one the target passes, from the sources shared with
+/// the image descriptor: nothing is hard-coded in the product.
+#[test]
+fn device_info_reports_the_identity_given_by_the_target() {
+    let info = DeviceInfo {
+        chip: b"ESP32-S3",
+        version: env!("CARGO_PKG_VERSION").as_bytes(),
+    };
+    let frame = device_info_frame(info);
+    let bytes = frame.as_ref();
+    let contains = |needle: &[u8]| bytes.windows(needle.len()).any(|w| w == needle);
+    assert!(contains(b"streambewi"));
+    assert!(contains(info.version));
+    assert!(contains(b"ESP32-S3"));
+    // The previous literal, which had drifted from the image descriptor (0.1.0).
+    assert!(!contains(b"0.2.0"));
+    // Another identity gives another frame.
+    let other = device_info_frame(DeviceInfo {
+        chip: b"ESP32-S3",
+        version: b"9.9.9",
+    });
+    assert_ne!(other.as_ref(), bytes);
+    assert!(other.as_ref().windows(5).any(|w| w == b"9.9.9"));
 }
