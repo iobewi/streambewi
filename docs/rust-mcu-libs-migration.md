@@ -159,7 +159,7 @@ La limitation EKV en coupure de courant est déjà suivie par rust-mcu-libs #70.
 | Image nominale | artefact CI `streambewi-esp32s3-ci` (run 38708445660), `streambewi-esp32s3.bin`, SHA-256 `087e914bd8b821c85537929cfd83aa1eb3b455c6e166482dd2ed89bf2302a5c2` |
 | Flash de l'image | image fusionnée à 0x0, **sans effacement global**, par le banc (esptool-js, Web Serial) ; le bootloader trouve `config` data/0x40 @0x9000 et `factory` @0x50000 |
 | Carte | **ESP32-S3 DevKitC-1** (QFN56 rév. v0.2, flash 16 Mio, pont UART CH343) — **pas la Waveshare ESP32-S3 Zero attendue** |
-| Lecteur | **aucun Metronic** : lecteur de substitution = PC Windows lisant le volume brut avec `tools/qual/verify_mp3.py` (continuité des trames MP3) |
+| Lecteur | **PC Windows** lisant le volume brut avec `tools/qual/verify_mp3.py` (continuité des trames MP3) pour l'essentiel de la campagne ; **Metronic 477144 branché en fin de campagne** (essais de lecture, pause, stop/play seulement) |
 | Observation | UART0 (CH343) pour Improv et la capture du banc ; USB natif (GPIO19/20) vers le PC ; alimentation par le câble UART, donc indépendante du câble USB natif |
 | Sauvegarde | aucune sauvegarde complète : une lecture de 16 Mio a bloqué la page du banc sans résultat ; carte de développement, sauvegarde non exigée par le mainteneur |
 | Pilotage | Improv par un client écrit pour le banc (`tx` UART), BOOT simulé par GPIO0 tenu bas via DTR (pas d'appui physique) |
@@ -188,14 +188,27 @@ Les résultats de la variante sont **instrumentés** et séparés de ceux de l'i
 | 7 | Volume et fichier virtuel | **PASS** | étiquette `RADIOUSB`, `RADIO.MP3` 1 073 741 824 o, 64 secteurs/cluster, 2 097 413 secteurs, données au LBA 261 |
 | 8 | Identité USB/SCSI (VID/PID, INQUIRY) | **NON EXÉCUTÉ** | commandes INQUIRY observées côté carte, mais chaînes et VID/PID non relus côté hôte |
 | 9 | Lecture ≥ 10 min, vrai flux, > 131 s | **PASS** (lecteur de substitution) | 619 s, 12,8 Mo, 26 164 trames MP3 à 128 kbit/s, **0 secteur nul au milieu du flux**, 0 bloc répété, 0 reconnexion HTTP ; débit du flux 15,72 Kio/s ; avance moyenne 2 979 o ; 15 attentes de 1,05 à 1,36 s (gigue réseau) |
-| 10 | Lecture audio sur le Metronic | **NON EXÉCUTÉ** | lecteur indisponible ; acceptation impossible |
+| 10 | Lecture audio sur le Metronic | **PASS (partiel)** | énumération, INQUIRY / TEST UNIT READY / READ CAPACITY, puis lecture séquentielle au rythme du direct (65 Kio toutes les 4 s, aucun `ZEROFILL`) ; audio entendu par le mainteneur. Durée continue de 10 min **non mesurée** sur le Metronic |
 | 11 | Pause puis reprise | **PASS** | aucun zéro ; Icecast coupe la connexion bloquée, reconnexion en 2,6 s, l'audio saute du temps écoulé |
-| 12 | Stop puis relecture depuis l'offset 0 | **RISQUE CONFIRMÉ** | 1 968 secteurs nuls (≈ 1 Mo, ≈ 62 s d'audio) servis par la carte (`ZEROFILL Expired`) |
+| 12 | Stop puis relecture depuis l'offset 0 | **FAIL (Metronic)** | PC : 1 968 secteurs nuls servis. **Metronic** : après stop puis play, il relit le début du fichier (21 secteurs, LBA 261–281) et reçoit des zéros (`ZEROFILL Expired`), puis n'envoie plus aucune lecture : plus de son, jusqu'à un débranchement/rebranchement (mesuré deux fois) |
+| 12b | Pause puis reprise sur le Metronic | **PASS** | pause de 10 s : `consumed` figé, reprise à la même position, aucun `ZEROFILL`, ni reconnexion ni reset |
 | 13 | Coupure puis rétablissement du réseau amont | **FAIL** | voir ci-dessous : le flux reprend, mais l'USB ne se rétablit pas sans reset de la carte |
 | 14 | Trois déconnexions/reconnexions USB propres | **PASS** | trois fois `suspended`, `session end`, `bus reset`, `addressed`, `configured`, nouvelle session, commandes de montage, lecture saine ; aucun reboot (alimentation UART). Quatre rebranchements rapprochés ensuite : tous montés |
 | 14b | État bloqué observé une fois (3 rebranchements à 20 s sans lecture, image `instr2` sans journaux MSC) | **NON EXPLIQUÉ** | disque non monté jusqu'à un reset de la carte ; non reproduit avec `instr3` |
 | 15 | BOOT maintenu ≈ 3 s | **PASS** | `recovery: provisioning flag and Wi-Fi cleared; restarting`, `rst:0x10 RTCWDT_RTC_RST`, retour Improv ; reprovisioning (deuxième tentative), redémarrage, disque relu |
 | 16 | Mémoire | **PASS (instrumenté)** | heap 55 220 o au maximum sur 98 304 ; pile 17 120 o au maximum sur 44 448 réservés (15 392 avant les journaux MSC) ; stables sur > 30 min avec reconnexions |
+
+### Correctif prototypé pour stop puis play (non inclus dans cette PR)
+
+Cause démontrée : après un stop, le Metronic rouvre le fichier à l'offset 0, qui date du début de la session et est sorti de la fenêtre de 96 Kio ; la politique historique répond par des zéros et le lecteur abandonne.
+
+Prototype sur la branche `qual/67-instrumented` (`8a48bb4`, journal `34f4a78`, **jamais à fusionner tel quel**) : si la lecture du **premier secteur** du fichier tombe sur un secteur expiré, la session est rebasée sur le bord du direct, avec la même retenue de 64 Kio qu'à l'énumération, et la lecture est refaite. Aucune valeur de fenêtre, de prébuffer, d'avance ni d'attente ne change ; tout autre secteur expiré reste servi comme `Expired`.
+
+- Test hôte ajouté (`reopening_the_file_rebases_instead_of_serving_zeroes`) : les 20 tests historiques et le nouveau passent.
+- Mesure sur le Metronic : `REBASE on re-read of sector 0 base 44234 -> 842954 live=908490` (soit `live − 65 536`), **0 `ZEROFILL`**, données servies 0,18 s après le rebasage, lecture continue ensuite, **le son revient**.
+- Conséquence audible : le flux repris est le flux en cours à environ 4 s du direct ; l'audio écoulé pendant le stop est sauté (radio en direct).
+- Non vérifié avec ce correctif : pause puis reprise (la logique ne la touche pas, mais l'essai n'a pas été rejoué), coupure du réseau amont, durée de 10 minutes sur le Metronic.
+- C'est un changement de comportement de la politique historique : il n'est publié que sur la branche de qualification, en attente de la décision du mainteneur.
 
 ### Anomalie : coupure du réseau amont (essai 13)
 
@@ -221,6 +234,6 @@ La politique historique répond sans attendre par des zéros aux secteurs sortis
 
 ### Verdict
 
-**La qualification de #67 n'est pas acquise.** Sur ESP32-S3 DevKitC-1 avec un hôte Windows, la chaîne StreamBeWI complète fonctionne (config, provisioning, redémarrage, vrai flux, prébuffer, MSC, lecture continue de 10 min sans secteur nul, déconnexions USB, récupération BOOT). Mais : (1) l'essai d'acceptation exige la carte S3 Zero et le Metronic, indisponibles ; (2) la coupure du réseau amont mène à un USB non rétabli sans reset (FAIL) ; (3) le comportement du Metronic face aux zéros servis après un stop, ou après toute relecture du début du fichier, est inconnu.
+**La qualification de #67 n'est pas acquise.** Sur ESP32-S3 DevKitC-1, la chaîne StreamBeWI complète fonctionne (config, provisioning, redémarrage, vrai flux, prébuffer, MSC, lecture continue de 10 min sans secteur nul sous Windows, déconnexions USB, récupération BOOT) et le Metronic lit et reprend après une pause. Mais : (1) l'essai d'acceptation exige la carte S3 Zero, indisponible ; (2) **sur le Metronic, stop puis play ne redonne plus de son** (zéros servis pour le début du fichier) ; un correctif ciblé est prototypé et validé en mesure, en attente de décision ; (3) la coupure du réseau amont mène à un USB non rétabli sans reset (FAIL).
 
-Conditions avant fusion : lecture audio réelle sur le Metronic (continuité, pause, stop, reprise) ; décision du mainteneur sur la politique d'attente lors d'une coupure amont (plafonner la durée par commande, ne pas répondre par des zéros, ou accepter la limite) ; essai sur la carte S3 Zero ; relecture de l'identité USB côté hôte.
+Conditions avant fusion : décision sur le correctif stop/play (l'inclure, le modifier ou l'écarter) et, s'il est retenu, son essai complet sur le Metronic (pause, 10 min, coupure amont) ; décision du mainteneur sur la politique d'attente lors d'une coupure amont (plafonner la durée par commande, ne pas répondre par des zéros, ou accepter la limite) ; essai sur la carte S3 Zero ; relecture de l'identité USB côté hôte.
