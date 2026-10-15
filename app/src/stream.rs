@@ -1,4 +1,4 @@
-use core::cell::RefCell;
+use core::cell::{Cell, RefCell};
 use core::sync::atomic::{AtomicU32, Ordering};
 
 use embassy_net::{
@@ -7,7 +7,7 @@ use embassy_net::{
     tcp::client::{TcpClient, TcpClientState},
 };
 use embassy_sync::blocking_mutex::{Mutex, raw::CriticalSectionRawMutex};
-use embassy_time::{Duration, Timer};
+use embassy_time::{Duration, Instant, Timer};
 use embedded_io_async::Read as _;
 use iobewi_fat16::{FileSource, ReadStatus, SECTOR_SIZE};
 use reqwless::{
@@ -27,6 +27,9 @@ const CHUNK_BYTES: usize = 2048;
 pub struct SharedStream {
     inner: Mutex<CriticalSectionRawMutex, RefCell<Stream>>,
     reconnects: AtomicU32,
+    /// Ticks of the last accepted push (0: nothing pushed yet); a critical section, since the target
+    /// has no 64-bit atomics.
+    last_push: Mutex<CriticalSectionRawMutex, Cell<u64>>,
 }
 
 impl Default for SharedStream {
@@ -40,6 +43,7 @@ impl SharedStream {
         Self {
             inner: Mutex::new(RefCell::new(new_stream())),
             reconnects: AtomicU32::new(0),
+            last_push: Mutex::new(Cell::new(0)),
         }
     }
 
@@ -56,8 +60,29 @@ impl SharedStream {
             .lock(|cell| cell.borrow().writable().min(CHUNK_BYTES))
     }
 
-    fn push(&self, input: &[u8]) -> usize {
-        self.inner.lock(|cell| cell.borrow_mut().push(input))
+    pub(crate) fn push(&self, input: &[u8]) -> usize {
+        let pushed = self.inner.lock(|cell| cell.borrow_mut().push(input));
+        if pushed > 0 {
+            let now = Instant::now().as_ticks().max(1);
+            self.last_push.lock(|last| last.set(now));
+        }
+        pushed
+    }
+
+    /// How long the producer has delivered nothing; `Duration::MAX` before the first byte.
+    pub fn producer_idle(&self) -> Duration {
+        match self.last_push.lock(|last| last.get()) {
+            0 => Duration::MAX,
+            ticks => Instant::now() - Instant::from_ticks(ticks),
+        }
+    }
+
+    /// End the consumer session without the MSC class: the window stops waiting for a reader and the
+    /// producer runs free until the next `begin_session`.
+    pub fn release_session(&self) {
+        self.inner.lock(|cell| {
+            cell.borrow_mut().end_session();
+        });
     }
 
     fn mark_reconnect(&self) -> u32 {
