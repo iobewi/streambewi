@@ -1512,7 +1512,7 @@ checksum = "b9e0384b61958566e926dc50660321d12159025e767c18e043daf26b70104c39"
 [[package]]
 name = "improv-serial"
 version = "0.1.0"
-source = "git+https://github.com/iobewi/rust-mcu-libs?rev=671ca69b1103cabc1ca24f40c043e8fa73a9d21f#671ca69b1103cabc1ca24f40c043e8fa73a9d21f"
+source = "git+https://github.com/iobewi/rust-mcu-libs?rev=5df3c4a45bcc6e1bc80571a3c37dfef706c535a7#5df3c4a45bcc6e1bc80571a3c37dfef706c535a7"
 
 [[package]]
 name = "indexmap"
@@ -1549,12 +1549,12 @@ dependencies = [
 [[package]]
 name = "iobewi-block"
 version = "0.1.0"
-source = "git+https://github.com/iobewi/rust-mcu-libs?rev=671ca69b1103cabc1ca24f40c043e8fa73a9d21f#671ca69b1103cabc1ca24f40c043e8fa73a9d21f"
+source = "git+https://github.com/iobewi/rust-mcu-libs?rev=5df3c4a45bcc6e1bc80571a3c37dfef706c535a7#5df3c4a45bcc6e1bc80571a3c37dfef706c535a7"
 
 [[package]]
 name = "iobewi-config-space"
 version = "0.1.0"
-source = "git+https://github.com/iobewi/rust-mcu-libs?rev=671ca69b1103cabc1ca24f40c043e8fa73a9d21f#671ca69b1103cabc1ca24f40c043e8fa73a9d21f"
+source = "git+https://github.com/iobewi/rust-mcu-libs?rev=5df3c4a45bcc6e1bc80571a3c37dfef706c535a7#5df3c4a45bcc6e1bc80571a3c37dfef706c535a7"
 dependencies = [
  "ekv",
  "embassy-sync 0.6.2",
@@ -1563,7 +1563,7 @@ dependencies = [
 [[package]]
 name = "iobewi-esp-config-space"
 version = "0.1.0"
-source = "git+https://github.com/iobewi/rust-mcu-libs?rev=671ca69b1103cabc1ca24f40c043e8fa73a9d21f#671ca69b1103cabc1ca24f40c043e8fa73a9d21f"
+source = "git+https://github.com/iobewi/rust-mcu-libs?rev=5df3c4a45bcc6e1bc80571a3c37dfef706c535a7#5df3c4a45bcc6e1bc80571a3c37dfef706c535a7"
 dependencies = [
  "ekv",
  "embedded-storage",
@@ -1576,7 +1576,7 @@ dependencies = [
 [[package]]
 name = "iobewi-esp-flash"
 version = "0.1.0"
-source = "git+https://github.com/iobewi/rust-mcu-libs?rev=671ca69b1103cabc1ca24f40c043e8fa73a9d21f#671ca69b1103cabc1ca24f40c043e8fa73a9d21f"
+source = "git+https://github.com/iobewi/rust-mcu-libs?rev=5df3c4a45bcc6e1bc80571a3c37dfef706c535a7#5df3c4a45bcc6e1bc80571a3c37dfef706c535a7"
 dependencies = [
  "embassy-sync 0.8.0",
  "embedded-storage",
@@ -1589,7 +1589,7 @@ dependencies = [
 [[package]]
 name = "iobewi-esp-partitions"
 version = "0.1.0"
-source = "git+https://github.com/iobewi/rust-mcu-libs?rev=671ca69b1103cabc1ca24f40c043e8fa73a9d21f#671ca69b1103cabc1ca24f40c043e8fa73a9d21f"
+source = "git+https://github.com/iobewi/rust-mcu-libs?rev=5df3c4a45bcc6e1bc80571a3c37dfef706c535a7#5df3c4a45bcc6e1bc80571a3c37dfef706c535a7"
 dependencies = [
  "embedded-storage",
  "esp-bootloader-esp-idf",
@@ -1600,7 +1600,7 @@ dependencies = [
 [[package]]
 name = "iobewi-esp-usb"
 version = "0.1.0"
-source = "git+https://github.com/iobewi/rust-mcu-libs?rev=671ca69b1103cabc1ca24f40c043e8fa73a9d21f#671ca69b1103cabc1ca24f40c043e8fa73a9d21f"
+source = "git+https://github.com/iobewi/rust-mcu-libs?rev=5df3c4a45bcc6e1bc80571a3c37dfef706c535a7#5df3c4a45bcc6e1bc80571a3c37dfef706c535a7"
 dependencies = [
  "esp-hal",
 ]
@@ -1608,7 +1608,7 @@ dependencies = [
 [[package]]
 name = "iobewi-esp-wifi"
 version = "0.1.0"
-source = "git+https://github.com/iobewi/rust-mcu-libs?rev=671ca69b1103cabc1ca24f40c043e8fa73a9d21f#671ca69b1103cabc1ca24f40c043e8fa73a9d21f"
+source = "git+https://github.com/iobewi/rust-mcu-libs?rev=5df3c4a45bcc6e1bc80571a3c37dfef706c535a7#5df3c4a45bcc6e1bc80571a3c37dfef706c535a7"
 dependencies = [
  "edge-dhcp",
  "edge-nal",
@@ -1628,7 +1628,7 @@ dependencies = [
 [[package]]
 name = "iobewi-fat16"
 version = "0.1.0"
-source = "git+https://github.com/iobewi/rust-mcu-libs?rev=671ca69b1103cabc1ca24f40c043e8fa73a9d21f#671ca69b1103cabc1ca24f40c043e8fa73a9d21f"
+source = "git+https://github.com/iobewi/rust-mcu-libs?rev=5df3c4a45bcc6e1bc80571a3c37dfef706c535a7#5df3c4a45bcc6e1bc80571a3c37dfef706c535a7"
 dependencies = [
  "iobewi-block",
 ]
@@ -1636,7 +1636,7 @@ dependencies = [
 [[package]]
 name = "iobewi-firmware-layout"
 version = "0.1.0"
-source = "git+https://github.com/iobewi/rust-mcu-libs?rev=671ca69b1103cabc1ca24f40c043e8fa73a9d21f#671ca69b1103cabc1ca24f40c043e8fa73a9d21f"
+source = "git+https://github.com/iobewi/rust-mcu-libs?rev=5df3c4a45bcc6e1bc80571a3c37dfef706c535a7#5df3c4a45bcc6e1bc80571a3c37dfef706c535a7"
 dependencies = [
  "iobewi-firmware-slots",
 ]
@@ -1644,12 +1644,12 @@ dependencies = [
 [[package]]
 name = "iobewi-firmware-slots"
 version = "0.1.0"
-source = "git+https://github.com/iobewi/rust-mcu-libs?rev=671ca69b1103cabc1ca24f40c043e8fa73a9d21f#671ca69b1103cabc1ca24f40c043e8fa73a9d21f"
+source = "git+https://github.com/iobewi/rust-mcu-libs?rev=5df3c4a45bcc6e1bc80571a3c37dfef706c535a7#5df3c4a45bcc6e1bc80571a3c37dfef706c535a7"
 
 [[package]]
 name = "iobewi-log"
 version = "0.1.0"
-source = "git+https://github.com/iobewi/rust-mcu-libs?rev=671ca69b1103cabc1ca24f40c043e8fa73a9d21f#671ca69b1103cabc1ca24f40c043e8fa73a9d21f"
+source = "git+https://github.com/iobewi/rust-mcu-libs?rev=5df3c4a45bcc6e1bc80571a3c37dfef706c535a7#5df3c4a45bcc6e1bc80571a3c37dfef706c535a7"
 dependencies = [
  "critical-section",
  "heapless 0.9.3",
@@ -1660,12 +1660,12 @@ dependencies = [
 [[package]]
 name = "iobewi-rolling-stream"
 version = "0.1.0"
-source = "git+https://github.com/iobewi/rust-mcu-libs?rev=671ca69b1103cabc1ca24f40c043e8fa73a9d21f#671ca69b1103cabc1ca24f40c043e8fa73a9d21f"
+source = "git+https://github.com/iobewi/rust-mcu-libs?rev=5df3c4a45bcc6e1bc80571a3c37dfef706c535a7#5df3c4a45bcc6e1bc80571a3c37dfef706c535a7"
 
 [[package]]
 name = "iobewi-usb-msc"
 version = "0.1.0"
-source = "git+https://github.com/iobewi/rust-mcu-libs?rev=671ca69b1103cabc1ca24f40c043e8fa73a9d21f#671ca69b1103cabc1ca24f40c043e8fa73a9d21f"
+source = "git+https://github.com/iobewi/rust-mcu-libs?rev=5df3c4a45bcc6e1bc80571a3c37dfef706c535a7#5df3c4a45bcc6e1bc80571a3c37dfef706c535a7"
 dependencies = [
  "embassy-time",
  "embassy-usb",
@@ -1676,12 +1676,12 @@ dependencies = [
 [[package]]
 name = "iobewi-wifi-core"
 version = "0.1.0"
-source = "git+https://github.com/iobewi/rust-mcu-libs?rev=671ca69b1103cabc1ca24f40c043e8fa73a9d21f#671ca69b1103cabc1ca24f40c043e8fa73a9d21f"
+source = "git+https://github.com/iobewi/rust-mcu-libs?rev=5df3c4a45bcc6e1bc80571a3c37dfef706c535a7#5df3c4a45bcc6e1bc80571a3c37dfef706c535a7"
 
 [[package]]
 name = "iobewi-wifi-manager"
 version = "0.1.0"
-source = "git+https://github.com/iobewi/rust-mcu-libs?rev=671ca69b1103cabc1ca24f40c043e8fa73a9d21f#671ca69b1103cabc1ca24f40c043e8fa73a9d21f"
+source = "git+https://github.com/iobewi/rust-mcu-libs?rev=5df3c4a45bcc6e1bc80571a3c37dfef706c535a7#5df3c4a45bcc6e1bc80571a3c37dfef706c535a7"
 dependencies = [
  "iobewi-config-space",
  "iobewi-wifi-core",
