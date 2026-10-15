@@ -72,12 +72,6 @@ impl SharedStream {
         pushed
     }
 
-    /// The producer has no room for data because the reader is behind: that is not silence.
-    pub(crate) fn note_throttled(&self) {
-        let now = Instant::now().as_ticks().max(1);
-        self.last_push.lock(|last| last.set(now));
-    }
-
     /// How long the producer has delivered nothing; `Duration::MAX` before the first byte.
     pub fn producer_idle(&self) -> Duration {
         match self.last_push.lock(|last| last.get()) {
@@ -210,8 +204,6 @@ pub async fn run(stack: Stack<'static>, stream: &'static SharedStream) -> ! {
 
         loop {
             while stream.writable() == 0 {
-                // Throttled by a slow reader, not starved by the network: not an idle producer.
-                stream.note_throttled();
                 Timer::after(Duration::from_millis(5)).await;
             }
 
