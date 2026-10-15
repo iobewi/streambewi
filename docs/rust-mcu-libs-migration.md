@@ -239,3 +239,27 @@ La politique historique répond sans attendre par des zéros aux secteurs sortis
 ### Verdict
 
 **La qualification de #67 n'est pas acquise.** La chaîne StreamBeWI complète fonctionne sur le Metronic (lecture de 10 min, pause, quatre cycles stop/play avec le correctif de cette branche), et le comportement du produit face au retrait du câble et aux resets du bus est corrigé dans les branches séparées. Il reste : (1) la carte **S3 Zero** et la lecture de 10 minutes sur ce couple ; (2) la relecture de l'identité USB côté hôte ; (3) la décision de relire et fusionner les deux branches de correctifs (budget d'attente, récupération au reset du bus, désarmement IN), puis de rejouer sur le Metronic les essais de cette campagne : fait avec le firmware final (lecture de 11 min, pause, stop 5 s et 30 s : 0 `ZEROFILL`, 0 reset, 0 avertissement) ; (4) la relecture des PR #10 et #11 et de `rust-mcu-libs#78` ; la coupure du flux de plus de 8 s, que le Metronic ne supportait pas, est traitée par la soft-déconnexion de #11 (validée sur le Metronic sur deux essais).
+
+### Relecture des PR de correctifs (15 octobre 2026)
+
+Relecture de `streambewi#10`, `streambewi#11` et `rust-mcu-libs#78` après les essais. Le relecteur est l'auteur : une relecture indépendante reste à faire.
+
+| Trouvaille | Gravité | Traitement |
+| --- | --- | --- |
+| #11 : un producteur **freiné** par le lecteur (fenêtre pleine) était compté comme muet. Un hôte qui lit **devant** le bord du flux (Windows sonde jusqu'à 1 Mio : `Pending` qui n'avancent pas la position) ou qui ne lit pas ferait quitter le bus au disque pour un flux sain, **sans retour possible** (un prébuffer frais ne peut pas s'écrire dans une fenêtre pleine). Le Metronic, qui ne lit jamais devant le flux, n'y était pas exposé. | **défaut** | corrigé (`445e898`) : l'attente de place est `SharedStream::wait_for_room()`, qui compte comme activité ; test hôte avec contrôle négatif (il échoue sans la correction) |
+| #78 : attente de confirmation de désarmement bornée à 100 000 itérations par point d'accès dans une section critique (pire cas ≈ 60 ms sans interruptions) | mineur | ramenée à 10 000 (`e9f3061`) ; la borne du dernier point d'accès (6) est justifiée par `StateStorage<7>` d'esp-hal |
+| #10 : le budget de 5 s couvre maintenant la commande entière ; une lecture de plus de ≈ 80 Kio **au bord du direct** (qui demande plus de 5 s de flux) aurait sa fin remplie de zéros alors qu'elle était attendue secteur par secteur avant | **risque noté** | non observé (Metronic ≈ 3 secteurs par lecture ; Windows 8 secteurs avec le script) ; à surveiller |
+| #11 : le drapeau « session conservée » reste levé si l'hôte ne revient jamais ; une session ultérieure d'un autre hôte reprendrait alors sans rebaser | bénin | les décalages restent cohérents ; le correctif stop/play rebase si le début du fichier est expiré |
+| #78 : `MscClass::bus_reset_counter()` ajoute une API publique (diagnostic et test) | note | documentée |
+
+Après ces corrections, les révisions relues sont : `streambewi` `feat/67-stall-soft-disconnect` **`e3840c3`** (CI verte 2/2), `rust-mcu-libs` `feat/67-read-command-budget` **`e9f3061`** (CI verte 6/6) ; la PR #10 reste épinglée sur `rust-mcu-libs@0b68389`, ce qui suffit (elle n'utilise pas `set_connected`).
+
+### Images
+
+| Image | Révisions | SHA-256 | Usage |
+| --- | --- | --- | --- |
+| **nominale** (muette) `streambewi-esp32s3-e3840c3-factory.bin` | `streambewi@e3840c3`, `rust-mcu-libs@e9f3061` | `721140fa7fc74def7afaeabef6e7d59d021133cada27a2fbfb6659ed42b4d445` | image fusionnée à 0x0 (réinitialise `config` : reprovisioning) |
+| **nominale** `streambewi-esp32s3-e3840c3-app.bin` | idem | `d9555efda4bad28a38104adb4aa566bfe7a89994db88d84026b83d3a9d273d2c` | application seule à 0x50000 (conserve `config`) |
+| **instrumentée v10** `streambewi-qual-v10-app.bin` | `streambewi@1d12daa` (avec le déclencheur « producteur muet 6 s », retiré ensuite) + instrumentation, `rust-mcu-libs@6b0e492` | `4b5eb28094c2a3a5eb63d084c483f229447b4dbf551f795b41b42c2f722d2a5b` | essais Windows de la coupure ; conservée avec sa capture (brute et SSID masqué) et son manifeste |
+
+La campagne sur le Metronic a été menée avec les variantes instrumentées `v7` à `v9` (`31779da` plus instrumentation, mêmes comportements) ; l'image nominale ci-dessus n'a **pas encore été exécutée** sur matériel.
