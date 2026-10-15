@@ -157,7 +157,12 @@ async fn product(p: Resources, spawner: Spawner) {
             core::hint::spin_loop();
         }
     };
-    streambewi::run(boot, manager, serial, button, reset, usb, b"ESP32-S3").await;
+    let info = streambewi::provisioning::DeviceInfo {
+        chip: &STREAMBEWI_CHIP,
+        // The package version is what `esp_app_desc!` records in the image descriptor.
+        version: env!("CARGO_PKG_VERSION").as_bytes(),
+    };
+    streambewi::run(boot, manager, serial, button, reset, usb, info).await;
 }
 
 #[esp_hal::main]

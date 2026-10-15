@@ -8,46 +8,22 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
-TARGET=xtensa-esp32s3-none-elf
-PKG=streambewi-esp32
-NAME=streambewi-esp32s3
-DIST="$ROOT_DIR/dist"
 BUILD_KIND="credential-free (Wi-Fi provisioned at runtime via Improv Serial)"
 if [[ -n "${WIFI_SSID:-}${WIFI_PASSWORD:-}" ]]; then
     echo "note: WIFI_SSID/WIFI_PASSWORD are ignored; the firmware is provisioned via Improv Serial." >&2
 fi
-ELF_SRC="target/$TARGET/release/$PKG"
-
-# Deterministic build: strip absolute paths of the checkout, cargo registry and
-# toolchain sysroot from the ELF (debug info / panic locations).
-SYSROOT="$(rustc +esp --print sysroot)"
-CARGO_HOME_DIR="${CARGO_HOME:-$HOME/.cargo}"
-export RUSTFLAGS="-C force-frame-pointers \
- --remap-path-prefix=$ROOT_DIR=/src \
- --remap-path-prefix=$CARGO_HOME_DIR=/cargo \
- --remap-path-prefix=$SYSROOT=/sysroot"
-
-# esp_app_desc embeds a build date/time; esp-bootloader-esp-idf honours
-# SOURCE_DATE_EPOCH. Tie it to the last commit touching the sources
-# (generated delivery directories excluded, so rebuilding artefacts does not change it).
-SOURCE_DATE_EPOCH="$(git log -1 --format=%ct -- . ':(exclude)dist' ':(exclude)dist-local')"
-export SOURCE_DATE_EPOCH
+# The build and the packaging are scripts/build-image.sh, the command CI runs too.
+source "$ROOT_DIR/scripts/build-env.sh"
+DIST="$ROOT_DIR/dist"
 
 CORE_CMD="cargo +stable test -p streambewi-core -p streambewi --locked --target x86_64-unknown-linux-gnu"
-BUILD_CMD="cargo +esp build -p $PKG --release --locked -Z build-std=core,alloc --target $TARGET"
 IMAGE_CMD="python3 tools/package_image.py $ELF_SRC $DIST/$NAME.bin"
 
 echo "== host tests"
 $CORE_CMD
-echo "== firmware release build"
-$BUILD_CMD
+"$ROOT_DIR/scripts/build-image.sh" "$DIST"
+rm -f "$DIST/firmware-layout.json" "$DIST/build-info.txt"   # CI artefacts; dist/ keeps BUILD.txt and SHA256SUMS
 
-mkdir -p "$DIST"
-cp "$ELF_SRC" "$DIST/$NAME.elf"
-echo "== flashable image"
-$IMAGE_CMD
-
-( cd "$DIST" && sha256sum "$NAME.bin" "$NAME.elf" > SHA256SUMS )
 
 COMMIT="$(git rev-parse HEAD)"
 DIRTY=""

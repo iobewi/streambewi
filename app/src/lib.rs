@@ -40,7 +40,7 @@ pub async fn run<T, B, Btn, R, W, D, F>(
     button: Btn,
     reset: F,
     usb: Option<usb::UsbPort<D>>,
-    chip: &'static [u8],
+    info: provisioning::DeviceInfo,
 ) where
     T: WifiTransport<NetworkHandle = Stack<'static>>,
     T::Address: Display,
@@ -60,7 +60,7 @@ pub async fn run<T, B, Btn, R, W, D, F>(
     let network = provisioning::NetworkSignal::new();
     let (readers, ports) = provisioning::take_ports(serial);
     let provisioning_fut = join(
-        provisioning::wifi_task(manager, ports, &network, chip, &boot),
+        provisioning::wifi_task(manager, ports, &network, info, &boot),
         provisioning::readers(readers),
     );
     let recovery_fut = provisioning::recovery_watch(button, &boot, reset);

@@ -155,85 +155,185 @@ La limitation EKV en coupure de courant est déjà suivie par rust-mcu-libs #70.
 
 | Élément | Valeur |
 | --- | --- |
-| Produit testé | `2b6b3c56` (HEAD de la PR #9) ; bibliothèque `rust-mcu-libs@671ca69` |
-| Image nominale | artefact CI `streambewi-esp32s3-ci` (run 38708445660), `streambewi-esp32s3.bin`, SHA-256 `087e914bd8b821c85537929cfd83aa1eb3b455c6e166482dd2ed89bf2302a5c2` |
-| Flash de l'image | image fusionnée à 0x0, **sans effacement global**, par le banc (esptool-js, Web Serial) ; le bootloader trouve `config` data/0x40 @0x9000 et `factory` @0x50000 |
-| Carte | **ESP32-S3 DevKitC-1** (QFN56 rév. v0.2, flash 16 Mio, pont UART CH343) — **pas la Waveshare ESP32-S3 Zero attendue** |
-| Lecteur | **PC Windows** lisant le volume brut avec `tools/qual/verify_mp3.py` (continuité des trames MP3) pour l'essentiel de la campagne ; **Metronic 477144 branché en fin de campagne** (essais de lecture, pause, stop/play seulement) |
-| Observation | UART0 (CH343) pour Improv et la capture du banc ; USB natif (GPIO19/20) vers le PC ; alimentation par le câble UART, donc indépendante du câble USB natif |
-| Sauvegarde | aucune sauvegarde complète : une lecture de 16 Mio a bloqué la page du banc sans résultat ; carte de développement, sauvegarde non exigée par le mainteneur |
-| Pilotage | Improv par un client écrit pour le banc (`tx` UART), BOOT simulé par GPIO0 tenu bas via DTR (pas d'appui physique) |
+| Produit | `2b6b3c56` (portage) puis, sur cette branche, le correctif stop/play `b4f0289` ; bibliothèque `rust-mcu-libs@671ca69` |
+| Image nominale | artefact CI du run 38708445660, SHA-256 `087e914bd8b821c85537929cfd83aa1eb3b455c6e166482dd2ed89bf2302a5c2` ; flashée à 0x0 sans effacement global |
+| Carte | **ESP32-S3 DevKitC-1** (QFN56 rév. v0.2, 16 Mio de flash, pont UART CH343) — **pas la Waveshare ESP32-S3 Zero attendue** |
+| Lecteurs | PC Windows (volume brut, `tools/qual/verify_mp3.py`) pour les essais de bas niveau ; **Metronic 477144** pour la lecture, la pause, le stop/play, la coupure amont et le retrait du câble |
+| Alimentation | par le câble UART : indépendante du câble USB natif |
+| Sauvegarde | aucune sauvegarde complète de la carte (la lecture de 16 Mio a bloqué la page du banc) ; carte de développement, non exigée par le mainteneur |
+| Pilotage | Improv écrit sur UART0 par un client du banc ; BOOT simulé par GPIO0 tenu bas (DTR), pas d'appui physique |
 
-L'image nominale est **muette** (journaux en RAM seulement, aucun moyen de les lire). Pour mesurer, une **variante instrumentée** a été construite sur la branche `qual/67-instrumented` (jamais à fusionner) : même code et mêmes politiques, avec en plus la console de journaux sur UART0, la sonde pile/heap du banc et les journaux `ZEROFILL` et de la classe MSC. Ses images (application seule écrite à 0x50000, `config` conservée) :
-
-| Image | SHA-256 | Source | Usage |
-| --- | --- | --- | --- |
-| `instr` | `ab1582a1…489e5a` | `37db38b` | lecture de 10 min |
-| `instr2` | `37f3a27a…df5fb9` | `0156457` | pause / stop, premiers cycles USB |
-| `instr3` | `5e1d97b3…d3d` | `dbce369` | cycles USB, coupure amont, BOOT |
-
-Les résultats de la variante sont **instrumentés** et séparés de ceux de l'image CI.
+L'image nominale est **muette** (journaux en RAM seulement). Les mesures internes viennent de variantes **instrumentées**, jetables (console UART0, sonde pile/heap du banc, journaux `ZEROFILL`/`REBASE`/MSC, traces du pilote USB), construites par `apply_qual.py` sur les branches `qual/67-instr-v2`, `v4` et `v5` : à ne jamais fusionner. Leurs résultats sont des résultats **instrumentés**.
 
 ### Résultats
 
 | # | Essai | Résultat | Preuve |
 | --- | --- | --- | --- |
-| 1 | Flash de l'image CI, boot à config vierge | **PASS** | bootloader ESP-IDF, table `config` + `factory`, application chargée à 0x50000 |
-| 2 | Config vierge : Improv sur UART0, pas de MSC | **PASS (partiel)** | Improv répond `authorized`, `info` = `streambewi / 0.2.0 / ESP32-S3`. Port USB-JTAG et absence de disque côté Windows : **NON EXÉCUTÉ** (non observé) |
-| 3 | Config non vierge illisible | **PASS** | région `config` entièrement remplie d'octets sans structure : `STREAMBEWI:CONFIG-MOUNT` sur UART0, aucun octet Improv, aucun formatage |
-| 3b | Config partiellement corrompue (2 pages sur 64) | **observation** | le montage EKV l'accepte, le firmware démarre : ce n'est pas le cas « illisible » testé en 3 |
-| 4 | Provisioning Wi-Fi par Improv | **PASS** | états `provisioning` puis `provisioned`, réponse sur UART0 (port demandeur) ; `credentials and OTG flag saved; restart required for MSC` |
-| 5 | Pas de bascule JTAG → OTG pendant ce boot | **PASS** | aucun événement `usb:`/`msc:` entre le provisioning et le redémarrage (0 ligne) |
-| 6 | Redémarrage : credentials, Wi-Fi, vrai flux HTTP, prébuffer 64 Kio avant MSC | **PASS** | HTTP 200 sur l'URL Radio France ; prébuffer 86–88 Kio avant `enabling MSC`, boot → disque ≈ 10 s |
-| 7 | Volume et fichier virtuel | **PASS** | étiquette `RADIOUSB`, `RADIO.MP3` 1 073 741 824 o, 64 secteurs/cluster, 2 097 413 secteurs, données au LBA 261 |
-| 8 | Identité USB/SCSI (VID/PID, INQUIRY) | **NON EXÉCUTÉ** | commandes INQUIRY observées côté carte, mais chaînes et VID/PID non relus côté hôte |
-| 9 | Lecture ≥ 10 min, vrai flux, > 131 s | **PASS** (lecteur de substitution) | 619 s, 12,8 Mo, 26 164 trames MP3 à 128 kbit/s, **0 secteur nul au milieu du flux**, 0 bloc répété, 0 reconnexion HTTP ; débit du flux 15,72 Kio/s ; avance moyenne 2 979 o ; 15 attentes de 1,05 à 1,36 s (gigue réseau) |
-| 10 | Lecture audio sur le Metronic | **PASS (partiel)** | énumération, INQUIRY / TEST UNIT READY / READ CAPACITY, puis lecture séquentielle au rythme du direct (65 Kio toutes les 4 s, aucun `ZEROFILL`) ; audio entendu par le mainteneur. Durée continue de 10 min **non mesurée** sur le Metronic |
-| 11 | Pause puis reprise | **PASS** | aucun zéro ; Icecast coupe la connexion bloquée, reconnexion en 2,6 s, l'audio saute du temps écoulé |
-| 12 | Stop puis relecture depuis l'offset 0 | **FAIL (Metronic)** | PC : 1 968 secteurs nuls servis. **Metronic** : après stop puis play, il relit le début du fichier (21 secteurs, LBA 261–281) et reçoit des zéros (`ZEROFILL Expired`), puis n'envoie plus aucune lecture : plus de son, jusqu'à un débranchement/rebranchement (mesuré deux fois) |
-| 12b | Pause puis reprise sur le Metronic | **PASS** | pause de 10 s : `consumed` figé, reprise à la même position, aucun `ZEROFILL`, ni reconnexion ni reset |
-| 13 | Coupure puis rétablissement du réseau amont | **FAIL** | voir ci-dessous : le flux reprend, mais l'USB ne se rétablit pas sans reset de la carte |
-| 14 | Trois déconnexions/reconnexions USB propres | **PASS** | trois fois `suspended`, `session end`, `bus reset`, `addressed`, `configured`, nouvelle session, commandes de montage, lecture saine ; aucun reboot (alimentation UART). Quatre rebranchements rapprochés ensuite : tous montés |
-| 14b | État bloqué observé une fois (3 rebranchements à 20 s sans lecture, image `instr2` sans journaux MSC) | **NON EXPLIQUÉ** | disque non monté jusqu'à un reset de la carte ; non reproduit avec `instr3` |
-| 15 | BOOT maintenu ≈ 3 s | **PASS** | `recovery: provisioning flag and Wi-Fi cleared; restarting`, `rst:0x10 RTCWDT_RTC_RST`, retour Improv ; reprovisioning (deuxième tentative), redémarrage, disque relu |
-| 16 | Mémoire | **PASS (instrumenté)** | heap 55 220 o au maximum sur 98 304 ; pile 17 120 o au maximum sur 44 448 réservés (15 392 avant les journaux MSC) ; stables sur > 30 min avec reconnexions |
+| 1 | Flash de l'image CI, boot à config vierge | **PASS** | bootloader ESP-IDF, tables `config` + `factory`, application à 0x50000 |
+| 2 | Config vierge : Improv sur UART0 | **PASS** | état `authorized`, `info` = `streambewi / 0.2.0 / ESP32-S3`. Port USB-JTAG et absence de disque côté hôte : **NON EXÉCUTÉ** |
+| 3 | Config non vierge illisible (région entière) | **PASS** | `STREAMBEWI:CONFIG-MOUNT` sur UART0, aucun Improv, aucun formatage |
+| 3b | Config corrompue sur 2 pages sur 64 | observation | montée sans erreur par EKV : ce n'est pas le cas « illisible » de l'essai 3 |
+| 4 | Provisioning Improv, réponse sur le port demandeur | **PASS** | `provisioning` puis `provisioned`, `credentials and OTG flag saved; restart required for MSC` |
+| 5 | Aucune bascule JTAG → OTG pendant ce boot | **PASS** | 0 événement `usb:`/`msc:` entre le provisioning et le redémarrage |
+| 6 | Redémarrage : credentials, Wi-Fi, vrai flux HTTP, prébuffer 64 Kio avant MSC | **PASS** | HTTP 200 ; prébuffer 83–92 Kio avant `enabling MSC` ; boot → disque ≈ 10 s |
+| 7 | Volume et fichier virtuel | **PASS** | `RADIOUSB`, `RADIO.MP3` 1 073 741 824 o, 32 Kio/cluster, 2 097 413 secteurs |
+| 8 | Identité USB/SCSI relue côté hôte | **PASS** | sur la **S3 Zero** avec l'image nominale `e3840c3` : INQUIRY `IOBEWI  ` / `StreamBeWI      ` / `0001`, type 0 amovible, dernier LBA 2 097 412, protégé en écriture, erreurs SCSI `5/0x21` et `5/0x20` ; **descripteur USB lu par Windows** : `USB\VID_303A&PID_4001\STREAMBEWI-0001`, `HardwareIds` `USB\VID_303A&PID_4001&REV_0010`, chaîne produit `StreamBeWI` |
+| 9 | Lecture continue de 10 min, vrai flux, > 131 s | **PASS (PC)** | 619 s, 12,8 Mo, 0 secteur nul au milieu du flux, 0 reconnexion HTTP |
+| 10 | **Metronic : lecture continue de 10 min** (firmware sans correctif d'attente, `b4f0289`) | **PASS** | 620 s, 10,14 Mo à 15,98 Kio/s, 0 `ZEROFILL`, 0 rebasage, 0 reset, 0 reconnexion ; audio sans défaut selon le mainteneur |
+| 11 | **Metronic : pause puis reprise** | **PASS** | reprise à la même position, 0 `ZEROFILL`, ni reconnexion ni reset (vérifié sur `b4f0289` et sur le firmware final) |
+| 12 | **Metronic : stop puis play** (5 s, 30 s, 2 min, 5 s) | **FAIL puis PASS avec `b4f0289`** | avant : le lecteur relisait le début du fichier, recevait des zéros et restait muet ; après : un `REBASE` à chaque reprise, 0 `ZEROFILL`, le son revient (4 cycles, puis 2 cycles sur le firmware final) |
+| 13 | Trois déconnexions USB propres (+ 4 rapprochées) | **PASS** | réénumération, montage et lecture, sans reboot (alimentation UART) |
+| 14 | BOOT maintenu ≈ 3 s | **PASS** | flag et credentials effacés, `rst:0x10 RTCWDT_RTC_RST`, retour Improv, reprovisioning (deuxième tentative), disque relu |
+| 15 | Mémoire (instrumenté) | **PASS** | heap 58 620 o au maximum sur 98 304 ; pile 17 120 o au maximum sur 44 416 réservés |
+| 16 | **Coupure amont, Windows, firmware de référence** | **FAIL** | Windows réinitialise le bus 30 s après le début, puis boucle ; seul un reset de la carte rétablit le disque |
+| 17 | **Coupure amont, Windows, budget par commande + récupération au reset** | **PASS** | script terminé seul, aucun reset de bus ; 7 commandes de 8 secteurs à ≈ 5,0–5,1 s chacune (55 secteurs nuls) ; reprise à 12:52:20 |
+| 18 | **Coupure amont, Metronic, sans soft-déconnexion** (PR #10 seule) | **LIMITE du lecteur** | le Metronic abandonne une lecture après ≈ 1 s, essaie 3 fois, puis coupe son port USB (`suspended`) ; play ne le rallume pas, seul un rebranchement le fait |
+| 18b | **Coupure amont, Metronic, avec soft-déconnexion** (PR #11) | **PASS** (2 essais de suite) | à l'épuisement du tampon (≈ 5 s) le disque quitte le bus ; au retour du flux avec un prébuffer frais il revient, le Metronic réénumère et la lecture **repart seule**, 0 reset ; coupure de ≈ 35 s |
+| 18c | Coupure courte (3 s), pause, stop/play, sur le firmware avec soft-déconnexion | **PASS** | la coupure est absorbée par le tampon (le disque reste sur le bus) ; stop/play et pause sans régression |
+| 18d | **Metronic figé une fois** (aucune lecture ni événement de bus après un stop/play) | **NON EXPLIQUÉ, non reproduit** | un seul cas sur 17 cycles stop/play et plusieurs séquences ; la carte était à l'écoute et c'est le lecteur qui n'envoyait plus rien (plantage du lecteur selon le mainteneur) ; les octets servis au rebasage sont journalisés depuis, sans corrélation trouvée (un début non aligné sur une trame passe) |
+| 18e | **Coupure amont sous Windows avec soft-déconnexion** | **Observation (hôte hors cible)** | le disque **reste monté** et sain pendant la coupure (35 s) : Windows balaie tout le fichier (lectures lointaines servies tout de suite, sondage de la fin) sans consommer au bord du direct, donc aucun lecteur n'est affamé ; le tampon plein freine le producteur, qui ne lit plus la connexion et ne voit pas la coupure. Aucune erreur ni reset. Un déclencheur « producteur muet depuis 6 s » essayé puis **retiré** (jamais validé sur le Metronic, sans effet sous Windows) |
+| 19 | **Retrait du câble en plein transfert, puis rebranchement** | **FAIL puis PASS** | avant : la carte ne répondait plus (INQUIRY sans suite) jusqu'à un reset ; avec l'adaptateur corrigé : trois essais de suite, séquence de commandes complète à chaque fois |
+| 20 | **S3 Zero + Metronic, image nominale `e3840c3`** : lecture 10 min, pause, stop 5 s et 30 s, coupure Wi-Fi avec retour automatique | **PASS (jugé à l'oreille)** | de 17h06 à 17h19 (heure du mainteneur) : lecture continue 10 min, pause 5 s (17h08), stop 5 s (17h10), stop 30 s (17h13), coupure Wi-Fi (17h16) : « RAS » à chaque étape, le son revient seul. **Aucune mesure** : l'image nominale est muette et, sur la S3 Zero, le port natif est occupé par le disque |
 
-### Correctif prototypé pour stop puis play (non inclus dans cette PR)
+### Stop puis play
 
-Cause démontrée : après un stop, le Metronic rouvre le fichier à l'offset 0, qui date du début de la session et est sorti de la fenêtre de 96 Kio ; la politique historique répond par des zéros et le lecteur abandonne.
+**Cause démontrée** : après un stop, le Metronic rouvre le fichier à l'offset 0, qui date du début de la session et est sorti de la fenêtre de 96 Kio ; la politique historique répondait par des zéros et le lecteur abandonnait.
 
-Prototype sur la branche `qual/67-instrumented` (`8a48bb4`, journal `34f4a78`, **jamais à fusionner tel quel**) : si la lecture du **premier secteur** du fichier tombe sur un secteur expiré, la session est rebasée sur le bord du direct, avec la même retenue de 64 Kio qu'à l'énumération, et la lecture est refaite. Aucune valeur de fenêtre, de prébuffer, d'avance ni d'attente ne change ; tout autre secteur expiré reste servi comme `Expired`.
+**Correctif intégré à cette branche** (`b4f0289`, `core/src/lib.rs`, avec un test hôte ; CI verte) : si la lecture du **premier secteur** du fichier tombe sur un secteur expiré, la session est positionnée comme à l'énumération (`begin_session`, même retenue de 64 Kio) puis la lecture est refaite. Aucune valeur de fenêtre, de prébuffer, d'avance ou d'attente ne change ; tout autre secteur expiré reste servi comme expiré.
 
-- Test hôte ajouté (`reopening_the_file_rebases_instead_of_serving_zeroes`) : les 20 tests historiques et le nouveau passent.
-- Mesure sur le Metronic : `REBASE on re-read of sector 0 base 44234 -> 842954 live=908490` (soit `live − 65 536`), **0 `ZEROFILL`**, données servies 0,18 s après le rebasage, lecture continue ensuite, **le son revient**.
-- Conséquence audible : le flux repris est le flux en cours à environ 4 s du direct ; l'audio écoulé pendant le stop est sauté (radio en direct).
-- Non vérifié avec ce correctif : pause puis reprise (la logique ne la touche pas, mais l'essai n'a pas été rejoué), coupure du réseau amont, durée de 10 minutes sur le Metronic.
-- C'est un changement de comportement de la politique historique : il n'est publié que sur la branche de qualification, en attente de la décision du mainteneur.
+**Effet audible, corrigé** : pendant un stop, la contre-pression retient le producteur à 80 Kio d'avance sur le lecteur. Le rebasage place donc le fichier 64 Kio avant le **dernier octet reçu**, et non avant le direct d'aujourd'hui : après un stop assez long pour que le serveur ferme la connexion, le lecteur rejoue environ **4 à 5 s d'audio déjà téléchargé**, puis la reconnexion le fait sauter au direct (mesuré : 2 min d'arrêt ⇒ environ 5 s d'ancien audio). Il n'y a ni zéros ni coupure. Une explication antérieure de ce bilan (« reprise à environ 4 s du direct ») était fausse pour les arrêts longs. Ne pas rejouer ces secondes demanderait une règle différente (écarter les données retenues), non retenue : le mainteneur a demandé la règle de l'énumération.
 
-### Anomalie : coupure du réseau amont (essai 13)
+### Coupure du réseau amont et blocage persistant
 
-Journal de la carte (variante `instr3`), coupure du point d'accès à 10:25:10 :
+Trois causes distinctes ont été démontrées et traitées séparément (branche produit `fix/67-read-budget`, branche bibliothèque `feat/67-read-command-budget` de `rust-mcu-libs`, aucune des deux fusionnée) :
 
-1. Le lien Wi-Fi tombe ; le flux ne reçoit plus rien et reste bloqué jusqu'à `body read error ConnectionReset` (10:25:33), puis des `request error Dns` jusqu'au retour du Wi-Fi (10:25:43) et HTTP 200 (10:25:45).
-2. Pendant la coupure, le MSC attend les données : un `ZEROFILL status=Pending after 5001–5003 ms` toutes les 5 s (6 au total). Une lecture de 8 secteurs peut attendre 8 × 5 s = 40 s.
-3. **Windows réinitialise le bus à 10:25:40, avant la reprise du flux** : la cause démontrée est la durée d'attente cumulée d'une commande, au-delà de ce que tolère Windows, et non la reprise du flux.
-4. Après la reprise, les sessions suivantes (10:26:21, 10:26:41, 10:27:21, 10:27:41, 10:28:22) se terminent avec `reads=0` ou `reads=1` : la carte annonce `msc: connected` mais Windows n'envoie plus aucune commande. Le disque n'est revenu qu'après un reset de la carte.
+1. **Attente cumulée par secteur.** Une lecture de 8 secteurs pouvait attendre 8 × 5 s = 40 s, plus que le délai de Windows. `iobewi-usb-msc` annonce maintenant chaque READ(10) à la politique (`ReadPolicy::command_started`, sans effet par défaut) et le produit applique le **même seuil de 5 s à toute la commande** : la première attente de 5 s est inchangée, les secteurs suivants de la commande sont servis immédiatement. Mesuré sous Windows : une attente de 5,0 à 5,1 s par commande.
+2. **Commande non abandonnée au reset du bus.** Quand l'hôte réinitialisait le bus pendant une lecture en attente, la classe poursuivait l'ancienne commande dans la nouvelle configuration (les points d'accès avaient été réactivés), poussait des données périmées et ne lisait plus la commande suivante. Le gestionnaire de la classe compte désormais les resets et la boucle de lecture abandonne la commande (`Disabled`) : test de dialogue qui échoue sans le correctif (le contrôle négatif émet les 4 secteurs périmés et un CSW).
+3. **Point d'accès IN resté armé (cause racine du blocage persistant).** Si le câble est retiré pendant qu'un envoi est armé sur le point d'accès IN, il le reste après le reset suivant : `embassy-usb` ne désactive pas les points d'accès sur un reset, `embassy-usb-synopsys-otg` 0.4 réécrit `DIEPCTL` sans effacer `EPENA`, et son désarmement ne s'exécute qu'avec la détection VBUS, absente sur l'ESP32-S3. Le premier envoi de la session suivante attend pour toujours « le transfert précédent » : l'hôte lit sa commande, n'obtient jamais la réponse, réinitialise le bus toutes les quelques secondes et abandonne ; seul un reset de la carte rétablit. Reproductible à volonté : lecture à pleine vitesse sous Windows (`verify_mp3.py --start-sector 100000`) puis retrait du câble. `iobewi-esp-usb` enveloppe maintenant le pilote d'esp-hal et désarme les points IN restés actifs après chaque reset de bus (même séquence SNAK + EPDIS que le pilote), sans changer l'API de construction. Contournement d'un comportement amont, à retirer quand le pilote le corrigera ; non testable sur l'hôte.
 
-Non prouvé : pourquoi Windows ne renvoie plus de commandes (le script de lecture est resté bloqué dans un `ReadFile` pendant cet essai, ce qui peut y contribuer). Le délai par secteur est la politique historique de `app/src/usb.rs` (`PENDING_TIMEOUT` de 5 s), conservée par la migration.
+4. **Interruption du flux plus longue que le tampon (PR #11, empilée sur #10).** Le Metronic abandonne une lecture après ≈ 1 s, trois fois, puis coupe son port ; des zéros le font planter ; aucune politique d'attente ne le retient. Quand un lecteur est affamé (`Pending`) alors que le producteur est muet depuis 2 s, le périphérique **quitte le bus** (soft-disconnect, `DCTL.SDIS`, exposé par `iobewi-esp-usb::set_connected`) et se **représente** quand le flux a livré un prébuffer frais de 64 Kio, comme au démarrage. La session consommateur est **conservée à travers cette reconnexion** : un premier essai avait montré que le Metronic reprend à son ancien décalage dans le fichier, que rebaser sur le direct plaçait 610 Kio devant le flux (attente de 38 s, abandon, port coupé) ; s'il revient au début du fichier, le correctif stop/play le rebase. Fenêtre, prébuffer, avance et seuils d'attente inchangés.
 
-### Observation : zéros servis à un lecteur qui relit le début du fichier
+Limites : sous Windows le disque reste monté pendant une coupure (voir l'essai 18e : l'hôte lit le fichier entier sans consommer au bord du direct, le tampon plein freine le producteur), ce qui est sans conséquence pour la cible ; un hôte qui lit au bord du direct et se retrouve affamé se déconnecterait comme le Metronic ; le tampon de 5 s absorbe les coupures plus courtes sans effet. Le MP3 n'a pas de marqueur de flux : le fichier virtuel d'1 Gio (≈ 18 h) est la seule façon de dire « très long » à un hôte de fichiers, d'où les comportements de fichier (accès aléatoire, balayage, relecture du début) que les correctifs adaptent.
 
-La politique historique répond sans attendre par des zéros aux secteurs sortis de la fenêtre de 96 Kio (`Expired`). À chaque session fraîche, Windows lit environ 64 Kio au montage : la fenêtre avance alors de façon que **96 secteurs (48 Kio, ≈ 3 s d'audio) de tête de fichier sont déjà expirés** pour un lecteur qui relit le début (96 `ZEROFILL` côté carte = 96 secteurs nuls côté hôte, à chaque cycle). Un lecteur qui lit séquentiellement depuis l'énumération ne les voit pas ; un lecteur qui revient au début après un stop en voit autant que la session est ancienne (1 968 secteurs après environ 5 min). Un octet nul peut faire échouer le lecteur matériel : **le comportement du Metronic face à ces zéros n'est pas connu**.
+### Zéros servis à un lecteur qui relit le début du fichier
+
+La politique historique répond sans attendre par des zéros aux secteurs sortis de la fenêtre. À l'énumération, Windows lit environ 64 Kio : **96 secteurs (48 Kio, ≈ 3 s) de tête sont alors déjà expirés** pour un lecteur qui relit le début (96 `ZEROFILL` = 96 secteurs nuls côté hôte, à chaque session). Le Metronic, qui lit séquentiellement, ne les voit pas, et le correctif stop/play le sert correctement quand il revient au début. Un lecteur qui relirait le début au milieu du fichier ne serait pas couvert.
 
 ### Limites et points hors périmètre signalés
 
-- **Wi-Fi** (hors périmètre) : la première tentative de connexion échoue à chaque boot avec `DisassociatedDueToInactivity` ; la reprise après 1 s réussit. Le provisioning Improv n'effectue qu'une tentative : une fois `unable to connect`, une seconde tentative a réussi. Déjà suivi dans #72.
-- Carte S3 Zero, Metronic, identité USB relue côté hôte, port USB-JTAG pour Improv, anomalie 14b : voir « NON EXÉCUTÉ » et « NON EXPLIQUÉ ».
-- Aucun correctif appliqué au produit : les politiques (fenêtre 96 Kio, prébuffer 64 Kio, avance 80 Kio, attente 5 s / 5 ms, BOOT 3 s) sont conservées à la demande du mainteneur.
-- Les journaux, les captures et les sorties de scripts sont dans la capture du banc (`serial.log`, non versionnée).
+- **Wi-Fi** (hors périmètre, déjà suivi dans #72) : la première tentative de connexion échoue à chaque boot (`DisassociatedDueToInactivity`) ; la reprise après 1 s réussit. Le provisioning Improv n'effectue qu'une tentative : après `unable to connect`, la seconde a réussi.
+- Carte S3 Zero, identité USB relue côté hôte, port USB-JTAG pour Improv : **NON EXÉCUTÉ**.
+- Aucun correctif des politiques historiques (fenêtre 96 Kio, prébuffer 64 Kio, avance 80 Kio, attente 5 s / 5 ms, BOOT 3 s) ; les valeurs sont inchangées.
+- Mesures mémoire en variante instrumentée seulement.
+
+### Branches et commits
+
+| Dépôt | Branche | Contenu | État |
+| --- | --- | --- | --- |
+| `streambewi` | `migration/67-rust-mcu-libs` (PR #9) | portage, bilan, **correctif stop/play** `b4f0289` | CI verte |
+| `streambewi` | `fix/67-read-budget` (PR #10, brouillon) | budget par commande + épinglage `rust-mcu-libs@0b68389` | CI verte (2/2) ; à relire |
+| `streambewi` | `feat/67-stall-soft-disconnect` (PR #11, brouillon, empilée sur #10) | soft-déconnexion sur flux interrompu + session conservée | CI verte (2/2) ; à relire |
+| `rust-mcu-libs` | `feat/67-read-command-budget` (PR #78, brouillon) | hook `command_started` (`5df3c4a`), abandon au reset du bus (`61d51d6`), désarmement IN de l'adaptateur S3 (`0b68389`), `set_connected` (`6b0e492`) | CI verte (6/6) ; à relire |
+| `streambewi` | `qual/67-instr-v2`, `v4`, `v5`, `v6` | instrumentation jetable | ne pas fusionner |
 
 ### Verdict
 
-**La qualification de #67 n'est pas acquise.** Sur ESP32-S3 DevKitC-1, la chaîne StreamBeWI complète fonctionne (config, provisioning, redémarrage, vrai flux, prébuffer, MSC, lecture continue de 10 min sans secteur nul sous Windows, déconnexions USB, récupération BOOT) et le Metronic lit et reprend après une pause. Mais : (1) l'essai d'acceptation exige la carte S3 Zero, indisponible ; (2) **sur le Metronic, stop puis play ne redonne plus de son** (zéros servis pour le début du fichier) ; un correctif ciblé est prototypé et validé en mesure, en attente de décision ; (3) la coupure du réseau amont mène à un USB non rétabli sans reset (FAIL).
+**La qualification de #67 n'est pas acquise.** La chaîne StreamBeWI complète fonctionne sur le Metronic (lecture de 10 min, pause, quatre cycles stop/play avec le correctif de cette branche), et le comportement du produit face au retrait du câble et aux resets du bus est corrigé dans les branches séparées. Il reste : (1) la carte **S3 Zero** et la lecture de 10 minutes sur ce couple ; (2) la relecture de l'identité USB côté hôte ; (3) la décision de relire et fusionner les deux branches de correctifs (budget d'attente, récupération au reset du bus, désarmement IN), puis de rejouer sur le Metronic les essais de cette campagne : fait avec le firmware final (lecture de 11 min, pause, stop 5 s et 30 s : 0 `ZEROFILL`, 0 reset, 0 avertissement) ; (4) la relecture des PR #10 et #11 et de `rust-mcu-libs#78` ; la coupure du flux de plus de 8 s, que le Metronic ne supportait pas, est traitée par la soft-déconnexion de #11 (validée sur le Metronic sur deux essais).
 
-Conditions avant fusion : décision sur le correctif stop/play (l'inclure, le modifier ou l'écarter) et, s'il est retenu, son essai complet sur le Metronic (pause, 10 min, coupure amont) ; décision du mainteneur sur la politique d'attente lors d'une coupure amont (plafonner la durée par commande, ne pas répondre par des zéros, ou accepter la limite) ; essai sur la carte S3 Zero ; relecture de l'identité USB côté hôte.
+### Relecture des PR de correctifs (15 octobre 2026)
+
+Relecture de `streambewi#10`, `streambewi#11` et `rust-mcu-libs#78` après les essais. Le relecteur est l'auteur : une relecture indépendante reste à faire.
+
+| Trouvaille | Gravité | Traitement |
+| --- | --- | --- |
+| #11 : un producteur **freiné** par le lecteur (fenêtre pleine) était compté comme muet. Un hôte qui lit **devant** le bord du flux (Windows sonde jusqu'à 1 Mio : `Pending` qui n'avancent pas la position) ou qui ne lit pas ferait quitter le bus au disque pour un flux sain, **sans retour possible** (un prébuffer frais ne peut pas s'écrire dans une fenêtre pleine). Le Metronic, qui ne lit jamais devant le flux, n'y était pas exposé. | **défaut** | corrigé (`445e898`) : l'attente de place est `SharedStream::wait_for_room()`, qui compte comme activité ; test hôte avec contrôle négatif (il échoue sans la correction) |
+| #78 : attente de confirmation de désarmement bornée à 100 000 itérations par point d'accès dans une section critique (pire cas ≈ 60 ms sans interruptions) | mineur | ramenée à 10 000 (`e9f3061`) ; la borne du dernier point d'accès (6) est justifiée par `StateStorage<7>` d'esp-hal |
+| #10 : le budget de 5 s couvre maintenant la commande entière ; une lecture de plus de ≈ 80 Kio **au bord du direct** (qui demande plus de 5 s de flux) aurait sa fin remplie de zéros alors qu'elle était attendue secteur par secteur avant | **risque noté** | non observé (Metronic ≈ 3 secteurs par lecture ; Windows 8 secteurs avec le script) ; à surveiller |
+| #11 : le drapeau « session conservée » reste levé si l'hôte ne revient jamais ; une session ultérieure d'un autre hôte reprendrait alors sans rebaser | bénin | les décalages restent cohérents ; le correctif stop/play rebase si le début du fichier est expiré |
+| #78 : `MscClass::bus_reset_counter()` ajoute une API publique (diagnostic et test) | note | documentée |
+
+Après ces corrections, les révisions relues sont : `streambewi` `feat/67-stall-soft-disconnect` **`e3840c3`** (CI verte 2/2), `rust-mcu-libs` `feat/67-read-command-budget` **`e9f3061`** (CI verte 6/6) ; la PR #10 reste épinglée sur `rust-mcu-libs@0b68389`, ce qui suffit (elle n'utilise pas `set_connected`).
+
+### Images
+
+| Image | Révisions | SHA-256 | Usage |
+| --- | --- | --- | --- |
+| **nominale** (muette) `streambewi-esp32s3-e3840c3-factory.bin` | `streambewi@e3840c3`, `rust-mcu-libs@e9f3061` | `721140fa7fc74def7afaeabef6e7d59d021133cada27a2fbfb6659ed42b4d445` | image fusionnée à 0x0 (réinitialise `config` : reprovisioning) |
+| **nominale** `streambewi-esp32s3-e3840c3-app.bin` | idem | `d9555efda4bad28a38104adb4aa566bfe7a89994db88d84026b83d3a9d273d2c` | application seule à 0x50000 (conserve `config`) |
+| **instrumentée v10** `streambewi-qual-v10-app.bin` | `streambewi@1d12daa` (avec le déclencheur « producteur muet 6 s », retiré ensuite) + instrumentation, `rust-mcu-libs@6b0e492` | `4b5eb28094c2a3a5eb63d084c483f229447b4dbf551f795b41b42c2f722d2a5b` | essais Windows de la coupure ; conservée avec sa capture (brute et SSID masqué) et son manifeste |
+
+La campagne sur le Metronic a été menée avec les variantes instrumentées `v7` à `v9` (`31779da` plus instrumentation, mêmes comportements) ; l'image nominale ci-dessus n'a **pas encore été exécutée** sur matériel.
+
+### Validation sur la cible : Waveshare ESP32-S3 Zero et Metronic (15 octobre 2026)
+
+| Élément | Valeur |
+| --- | --- |
+| Carte | **Waveshare ESP32-S3 Zero** : ESP32-S3 (QFN56) rév. v0.2, `efuse` v1.4, flash 4 Mo (XMC), PSRAM 2 Mo ; elle portait l'ancien firmware d'essai `usb-radio POC` |
+| Image | **nominale**, muette, `streambewi-esp32s3-e3840c3-factory.bin` `721140fa7fc74def7afaeabef6e7d59d021133cada27a2fbfb6659ed42b4d445` (`streambewi@e3840c3`, `rust-mcu-libs@e9f3061`) |
+| Flash | par la page du banc (`esptool-js`, réinitialisation USB-Serial-JTAG), à 0x0, sans effacement global ; table `config` data/0x40 @0x9000 + `factory` @0x50000 ; la carte redémarre seule sur la nouvelle image |
+| Provisioning | Improv sur l'USB natif, `authorized` → `provisioning` → `provisioned` du premier coup |
+| Lecteur | Metronic 477144 |
+
+Cette validation reprend les scénarios de la campagne sur la DevKitC-1 (qui tournait avec des variantes instrumentées), cette fois **sur la carte et l'image cibles**. Elle est jugée à l'oreille par le mainteneur : le comportement interne (`ZEROFILL`, resets, rebasages) n'est pas observable avec l'image nominale. Les mesures internes restent celles de la DevKitC-1.
+
+Le banc a dû être adapté : sa page ne tirait les commandes distantes que sur le pont UART ; elle les sert maintenant aussi sur le port USB natif (`reset`, `arm`, `io0` restant refusés), `esptool-js` 0.7 réinitialisant seul ce port.
+
+### Verdict mis à jour
+
+Sur la **carte et le lecteur cibles**, avec l'image nominale correspondant aux révisions relues, la chaîne StreamBeWI complète fonctionne : énumération et identité, lecture continue de 10 min, pause, stop/play, coupure longue du Wi-Fi avec retour automatique.
+
+**Pas encore acquis pour la fusion** : (1) relecture indépendante de `streambewi#10`, `streambewi#11` et `rust-mcu-libs#78` (la relecture faite est celle de l'auteur) ; (2) le **figement isolé du Metronic** reste non expliqué ; (3) la validation sur la cible est auditive, sans mesure. Le VID/PID `303A:4001` est relu côté hôte (essai 8).
+
+### Revue indépendante des PR #10, #11 et #78 (15 octobre 2026)
+
+Trois relectures par la compétence `code-review` (niveau élevé, tous les constats), menées par des agents sans accès à mon contexte, en **lecture seule** : rien n'a été compilé ni exécuté par eux. Leurs constats ont été triés par l'auteur, avec les preuves matérielles disponibles. Une première passe, mal ciblée (elle a relu la branche de la PR #9 contre `main`), est conservée à part.
+
+**Correspondance avec le firmware nominal testé sur la S3 Zero**
+
+| Objet | Résultat |
+| --- | --- |
+| `rust-mcu-libs#78` | tête `e9f3061` = la révision de bibliothèque du firmware nominal ; les 16 paquets `iobewi` du `Cargo.lock` de #11 se résolvent tous vers ce seul commit |
+| `streambewi#11` | tête `e3840c3` = la source du firmware nominal ; stop/play, budget, soft-déconnexion, session conservée et producteur freiné en sont des ancêtres |
+| `streambewi#10` | tête `97e2f6c`, épinglée sur `rust-mcu-libs@0b68389` : **n'est pas** la révision flashée (étape intermédiaire de la pile, jamais flashée telle quelle) |
+| reproductibilité | un clone neuf de `e3840c3`, reconstruit avec les commandes de `scripts/build-release.sh`, redonne **octet pour octet** l'ELF (`37242a1b…d89a`), l'image complète (`721140fa…d445`) et l'application seule (`d9555efd…73d2c`) écrites sur la S3 Zero |
+| artefact de la CI | **différent** (`af6c84df…bd66`, 1 067 600 o) : seuls 39 chemins diffèrent par leur préfixe (`/home/runner/.cargo` au lieu de `/cargo`), car la CI lance `cargo +esp build` sans les `RUSTFLAGS` de normalisation de `build-release.sh` ; bootloader, table, descripteur, adresses et pile sont identiques. L'image testée n'est donc pas l'artefact de la CI |
+
+**Constats sur la pile #10 + #11 (8)**
+
+| # | Constat | Évaluation |
+| --- | --- | --- |
+| 1 | `body.read` sans délai : un chemin réseau qui meurt sans FIN ni RST (Wi-Fi associé, Internet coupé en amont) bloque le producteur pour toujours ; avec #11 le disque quitte le bus **sans pouvoir revenir** | **valide, sérieux** ; le blocage du producteur existait (PR #9), #11 change le symptôme (zéros → disque absent). **Non exercé** : mes coupures étaient des coupures du point d'accès, qui finissent en `ConnectionReset` |
+| 2 | une erreur de `msc.run` autre que `Disabled` après la soft-déconnexion est fatale et jamais relancée | valide en principe (code d'origine, non relancé) ; non observé : `Disabled` traité normalement à chaque reconnexion |
+| 3 | le drapeau `hold` n'expire pas | valide, mineur (le correctif stop/play corrige ensuite le début du fichier) |
+| 4 | le test `a_new_command_gets_a_fresh_budget` ne teste rien de réel | valide : test vide |
+| 5 | `push` : deux sections critiques | négligeable (≈ 8 poussées par seconde) |
+| 6 | `producer_idle` ne mesure plus la livraison pendant le freinage ; sa documentation est fausse | valide en maintenabilité ; corriger la documentation |
+| 7 | champs injectables mais `serve` câble des globales | nit |
+| 8 | tests chronométrés aux marges serrées | valide : risque d'instabilité sur CI chargée (restée verte) |
+
+**Constats sur `rust-mcu-libs#78` (9)**
+
+| # | Constat | Évaluation |
+| --- | --- | --- |
+| 1 | la référence des resets est lue **une fois par session** mais comparée dans **chaque** READ(10) : un reset qui n'a pas terminé la session ferait abandonner à tort la lecture suivante | **valide** ; se rétablit seul après une commande perdue ; correction simple (prise de référence par commande) ; non observé |
+| 2 | le désarmement ne vide pas la FIFO d'émission et efface lui-même `EPDISD` | **en partie infondé** : le pilote vide toutes les FIFO au reset (`init_fifo`) et de nouveau à `SET_CONFIGURATION` ; le risque de réveil manqué est spéculatif et le scénario est validé sur matériel (retrait du câble en plein transfert, trois essais) |
+| 3 | `LAST_IN_ENDPOINT = 6` écrit en dur | borne = les 7 points d'accès d'esp-hal (0 à 6) ; un indice non implémenté se lit à 0, donc sans effet |
+| 4 | `EPDISD` périmé non effacé avant la demande, et expiration silencieuse | **valide, mineur** (hygiène) ; aucun journal possible dans cette brique `no_std` |
+| 5 | `device()` renvoie un type enveloppe : plus de `Driver::new`, `Bus` probablement `!Send` | valide : la mention « même nom et même construction » du README est inexacte ; sans effet pour StreamBeWI (un exécuteur à un cœur), à signaler |
+| 6 | `set_connected` est une fonction libre sans garde de propriété | valide : la contrainte d'ordre n'est que documentée |
+| 7 | le désarmement ne s'exécute qu'à `Event::Reset` | validé sur matériel (retrait du câble, soft-déconnexion puis reconnexion, plusieurs fois) |
+| 8 | aucun test n'exerce le vrai chemin `Control::reset` | valide en test ; **couvert sur matériel** : `msc: bus reset during a command: abandoning it` apparaît dans la capture de la coupure Metronic |
+| 9 | `command_started` n'a pas de crochet de fin de commande | note de conception |
+
+**Constats sur la PR #9 (première passe, hors périmètre des trois PR, présents dans le firmware testé)**
+
+1. Relire le secteur 0 d'un fichier expiré rebase la session : un second lecteur concurrent mettrait en défaut un lecteur en cours (un seul hôte à la fois en pratique).
+2. Une configuration à moitié formatée (coupure de courant pendant le premier formatage EKV) n'est ni vierge ni montable : arrêt silencieux à `STREAMBEWI:CONFIG-MOUNT` jusqu'à un effacement externe (limitation EKV déjà suivie dans `rust-mcu-libs#70`).
+3. `boot_result` boucle sur `spin_loop` sans réinitialisation ni chien de garde.
+4. Le nom de puce est défini deux fois (`STREAMBEWI_CHIP` et le littéral passé à `run`).
+5. La CI utilise `+stable` flottant au lieu d'une version épinglée.
+6. Les noms d'espaces de configuration (`"wifi"`) sont dupliqués entre la cible et `BootPolicy::prepare`.
+7. `scripts/flash.sh` : en-tête obsolète (« auto-détecté par espflash ») et garde fondée sur un fichier texte plutôt que sur l'image.
+8. Improv `GetDeviceInfo` annonce la version **0.2.0** alors que le descripteur de l'image est **0.1.0** : **confirmé par mes mesures** (la réponse `info` renvoyait `0.2.0`).
+
+**Verdict de la revue** : aucun défaut bloquant dans la logique de #10, #11 et #78 ; les défauts fonctionnels trouvés dans cette série (producteur freiné pris pour muet) ont déjà été corrigés avant le firmware testé. Restent deux lacunes de robustesse que les essais ne pouvaient pas atteindre (constat 1 de la pile : producteur sans délai de lecture ; constat 1 de #78 : référence de reset par session). **Les corriger change les révisions, donc l'image nominale, et demande de la rebâtir et de la revalider sur la S3 Zero avec le Metronic.** Aucune correction n'a été faite.
