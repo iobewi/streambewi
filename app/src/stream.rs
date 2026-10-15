@@ -58,7 +58,7 @@ impl SharedStream {
         self.inner.lock(|cell| progress(&cell.borrow()))
     }
 
-    fn writable(&self) -> usize {
+    pub(crate) fn writable(&self) -> usize {
         self.inner
             .lock(|cell| cell.borrow().writable().min(CHUNK_BYTES))
     }
@@ -70,6 +70,21 @@ impl SharedStream {
             self.last_push.lock(|last| last.set(now));
         }
         pushed
+    }
+
+    /// Wait until the window has room for the producer (the reader is behind).
+    ///
+    /// A producer held back by a slow or absent reader is throttled, not starved by the network: it
+    /// counts as active while it waits, so that `producer_idle` measures silence of the stream only.
+    /// Otherwise a host that reads ahead of the live edge, or does not read at all, would make the
+    /// producer look dead and the device would leave the bus and never come back (a fresh prebuffer
+    /// cannot be written into a full window).
+    pub(crate) async fn wait_for_room(&self) {
+        while self.writable() == 0 {
+            let now = Instant::now().as_ticks().max(1);
+            self.last_push.lock(|last| last.set(now));
+            Timer::after(Duration::from_millis(5)).await;
+        }
     }
 
     /// How long the producer has delivered nothing; `Duration::MAX` before the first byte.
@@ -203,9 +218,7 @@ pub async fn run(stack: Stack<'static>, stream: &'static SharedStream) -> ! {
         let mut buf = [0u8; CHUNK_BYTES];
 
         loop {
-            while stream.writable() == 0 {
-                Timer::after(Duration::from_millis(5)).await;
-            }
+            stream.wait_for_room().await;
 
             let want = core::cmp::min(stream.writable(), buf.len());
             if want == 0 {

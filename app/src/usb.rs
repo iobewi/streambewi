@@ -363,4 +363,33 @@ mod tests {
         source.begin_session();
         assert_ne!(stream.progress().1, consumed);
     }
+
+    #[test]
+    fn a_throttled_producer_is_not_a_stalled_one() {
+        use iobewi_fat16::FileSource;
+        let stream: &'static SharedStream = Box::leak(Box::new(SharedStream::new()));
+        let data = [0x55u8; 1024];
+        for _ in 0..80 {
+            stream.push(&data);
+        }
+        // A reader that has read nothing: the window fills up to the lead and the producer is held.
+        let mut source = SharedStreamSource::new(stream);
+        source.begin_session();
+        while stream.push(&data) > 0 {}
+        assert_eq!(stream.writable(), 0);
+        // The producer waits for room for a long time (the host reads ahead of the stream, or not at
+        // all): that is not silence of the stream.
+        embassy_futures::block_on(embassy_futures::join::join(stream.wait_for_room(), async {
+            Timer::after(Duration::from_millis(120)).await;
+            assert!(stream.producer_idle() < Duration::from_millis(40));
+            assert!(!is_stall(ReadStatus::Pending, stream.producer_idle()));
+            // The reader catches up: there is room again.
+            let mut sector = [0u8; iobewi_fat16::SECTOR_SIZE];
+            let mut index = 0;
+            while source.read_file_sector(index, &mut sector) == ReadStatus::Ready {
+                index += 1;
+            }
+        }));
+        assert!(stream.writable() > 0);
+    }
 }
