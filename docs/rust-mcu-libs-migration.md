@@ -283,3 +283,57 @@ Le banc a dû être adapté : sa page ne tirait les commandes distantes que sur 
 Sur la **carte et le lecteur cibles**, avec l'image nominale correspondant aux révisions relues, la chaîne StreamBeWI complète fonctionne : énumération et identité, lecture continue de 10 min, pause, stop/play, coupure longue du Wi-Fi avec retour automatique.
 
 **Pas encore acquis pour la fusion** : (1) relecture indépendante de `streambewi#10`, `streambewi#11` et `rust-mcu-libs#78` (la relecture faite est celle de l'auteur) ; (2) le **figement isolé du Metronic** reste non expliqué ; (3) la validation sur la cible est auditive, sans mesure. Le VID/PID `303A:4001` est relu côté hôte (essai 8).
+
+### Revue indépendante des PR #10, #11 et #78 (15 octobre 2026)
+
+Trois relectures par la compétence `code-review` (niveau élevé, tous les constats), menées par des agents sans accès à mon contexte, en **lecture seule** : rien n'a été compilé ni exécuté par eux. Leurs constats ont été triés par l'auteur, avec les preuves matérielles disponibles. Une première passe, mal ciblée (elle a relu la branche de la PR #9 contre `main`), est conservée à part.
+
+**Correspondance avec le firmware nominal testé sur la S3 Zero**
+
+| Objet | Résultat |
+| --- | --- |
+| `rust-mcu-libs#78` | tête `e9f3061` = la révision de bibliothèque du firmware nominal ; les 16 paquets `iobewi` du `Cargo.lock` de #11 se résolvent tous vers ce seul commit |
+| `streambewi#11` | tête `e3840c3` = la source du firmware nominal ; stop/play, budget, soft-déconnexion, session conservée et producteur freiné en sont des ancêtres |
+| `streambewi#10` | tête `97e2f6c`, épinglée sur `rust-mcu-libs@0b68389` : **n'est pas** la révision flashée (étape intermédiaire de la pile, jamais flashée telle quelle) |
+| reproductibilité | un clone neuf de `e3840c3`, reconstruit avec les commandes de `scripts/build-release.sh`, redonne **octet pour octet** l'ELF (`37242a1b…d89a`), l'image complète (`721140fa…d445`) et l'application seule (`d9555efd…73d2c`) écrites sur la S3 Zero |
+| artefact de la CI | **différent** (`af6c84df…bd66`, 1 067 600 o) : seuls 39 chemins diffèrent par leur préfixe (`/home/runner/.cargo` au lieu de `/cargo`), car la CI lance `cargo +esp build` sans les `RUSTFLAGS` de normalisation de `build-release.sh` ; bootloader, table, descripteur, adresses et pile sont identiques. L'image testée n'est donc pas l'artefact de la CI |
+
+**Constats sur la pile #10 + #11 (8)**
+
+| # | Constat | Évaluation |
+| --- | --- | --- |
+| 1 | `body.read` sans délai : un chemin réseau qui meurt sans FIN ni RST (Wi-Fi associé, Internet coupé en amont) bloque le producteur pour toujours ; avec #11 le disque quitte le bus **sans pouvoir revenir** | **valide, sérieux** ; le blocage du producteur existait (PR #9), #11 change le symptôme (zéros → disque absent). **Non exercé** : mes coupures étaient des coupures du point d'accès, qui finissent en `ConnectionReset` |
+| 2 | une erreur de `msc.run` autre que `Disabled` après la soft-déconnexion est fatale et jamais relancée | valide en principe (code d'origine, non relancé) ; non observé : `Disabled` traité normalement à chaque reconnexion |
+| 3 | le drapeau `hold` n'expire pas | valide, mineur (le correctif stop/play corrige ensuite le début du fichier) |
+| 4 | le test `a_new_command_gets_a_fresh_budget` ne teste rien de réel | valide : test vide |
+| 5 | `push` : deux sections critiques | négligeable (≈ 8 poussées par seconde) |
+| 6 | `producer_idle` ne mesure plus la livraison pendant le freinage ; sa documentation est fausse | valide en maintenabilité ; corriger la documentation |
+| 7 | champs injectables mais `serve` câble des globales | nit |
+| 8 | tests chronométrés aux marges serrées | valide : risque d'instabilité sur CI chargée (restée verte) |
+
+**Constats sur `rust-mcu-libs#78` (9)**
+
+| # | Constat | Évaluation |
+| --- | --- | --- |
+| 1 | la référence des resets est lue **une fois par session** mais comparée dans **chaque** READ(10) : un reset qui n'a pas terminé la session ferait abandonner à tort la lecture suivante | **valide** ; se rétablit seul après une commande perdue ; correction simple (prise de référence par commande) ; non observé |
+| 2 | le désarmement ne vide pas la FIFO d'émission et efface lui-même `EPDISD` | **en partie infondé** : le pilote vide toutes les FIFO au reset (`init_fifo`) et de nouveau à `SET_CONFIGURATION` ; le risque de réveil manqué est spéculatif et le scénario est validé sur matériel (retrait du câble en plein transfert, trois essais) |
+| 3 | `LAST_IN_ENDPOINT = 6` écrit en dur | borne = les 7 points d'accès d'esp-hal (0 à 6) ; un indice non implémenté se lit à 0, donc sans effet |
+| 4 | `EPDISD` périmé non effacé avant la demande, et expiration silencieuse | **valide, mineur** (hygiène) ; aucun journal possible dans cette brique `no_std` |
+| 5 | `device()` renvoie un type enveloppe : plus de `Driver::new`, `Bus` probablement `!Send` | valide : la mention « même nom et même construction » du README est inexacte ; sans effet pour StreamBeWI (un exécuteur à un cœur), à signaler |
+| 6 | `set_connected` est une fonction libre sans garde de propriété | valide : la contrainte d'ordre n'est que documentée |
+| 7 | le désarmement ne s'exécute qu'à `Event::Reset` | validé sur matériel (retrait du câble, soft-déconnexion puis reconnexion, plusieurs fois) |
+| 8 | aucun test n'exerce le vrai chemin `Control::reset` | valide en test ; **couvert sur matériel** : `msc: bus reset during a command: abandoning it` apparaît dans la capture de la coupure Metronic |
+| 9 | `command_started` n'a pas de crochet de fin de commande | note de conception |
+
+**Constats sur la PR #9 (première passe, hors périmètre des trois PR, présents dans le firmware testé)**
+
+1. Relire le secteur 0 d'un fichier expiré rebase la session : un second lecteur concurrent mettrait en défaut un lecteur en cours (un seul hôte à la fois en pratique).
+2. Une configuration à moitié formatée (coupure de courant pendant le premier formatage EKV) n'est ni vierge ni montable : arrêt silencieux à `STREAMBEWI:CONFIG-MOUNT` jusqu'à un effacement externe (limitation EKV déjà suivie dans `rust-mcu-libs#70`).
+3. `boot_result` boucle sur `spin_loop` sans réinitialisation ni chien de garde.
+4. Le nom de puce est défini deux fois (`STREAMBEWI_CHIP` et le littéral passé à `run`).
+5. La CI utilise `+stable` flottant au lieu d'une version épinglée.
+6. Les noms d'espaces de configuration (`"wifi"`) sont dupliqués entre la cible et `BootPolicy::prepare`.
+7. `scripts/flash.sh` : en-tête obsolète (« auto-détecté par espflash ») et garde fondée sur un fichier texte plutôt que sur l'image.
+8. Improv `GetDeviceInfo` annonce la version **0.2.0** alors que le descripteur de l'image est **0.1.0** : **confirmé par mes mesures** (la réponse `info` renvoyait `0.2.0`).
+
+**Verdict de la revue** : aucun défaut bloquant dans la logique de #10, #11 et #78 ; les défauts fonctionnels trouvés dans cette série (producteur freiné pris pour muet) ont déjà été corrigés avant le firmware testé. Restent deux lacunes de robustesse que les essais ne pouvaient pas atteindre (constat 1 de la pile : producteur sans délai de lecture ; constat 1 de #78 : référence de reset par session). **Les corriger change les révisions, donc l'image nominale, et demande de la rebâtir et de la revalider sur la S3 Zero avec le Metronic.** Aucune correction n'a été faite.
