@@ -1,3 +1,3 @@
 fn main() {
-    iobewi_entry_build::emit();
+    println!("cargo:rustc-link-arg-bins=-Tlinkall.x");
 }

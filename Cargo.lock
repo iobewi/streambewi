@@ -447,6 +447,59 @@ dependencies = [
 ]
 
 [[package]]
+name = "edge-dhcp"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f7a6f957c944e22c2c1904618863702e8af302953454ac738e6df0c7038c4d88"
+dependencies = [
+ "edge-nal",
+ "edge-raw",
+ "embassy-futures",
+ "embassy-time",
+ "heapless 0.9.3",
+ "num_enum",
+ "rand_core 0.10.1",
+]
+
+[[package]]
+name = "edge-nal"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "590182a48668fa4988cd97b9b500bcc9a213e9b122b4e0008e934b3916c64031"
+dependencies = [
+ "embassy-time",
+ "embedded-io-async 0.7.0",
+]
+
+[[package]]
+name = "edge-nal-embassy"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "79ad23a63d41bdda528a3b725ae9119ce58abeea265b41fc7f8b254c8d07b2a2"
+dependencies = [
+ "edge-nal",
+ "embassy-futures",
+ "embassy-net",
+ "embedded-io-async 0.7.0",
+]
+
+[[package]]
+name = "edge-raw"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c87c23c2a56d22076013bbf039425369d05bdb9ac833e3249c48008a46e1f95c"
+
+[[package]]
+name = "ekv"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ab888debca410aa6f2726fb363926ca73539378c5e8880c8f08f35ae4b24d938"
+dependencies = [
+ "embassy-sync 0.6.2",
+ "heapless 0.8.0",
+]
+
+[[package]]
 name = "elliptic-curve"
 version = "0.13.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -933,17 +986,6 @@ name = "esp-metadata-generated"
 version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "911aadae41ec99104efa865bd0b6e486b4b735999f9b571963748a46d16495ab"
-
-[[package]]
-name = "esp-nvs"
-version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b61bade3acc39e566697bd215068384afba840999fcd8e9366702f267034c7c0"
-dependencies = [
- "embedded-storage",
- "strum",
- "thiserror",
-]
 
 [[package]]
 name = "esp-phy"
@@ -1470,7 +1512,7 @@ checksum = "b9e0384b61958566e926dc50660321d12159025e767c18e043daf26b70104c39"
 [[package]]
 name = "improv-serial"
 version = "0.1.0"
-source = "git+https://github.com/iobewi/improv-serial?rev=8e9d2c437d07cc22fe848ec0493ea3a3c5ecaea3#8e9d2c437d07cc22fe848ec0493ea3a3c5ecaea3"
+source = "git+https://github.com/iobewi/rust-mcu-libs?rev=671ca69b1103cabc1ca24f40c043e8fa73a9d21f#671ca69b1103cabc1ca24f40c043e8fa73a9d21f"
 
 [[package]]
 name = "indexmap"
@@ -1507,82 +1549,34 @@ dependencies = [
 [[package]]
 name = "iobewi-block"
 version = "0.1.0"
-source = "git+https://github.com/iobewi/iobewi?rev=f0360f51a61c2a475924ab4633b77757b2a832b7#f0360f51a61c2a475924ab4633b77757b2a832b7"
-
-[[package]]
-name = "iobewi-board"
-version = "0.1.0"
-source = "git+https://github.com/iobewi/iobewi?rev=f0360f51a61c2a475924ab4633b77757b2a832b7#f0360f51a61c2a475924ab4633b77757b2a832b7"
-dependencies = [
- "embassy-usb-driver",
- "embedded-hal-async",
- "embedded-io-async 0.7.0",
- "iobewi-config-space",
- "iobewi-device",
- "iobewi-wifi-core",
-]
+source = "git+https://github.com/iobewi/rust-mcu-libs?rev=671ca69b1103cabc1ca24f40c043e8fa73a9d21f#671ca69b1103cabc1ca24f40c043e8fa73a9d21f"
 
 [[package]]
 name = "iobewi-config-space"
 version = "0.1.0"
-source = "git+https://github.com/iobewi/iobewi?rev=f0360f51a61c2a475924ab4633b77757b2a832b7#f0360f51a61c2a475924ab4633b77757b2a832b7"
-
-[[package]]
-name = "iobewi-device"
-version = "0.1.0"
-source = "git+https://github.com/iobewi/iobewi?rev=f0360f51a61c2a475924ab4633b77757b2a832b7#f0360f51a61c2a475924ab4633b77757b2a832b7"
-
-[[package]]
-name = "iobewi-entry"
-version = "0.1.0"
-source = "git+https://github.com/iobewi/iobewi?rev=f0360f51a61c2a475924ab4633b77757b2a832b7#f0360f51a61c2a475924ab4633b77757b2a832b7"
+source = "git+https://github.com/iobewi/rust-mcu-libs?rev=671ca69b1103cabc1ca24f40c043e8fa73a9d21f#671ca69b1103cabc1ca24f40c043e8fa73a9d21f"
 dependencies = [
- "embassy-executor",
- "embassy-net",
- "esp-alloc",
- "esp-bootloader-esp-idf",
- "esp-hal",
- "esp-metadata-generated",
- "esp-rtos",
- "iobewi-board",
- "iobewi-esp-runtime",
- "static_cell",
+ "ekv",
+ "embassy-sync 0.6.2",
 ]
-
-[[package]]
-name = "iobewi-entry-build"
-version = "0.1.0"
-source = "git+https://github.com/iobewi/iobewi?rev=f0360f51a61c2a475924ab4633b77757b2a832b7#f0360f51a61c2a475924ab4633b77757b2a832b7"
 
 [[package]]
 name = "iobewi-esp-config-space"
 version = "0.1.0"
-source = "git+https://github.com/iobewi/iobewi?rev=f0360f51a61c2a475924ab4633b77757b2a832b7#f0360f51a61c2a475924ab4633b77757b2a832b7"
+source = "git+https://github.com/iobewi/rust-mcu-libs?rev=671ca69b1103cabc1ca24f40c043e8fa73a9d21f#671ca69b1103cabc1ca24f40c043e8fa73a9d21f"
 dependencies = [
+ "ekv",
  "embedded-storage",
- "esp-nvs",
  "iobewi-config-space",
  "iobewi-esp-flash",
- "iobewi-esp-nvs",
  "iobewi-esp-partitions",
- "iobewi-nvs-core",
- "log",
-]
-
-[[package]]
-name = "iobewi-esp-device"
-version = "0.1.0"
-source = "git+https://github.com/iobewi/iobewi?rev=f0360f51a61c2a475924ab4633b77757b2a832b7#f0360f51a61c2a475924ab4633b77757b2a832b7"
-dependencies = [
- "esp-hal",
- "esp-metadata-generated",
- "iobewi-device",
+ "iobewi-firmware-layout",
 ]
 
 [[package]]
 name = "iobewi-esp-flash"
 version = "0.1.0"
-source = "git+https://github.com/iobewi/iobewi?rev=f0360f51a61c2a475924ab4633b77757b2a832b7#f0360f51a61c2a475924ab4633b77757b2a832b7"
+source = "git+https://github.com/iobewi/rust-mcu-libs?rev=671ca69b1103cabc1ca24f40c043e8fa73a9d21f#671ca69b1103cabc1ca24f40c043e8fa73a9d21f"
 dependencies = [
  "embassy-sync 0.8.0",
  "embedded-storage",
@@ -1593,28 +1587,9 @@ dependencies = [
 ]
 
 [[package]]
-name = "iobewi-esp-input"
-version = "0.1.0"
-source = "git+https://github.com/iobewi/iobewi?rev=f0360f51a61c2a475924ab4633b77757b2a832b7#f0360f51a61c2a475924ab4633b77757b2a832b7"
-dependencies = [
- "esp-hal",
-]
-
-[[package]]
-name = "iobewi-esp-nvs"
-version = "0.1.0"
-source = "git+https://github.com/iobewi/iobewi?rev=f0360f51a61c2a475924ab4633b77757b2a832b7#f0360f51a61c2a475924ab4633b77757b2a832b7"
-dependencies = [
- "embedded-storage",
- "esp-nvs",
- "esp-rom-sys",
- "iobewi-esp-flash",
-]
-
-[[package]]
 name = "iobewi-esp-partitions"
 version = "0.1.0"
-source = "git+https://github.com/iobewi/iobewi?rev=f0360f51a61c2a475924ab4633b77757b2a832b7#f0360f51a61c2a475924ab4633b77757b2a832b7"
+source = "git+https://github.com/iobewi/rust-mcu-libs?rev=671ca69b1103cabc1ca24f40c043e8fa73a9d21f#671ca69b1103cabc1ca24f40c043e8fa73a9d21f"
 dependencies = [
  "embedded-storage",
  "esp-bootloader-esp-idf",
@@ -1623,56 +1598,9 @@ dependencies = [
 ]
 
 [[package]]
-name = "iobewi-esp-platform"
-version = "0.1.0"
-source = "git+https://github.com/iobewi/iobewi?rev=f0360f51a61c2a475924ab4633b77757b2a832b7#f0360f51a61c2a475924ab4633b77757b2a832b7"
-
-[[package]]
-name = "iobewi-esp-reset"
-version = "0.1.0"
-source = "git+https://github.com/iobewi/iobewi?rev=f0360f51a61c2a475924ab4633b77757b2a832b7#f0360f51a61c2a475924ab4633b77757b2a832b7"
-dependencies = [
- "esp-hal",
-]
-
-[[package]]
-name = "iobewi-esp-runtime"
-version = "0.1.0"
-source = "git+https://github.com/iobewi/iobewi?rev=f0360f51a61c2a475924ab4633b77757b2a832b7#f0360f51a61c2a475924ab4633b77757b2a832b7"
-dependencies = [
- "embassy-executor",
- "embassy-net",
- "esp-alloc",
- "esp-hal",
- "esp-rtos",
- "iobewi-board",
- "iobewi-device",
- "iobewi-esp-config-space",
- "iobewi-esp-device",
- "iobewi-esp-flash",
- "iobewi-esp-input",
- "iobewi-esp-platform",
- "iobewi-esp-reset",
- "iobewi-esp-serial",
- "iobewi-esp-usb",
- "iobewi-esp-wifi",
- "iobewi-runtime",
-]
-
-[[package]]
-name = "iobewi-esp-serial"
-version = "0.1.0"
-source = "git+https://github.com/iobewi/iobewi?rev=f0360f51a61c2a475924ab4633b77757b2a832b7#f0360f51a61c2a475924ab4633b77757b2a832b7"
-dependencies = [
- "embedded-io-async 0.7.0",
- "esp-hal",
- "iobewi-board",
-]
-
-[[package]]
 name = "iobewi-esp-usb"
 version = "0.1.0"
-source = "git+https://github.com/iobewi/iobewi?rev=f0360f51a61c2a475924ab4633b77757b2a832b7#f0360f51a61c2a475924ab4633b77757b2a832b7"
+source = "git+https://github.com/iobewi/rust-mcu-libs?rev=671ca69b1103cabc1ca24f40c043e8fa73a9d21f#671ca69b1103cabc1ca24f40c043e8fa73a9d21f"
 dependencies = [
  "esp-hal",
 ]
@@ -1680,29 +1608,48 @@ dependencies = [
 [[package]]
 name = "iobewi-esp-wifi"
 version = "0.1.0"
-source = "git+https://github.com/iobewi/iobewi?rev=f0360f51a61c2a475924ab4633b77757b2a832b7#f0360f51a61c2a475924ab4633b77757b2a832b7"
+source = "git+https://github.com/iobewi/rust-mcu-libs?rev=671ca69b1103cabc1ca24f40c043e8fa73a9d21f#671ca69b1103cabc1ca24f40c043e8fa73a9d21f"
 dependencies = [
+ "edge-dhcp",
+ "edge-nal",
+ "edge-nal-embassy",
  "embassy-executor",
+ "embassy-futures",
  "embassy-net",
+ "embassy-sync 0.8.0",
  "embassy-time",
  "esp-hal",
  "esp-radio",
  "iobewi-wifi-core",
  "log",
+ "static_cell",
 ]
 
 [[package]]
 name = "iobewi-fat16"
 version = "0.1.0"
-source = "git+https://github.com/iobewi/iobewi?rev=f0360f51a61c2a475924ab4633b77757b2a832b7#f0360f51a61c2a475924ab4633b77757b2a832b7"
+source = "git+https://github.com/iobewi/rust-mcu-libs?rev=671ca69b1103cabc1ca24f40c043e8fa73a9d21f#671ca69b1103cabc1ca24f40c043e8fa73a9d21f"
 dependencies = [
  "iobewi-block",
 ]
 
 [[package]]
+name = "iobewi-firmware-layout"
+version = "0.1.0"
+source = "git+https://github.com/iobewi/rust-mcu-libs?rev=671ca69b1103cabc1ca24f40c043e8fa73a9d21f#671ca69b1103cabc1ca24f40c043e8fa73a9d21f"
+dependencies = [
+ "iobewi-firmware-slots",
+]
+
+[[package]]
+name = "iobewi-firmware-slots"
+version = "0.1.0"
+source = "git+https://github.com/iobewi/rust-mcu-libs?rev=671ca69b1103cabc1ca24f40c043e8fa73a9d21f#671ca69b1103cabc1ca24f40c043e8fa73a9d21f"
+
+[[package]]
 name = "iobewi-log"
 version = "0.1.0"
-source = "git+https://github.com/iobewi/iobewi?rev=f0360f51a61c2a475924ab4633b77757b2a832b7#f0360f51a61c2a475924ab4633b77757b2a832b7"
+source = "git+https://github.com/iobewi/rust-mcu-libs?rev=671ca69b1103cabc1ca24f40c043e8fa73a9d21f#671ca69b1103cabc1ca24f40c043e8fa73a9d21f"
 dependencies = [
  "critical-section",
  "heapless 0.9.3",
@@ -1711,27 +1658,14 @@ dependencies = [
 ]
 
 [[package]]
-name = "iobewi-nvs-core"
-version = "0.1.0"
-source = "git+https://github.com/iobewi/iobewi?rev=f0360f51a61c2a475924ab4633b77757b2a832b7#f0360f51a61c2a475924ab4633b77757b2a832b7"
-dependencies = [
- "esp-nvs",
-]
-
-[[package]]
 name = "iobewi-rolling-stream"
 version = "0.1.0"
-source = "git+https://github.com/iobewi/iobewi?rev=f0360f51a61c2a475924ab4633b77757b2a832b7#f0360f51a61c2a475924ab4633b77757b2a832b7"
-
-[[package]]
-name = "iobewi-runtime"
-version = "0.1.0"
-source = "git+https://github.com/iobewi/iobewi?rev=f0360f51a61c2a475924ab4633b77757b2a832b7#f0360f51a61c2a475924ab4633b77757b2a832b7"
+source = "git+https://github.com/iobewi/rust-mcu-libs?rev=671ca69b1103cabc1ca24f40c043e8fa73a9d21f#671ca69b1103cabc1ca24f40c043e8fa73a9d21f"
 
 [[package]]
 name = "iobewi-usb-msc"
 version = "0.1.0"
-source = "git+https://github.com/iobewi/iobewi?rev=f0360f51a61c2a475924ab4633b77757b2a832b7#f0360f51a61c2a475924ab4633b77757b2a832b7"
+source = "git+https://github.com/iobewi/rust-mcu-libs?rev=671ca69b1103cabc1ca24f40c043e8fa73a9d21f#671ca69b1103cabc1ca24f40c043e8fa73a9d21f"
 dependencies = [
  "embassy-time",
  "embassy-usb",
@@ -1742,12 +1676,12 @@ dependencies = [
 [[package]]
 name = "iobewi-wifi-core"
 version = "0.1.0"
-source = "git+https://github.com/iobewi/iobewi?rev=f0360f51a61c2a475924ab4633b77757b2a832b7#f0360f51a61c2a475924ab4633b77757b2a832b7"
+source = "git+https://github.com/iobewi/rust-mcu-libs?rev=671ca69b1103cabc1ca24f40c043e8fa73a9d21f#671ca69b1103cabc1ca24f40c043e8fa73a9d21f"
 
 [[package]]
 name = "iobewi-wifi-manager"
 version = "0.1.0"
-source = "git+https://github.com/iobewi/iobewi?rev=f0360f51a61c2a475924ab4633b77757b2a832b7#f0360f51a61c2a475924ab4633b77757b2a832b7"
+source = "git+https://github.com/iobewi/rust-mcu-libs?rev=671ca69b1103cabc1ca24f40c043e8fa73a9d21f#671ca69b1103cabc1ca24f40c043e8fa73a9d21f"
 dependencies = [
  "iobewi-config-space",
  "iobewi-wifi-core",
@@ -1909,6 +1843,27 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "071dfc062690e90b734c0b2273ce72ad0ffa95f0c74596bc250dcfd960262841"
 dependencies = [
  "autocfg",
+]
+
+[[package]]
+name = "num_enum"
+version = "0.7.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5d0bca838442ec211fa11de3a8b0e0e8f3a4522575b5c4c06ed722e005036f26"
+dependencies = [
+ "num_enum_derive",
+ "rustversion",
+]
+
+[[package]]
+name = "num_enum_derive"
+version = "0.7.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "680998035259dcfcafe653688bf2aa6d3e2dc05e98be6ab46afb089dc84f1df8"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
 ]
 
 [[package]]
@@ -2403,9 +2358,7 @@ dependencies = [
  "embedded-hal-async",
  "embedded-io-async 0.7.0",
  "improv-serial",
- "iobewi-board",
  "iobewi-config-space",
- "iobewi-device",
  "iobewi-fat16",
  "iobewi-log",
  "iobewi-usb-msc",
@@ -2429,8 +2382,21 @@ dependencies = [
 name = "streambewi-esp32"
 version = "0.1.0"
 dependencies = [
- "iobewi-entry",
- "iobewi-entry-build",
+ "embassy-executor",
+ "embassy-net",
+ "embedded-io-async 0.7.0",
+ "esp-alloc",
+ "esp-bootloader-esp-idf",
+ "esp-hal",
+ "esp-rtos",
+ "iobewi-config-space",
+ "iobewi-esp-config-space",
+ "iobewi-esp-flash",
+ "iobewi-esp-usb",
+ "iobewi-esp-wifi",
+ "iobewi-wifi-manager",
+ "log",
+ "static_cell",
  "streambewi",
 ]
 

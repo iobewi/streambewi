@@ -5,8 +5,8 @@
 //! rolling window and USB MSC themselves live in `iobewi-fat16`, `iobewi-rolling-stream` and
 //! `iobewi-usb-msc`.
 
-use iobewi_fat16::{FileSource, ReadStatus, SECTOR_SIZE};
 pub use iobewi_fat16::{Fat16Config, Geometry};
+use iobewi_fat16::{FileSource, ReadStatus, SECTOR_SIZE};
 use iobewi_rolling_stream::{ReadStatus as WindowStatus, RollingStream};
 
 /// Rolling window capacity in RAM.
@@ -77,13 +77,13 @@ impl FileSource for StreamFile<'_> {
 
     fn read_file_sector(&mut self, index: u32, out: &mut [u8; SECTOR_SIZE]) -> ReadStatus {
         let offset = index as u64 * SECTOR_SIZE as u64;
-        if let Some(session) = self.stream.session() {
-            if is_far_ahead(session.base.saturating_add(offset), self.stream.written()) {
-                // Probe far beyond the live edge (e.g. Windows reading the file tail):
-                // answer with zeroes now instead of blocking the MSC for hours.
-                out.fill(0);
-                return ReadStatus::Ready;
-            }
+        if let Some(session) = self.stream.session()
+            && is_far_ahead(session.base.saturating_add(offset), self.stream.written())
+        {
+            // Probe far beyond the live edge (e.g. Windows reading the file tail):
+            // answer with zeroes now instead of blocking the MSC for hours.
+            out.fill(0);
+            return ReadStatus::Ready;
         }
         match self.stream.read(offset, out) {
             WindowStatus::Ready => ReadStatus::Ready,
