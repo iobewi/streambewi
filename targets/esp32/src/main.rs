@@ -56,8 +56,10 @@ pub static STREAMBEWI_CHIP: [u8; 8] = *b"ESP32-S3";
 
 const AP_SOCKETS: usize = 3; // embassy-net's internal DNS socket, DHCP and one setup HTTP connection.
 const SOCKETS: usize = 4; // DHCP, internal DNS, live HTTP stream, local UI.
-const HEAP_BYTES: usize = 96 * 1024;
-const MIN_STACK_BYTES: usize = 16 * 1024;
+// Measured on the S3 (qual image): heap peak ~60 KiB with the local UI; each HTTP request costs ~10 KiB of
+// stack (peak ~31 KiB). 96 KiB of heap left a 26.6 KiB stack and every request overflowed it.
+const HEAP_BYTES: usize = 80 * 1024;
+const MIN_STACK_BYTES: usize = 36 * 1024;
 const SPACES: &[SpaceSpec] = &[
     SpaceSpec::new(
         streambewi::stations::SPACE,

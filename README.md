@@ -41,8 +41,8 @@ Saving credentials does not switch USB in the current boot. BOOT held for three
 seconds saves provisioning mode, clears credentials, then requests a broad RTC
 system reset. The logger captures to RAM without writing on Improv transports.
 
-The target reserves a 96 KiB heap, three network sockets and a minimum 16 KiB
-linker stack. The ELF inspection gate reports actual product TaskPool storage and
+The target reserves an 80 KiB heap, four network sockets (STA) and a minimum 36 KiB
+linker stack (boot assertion; a local UI request peaks around 31 KiB on the S3). The ELF inspection gate reports actual product TaskPool storage and
 linker stack reservation; these are not runtime stack high-water measurements.
 
 See [migration inventory and verification](docs/rust-mcu-libs-migration.md).
