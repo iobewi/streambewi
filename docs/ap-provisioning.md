@@ -53,7 +53,7 @@ les campagnes précédentes (non journalisé ce jour). SSID et mots de passe mas
 | Web puis Improv rapprochés : requête Web mise en file pendant un Improv, traitée ensuite, une erreur par demandeur | PASS ciblé (pas d'exhaustivité Wi-Fi) |
 | Redémarrage : credentials conservés, STA, flux, prébuffer, MSC, aucun AP ; son confirmé | PASS |
 | BOOT 3 s : flag et Wi-Fi effacés, redémarrage, AP + Web + Improv | PASS |
-| Waveshare ESP32-S3 Zero | NON EXÉCUTÉ (carte non déboguable) |
+| Waveshare ESP32-S3 Zero (ESP32-S3 rév. v0.2, flash 4 Mio, USB natif), image normale `ea2a636` fusionnée : AP, page Web, configuration, reboot STA, flux, prébuffer, MSC, AP absent, disque USB et son confirmés | PASS (contrôle court ; traces par USB-JTAG jusqu'à la bascule OTG ; ESP Web Tools et BOOT 3 s non refaits sur cette carte) |
 
 ### Défauts trouvés et corrigés
 
@@ -80,8 +80,8 @@ les campagnes précédentes (non journalisé ce jour). SSID et mots de passe mas
 | Normale | `ea2a636` | `65b13afbbaf14e0fc8a2d092411ffee418e0542b72baae6c565ba2e93890ca6f` |
 | `qual` | `ea2a636` | `2476ea5d7da9150bd99ec66cef8fa7eba6d1479f4894f9eaebba05576844bdc7` |
 
-Les essais Web ont tourné sur l'image `qual` de `ea2a636` ; l'image normale de `ea2a636` n'a pas été flashée
-(l'image normale de `314cf5a` l'a été pour Improv). L'image USB debug n'a pas été reconstruite ni testée. Les
+Les essais Web et ESP Web Tools sur la DevKitC-1 ont tourné sur l'image `qual` de `ea2a636` ; l'image normale
+de `ea2a636` n'a tourné que sur la Zero (l'image normale de `314cf5a` a servi à Improv sur la DevKitC-1). L'image USB debug n'a pas été reconstruite ni testée. Les
 empreintes CI de la PR n'ont pas pu être comparées (artefact non téléchargeable sans authentification).
 
 ### Limites
