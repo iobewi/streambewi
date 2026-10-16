@@ -54,7 +54,7 @@ static USB_LINK: S3UsbLink = S3UsbLink;
 #[unsafe(no_mangle)]
 pub static STREAMBEWI_CHIP: [u8; 8] = *b"ESP32-S3";
 
-const AP_SOCKETS: usize = 2; // DHCP and one setup HTTP connection.
+const AP_SOCKETS: usize = 3; // embassy-net's internal DNS socket, DHCP and one setup HTTP connection.
 const SOCKETS: usize = 3; // DHCP, DNS and the live HTTP stream.
 const HEAP_BYTES: usize = 96 * 1024;
 const MIN_STACK_BYTES: usize = 16 * 1024;

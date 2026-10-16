@@ -28,7 +28,7 @@ Si l'AP ne démarre pas, Improv reste disponible avec un diagnostic UART.
 ## Composition
 
 - ESP32 : même `WifiManager<STA_SOCKETS, AP_SOCKETS>` et `with_access_point` que
-  `rust-mcu-libs/examples/wifi-modes`, deux sockets AP (DHCP + HTTP), trois sockets STA.
+  `rust-mcu-libs/examples/wifi-modes`, trois sockets AP (socket DNS interne d'embassy-net + DHCP + HTTP), trois sockets STA.
 - HTTP : picoserve 0.20.1 (formulaire URL-encoded, limites du buffer HTTP 1 Kio ; RX/TX 1 Kio chacun).
 - Application : une file Web bornée à une requête, réponse identifiée pour ignorer un résultat ancien.
   Un seul propriétaire du gestionnaire traite Web et Improv ; `BootPolicy::provision` est commun.
