@@ -187,6 +187,13 @@ Espressif's v6.0 partition generator (SHA-256 checked) for the table, and
 `python3 -m pip install esptool==5.5.0`. The partition generator is downloaded once
 to ignored `target/tools`; first packaging needs network access.
 
+## Radio interface
+
+The default page now presents station favorites with their logos, a Wi-Fi panel and settings.
+It is served on the setup AP or on the device's local IPv4 in a normal STA boot.
+Favorites persist without reflashing; selecting a station applies it with an automatic restart.
+See [radio interface](docs/radio-ui.md) for operation, limits and hardware acceptance.
+
 ## Wi-Fi provisioning (Improv Serial)
 
 A provisioning boot also exposes a WPA2 setup AP and a local Web form.

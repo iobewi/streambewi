@@ -1,18 +1,24 @@
 //! Product provisioning page on the AP network only. Radio and DHCP are provided by the target.
 //! HTTP uses picoserve; both UIs submit to the single owner of the Wi-Fi manager.
-use alloc::string::String;
+use crate::stations::Radio;
+use alloc::{
+    string::{String, ToString},
+    vec::Vec,
+};
+use core::cell::RefCell;
 use core::sync::atomic::{AtomicU8, AtomicU32, Ordering};
 use embassy_net::Stack;
 use embassy_sync::{
     blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel, signal::Signal,
 };
+use iobewi_config_space::ConfigBackend;
 use iobewi_wifi_core::AccessPointConfig;
 use picoserve::{
     extract::Form,
     response::StatusCode,
     routing::{get, post},
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 pub const AP_SSID: &str = "StreamBeWI-Setup";
 // Development default, replace at build time for a device distributed to someone else.
@@ -42,6 +48,63 @@ pub(crate) enum Outcome {
 pub(crate) static REQUESTS: Channel<CriticalSectionRawMutex, Request, 1> = Channel::new();
 pub(crate) static RESULT: Signal<CriticalSectionRawMutex, (u32, Outcome)> = Signal::new();
 static NEXT_ID: AtomicU32 = AtomicU32::new(0);
+pub(crate) static SCAN_REQUESTS: Channel<CriticalSectionRawMutex, (), 1> = Channel::new();
+pub(crate) static RESTART: Signal<CriticalSectionRawMutex, ()> = Signal::new();
+static SCANNING: AtomicU8 = AtomicU8::new(0);
+static RESTARTING: AtomicU8 = AtomicU8::new(0);
+static MODE_SETUP: AtomicU8 = AtomicU8::new(0);
+#[derive(Clone, Serialize)]
+struct Network {
+    ssid: String,
+    strength: i8,
+    secured: bool,
+}
+struct WifiView {
+    online: bool,
+    ssid: String,
+    ip: String,
+    networks: Vec<Network>,
+}
+static WIFI: embassy_sync::blocking_mutex::Mutex<CriticalSectionRawMutex, RefCell<WifiView>> =
+    embassy_sync::blocking_mutex::Mutex::new(RefCell::new(WifiView {
+        online: false,
+        ssid: String::new(),
+        ip: String::new(),
+        networks: Vec::new(),
+    }));
+pub(crate) fn set_setup(value: bool) {
+    MODE_SETUP.store(u8::from(value), Ordering::Relaxed);
+}
+pub(crate) fn set_ssid(ssid: &str) {
+    WIFI.lock(|v| v.borrow_mut().ssid = ssid.into());
+}
+pub(crate) fn set_network(stack: Stack<'static>) {
+    WIFI.lock(|v| {
+        let mut v = v.borrow_mut();
+        v.online = stack.is_config_up();
+        v.ip = stack
+            .config_v4()
+            .map(|c| c.address.address().to_string())
+            .unwrap_or_default();
+    });
+}
+pub(crate) fn set_offline() {
+    WIFI.lock(|v| v.borrow_mut().online = false);
+}
+pub(crate) fn set_scan(networks: Vec<iobewi_wifi_core::Network>) {
+    WIFI.lock(|v| {
+        v.borrow_mut().networks = networks
+            .into_iter()
+            .take(12)
+            .map(|n| Network {
+                ssid: n.ssid,
+                strength: n.signal_strength,
+                secured: n.secured,
+            })
+            .collect()
+    });
+    SCANNING.store(0, Ordering::Relaxed);
+}
 
 /// Last Web provisioning state, written by the Wi-Fi owner (not by the HTTP handler, which is dropped
 /// when the AP client is cut by the channel change). `/status` serves it once the client is back.
@@ -127,6 +190,20 @@ async fn provision(
             "<html lang=fr><meta charset=utf-8><p>SSID : 1 à 32 octets. Mot de passe : vide pour un réseau ouvert, 8 à 63 octets ou 64 chiffres hexadécimaux.</p><a href=/>Réessayer</a></html>",
         );
     }
+    // Publish pending before returning 202, including when Improv currently owns the radio.
+    // One Web request in flight prevents a second client from observing an older success.
+    let previous = STATUS.load(Ordering::Relaxed);
+    if previous == 1
+        || STATUS
+            .compare_exchange(previous, 1, Ordering::Relaxed, Ordering::Relaxed)
+            .is_err()
+    {
+        return (
+            StatusCode::CONFLICT,
+            ("Content-Type", "text/html; charset=utf-8"),
+            "Une configuration Wi-Fi est déjà en cours. Patientez puis rechargez la page.",
+        );
+    }
     let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
     REQUESTS
         .send(Request {
@@ -135,50 +212,144 @@ async fn provision(
             password: credentials.password,
         })
         .await;
-    // Only one HTTP connection is served. An expired/disconnected request may leave a late reply;
-    // the sequence number prevents a later request from accepting that stale result.
-    let outcome = loop {
-        let (reply_id, outcome) = RESULT.wait().await;
-        if reply_id == id {
-            break outcome;
+    (
+        StatusCode::ACCEPTED,
+        ("Content-Type", "text/html; charset=utf-8"),
+        "<html lang=fr><meta charset=utf-8><p>Vérification en cours. Si votre connexion change, rejoignez le réseau puis rechargez la page.</p><a href=/>Retour</a></html>",
+    )
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct StationForm {
+    #[serde(default)]
+    id: Option<u32>,
+    name: String,
+    url: String,
+    #[serde(default)]
+    logo: String,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct IdForm {
+    id: u32,
+}
+const JSON_HEADERS: [(&str, &str); 2] = [
+    ("Content-Type", "application/json; charset=utf-8"),
+    ("Cache-Control", "no-store"),
+];
+fn mutation(
+    result: Result<bool, crate::stations::Error>,
+) -> (StatusCode, [(&'static str, &'static str); 2], String) {
+    match result {
+        Ok(restart) => {
+            if restart {
+                RESTARTING.store(1, Ordering::Relaxed);
+                RESTART.signal(());
+            }
+            (
+                StatusCode::OK,
+                JSON_HEADERS,
+                serde_json::json!({"ok":true,"restart":restart}).to_string(),
+            )
         }
-    };
-    match outcome {
-        Outcome::Saved => (
-            StatusCode::OK,
-            ("Content-Type", "text/html; charset=utf-8"),
-            "<html lang=fr><meta charset=utf-8><h1>Wi-Fi enregistré</h1><p>Débranchez puis rebranchez StreamBeWI pour écouter la radio. Le disque USB apparaîtra après connexion et préchargement du flux.</p></html>",
-        ),
-        Outcome::Connection => (
+        Err(error) => (
             StatusCode::BAD_REQUEST,
-            ("Content-Type", "text/html; charset=utf-8"),
-            "<html lang=fr><meta charset=utf-8><p>Connexion impossible ou enregistrement Wi-Fi échoué. Vérifiez le réseau et le mot de passe.</p><a href=/>Réessayer</a></html>",
-        ),
-        Outcome::Storage => (
-            StatusCode::SERVICE_UNAVAILABLE,
-            ("Content-Type", "text/html; charset=utf-8"),
-            "<html lang=fr><meta charset=utf-8><p>Wi-Fi enregistré, mais activation USB non enregistrée. Réessayez avant de redémarrer.</p><a href=/>Réessayer</a></html>",
+            JSON_HEADERS,
+            serde_json::json!({"ok":false,"error":error.message()}).to_string(),
         ),
     }
 }
+async fn state<B: ConfigBackend>(radio: &Radio<B>) -> ([(&'static str, &'static str); 2], String) {
+    let catalog = radio.snapshot().await;
+    let (online, ssid, ip, networks) = WIFI.lock(|v| {
+        let v = v.borrow();
+        (v.online, v.ssid.clone(), v.ip.clone(), v.networks.clone())
+    });
+    (
+        JSON_HEADERS,
+        serde_json::json!({
+            "catalog":catalog, "online":online, "ssid":ssid, "ip":ip,
+            "networks":networks, "scanning":SCANNING.load(Ordering::Relaxed) != 0,
+            "setup":MODE_SETUP.load(Ordering::Relaxed) != 0,
+            "reading":crate::stream::STREAM.is_reading(), "ready":crate::stream::STREAM.is_ready(),
+            "restarting":RESTARTING.load(Ordering::Relaxed) != 0,
+            "wifi_message":status_message(), "wifi_status":STATUS.load(Ordering::Relaxed),
+        })
+        .to_string(),
+    )
+}
 
 /// No listener is bound to STA; an AP client must open the explicit local address (no captive DNS).
-pub async fn serve(stack: Stack<'static>) -> ! {
-    let router = picoserve::Router::new()
-        .route("/", get(page))
-        .route(
-            "/status",
-            get(|| async {
-                (
-                    [
-                        ("Content-Type", "text/plain; charset=utf-8"),
-                        ("Cache-Control", "no-store"),
-                    ],
-                    status_message(),
-                )
-            }),
-        )
-        .route("/wifi", post(provision));
+pub async fn serve<B: ConfigBackend>(stack: Stack<'static>, radio: &Radio<B>) -> ! {
+    let router =
+        picoserve::Router::new()
+            .route("/", get(page))
+            .route(
+                "/status",
+                get(|| async {
+                    (
+                        [
+                            ("Content-Type", "text/plain; charset=utf-8"),
+                            ("Cache-Control", "no-store"),
+                        ],
+                        status_message(),
+                    )
+                }),
+            )
+            .route("/wifi", post(provision))
+            .route(
+                "/ui.css",
+                get(|| async {
+                    (
+                        ("Content-Type", "text/css; charset=utf-8"),
+                        include_str!("ui.css"),
+                    )
+                }),
+            )
+            .route(
+                "/ui.js",
+                get(|| async {
+                    (
+                        ("Content-Type", "application/javascript; charset=utf-8"),
+                        include_str!("ui.js"),
+                    )
+                }),
+            )
+            .route("/api/state", get(move || async move { state(radio).await }))
+            .route(
+                "/api/scan",
+                post(|| async {
+                    if SCANNING.swap(1, Ordering::Relaxed) == 0
+                        && SCAN_REQUESTS.try_send(()).is_err()
+                    {
+                        SCANNING.store(0, Ordering::Relaxed);
+                    }
+                    (StatusCode::ACCEPTED, "Recherche en cours")
+                }),
+            )
+            .route(
+                "/api/stations/save",
+                post(move |Form(value): Form<StationForm>| async move {
+                    mutation(
+                        radio
+                            .save(value.id, value.name, value.url, value.logo)
+                            .await,
+                    )
+                }),
+            )
+            .route(
+                "/api/stations/select",
+                post(move |Form(value): Form<IdForm>| async move {
+                    mutation(radio.select(value.id).await)
+                }),
+            )
+            .route(
+                "/api/stations/delete",
+                post(move |Form(value): Form<IdForm>| async move {
+                    mutation(radio.delete(value.id).await)
+                }),
+            );
     // A connection attempt + DHCP may take time. One bounded HTTP client, no keep-alive.
     let config = picoserve::Config::new(picoserve::Timeouts {
         start_read_request: embassy_time::Duration::from_secs(10),
@@ -186,7 +357,7 @@ pub async fn serve(stack: Stack<'static>) -> ! {
         write: embassy_time::Duration::from_secs(5),
         ..picoserve::Timeouts::const_default()
     });
-    let mut http = [0; 1024];
+    let mut http = [0; 2048];
     let mut rx = [0; 1024];
     let mut tx = [0; 1024];
     match picoserve::Server::new(&router, &config, &mut http)
@@ -253,6 +424,23 @@ mod tests {
                 .is_err()
             );
         }
+    }
+    #[test]
+    fn station_forms_decode_optional_ids_and_encoded_stream_queries() {
+        use picoserve::url_encoded::{UrlEncodedString, deserialize_form};
+        let new: StationForm = deserialize_form(UrlEncodedString(
+            "name=Jazz&url=http%3A%2F%2Fexample.org%2Flive%3Fx%3D1%26y%3D2&logo=",
+        ))
+        .unwrap();
+        assert_eq!(new.id, None);
+        assert_eq!(new.url, "http://example.org/live?x=1&y=2");
+        let edit: StationForm = deserialize_form(UrlEncodedString(
+            "id=2&name=Jazz&url=http%3A%2F%2Fexample.org%2Flive",
+        ))
+        .unwrap();
+        assert_eq!(edit.id, Some(2));
+        assert_eq!(edit.logo, "");
+        assert!(deserialize_form::<IdForm>(UrlEncodedString("id=2&extra=1")).is_err());
     }
     #[test]
     fn ap_configuration_matches_the_page_contract() {

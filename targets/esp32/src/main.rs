@@ -55,10 +55,14 @@ static USB_LINK: S3UsbLink = S3UsbLink;
 pub static STREAMBEWI_CHIP: [u8; 8] = *b"ESP32-S3";
 
 const AP_SOCKETS: usize = 3; // embassy-net's internal DNS socket, DHCP and one setup HTTP connection.
-const SOCKETS: usize = 3; // DHCP, DNS and the live HTTP stream.
+const SOCKETS: usize = 4; // DHCP, internal DNS, live HTTP stream, local UI.
 const HEAP_BYTES: usize = 96 * 1024;
 const MIN_STACK_BYTES: usize = 16 * 1024;
 const SPACES: &[SpaceSpec] = &[
+    SpaceSpec::new(
+        streambewi::stations::SPACE,
+        streambewi::stations::CONFIG_BUDGET.max_bytes(),
+    ),
     SpaceSpec::new("wifi", iobewi_wifi_manager::CONFIG_BUDGET.max_bytes()),
     SpaceSpec::new(boot_policy::SPACE, boot_policy::CONFIG_BUDGET.max_bytes()),
 ];
@@ -136,6 +140,16 @@ async fn product(p: Resources, spawner: Spawner) {
         log::error!("USB boot flag unreadable: {error:?}; provisioning this boot");
     }
 
+    let station_space = boot_result(
+        BootPolicy::claim_stations(store.backend()),
+        &mut uart,
+        "STREAMBEWI:STATIONS-CLAIM",
+    );
+    let radio = boot_result(
+        streambewi::stations::Radio::load(station_space).await,
+        &mut uart,
+        "STREAMBEWI:STATIONS-LOAD",
+    );
     let (rx, tx) = uart.into_async().split();
     let mut serial = vec![(serial::Rx::Uart(rx), serial::Tx::Uart(tx))];
     // Read durable mode first; construct exactly one native USB controller.
@@ -201,6 +215,7 @@ async fn product(p: Resources, spawner: Spawner) {
         usb,
         info,
         setup_network,
+        radio,
     )
     .await;
 }

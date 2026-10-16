@@ -67,6 +67,13 @@ impl<B: ConfigBackend> BootPolicy<B> {
             wifi,
         ))
     }
+    /// Admit product radio settings through the same claim sequence as Wi-Fi and USB.
+    pub fn claim_stations(backend: B) -> Result<ConfigSpace<B>, ClaimError> {
+        let mut manager = ConfigManager::new(backend);
+        manager.claim("wifi", WIFI_CONFIG_BUDGET)?;
+        manager.claim(SPACE, CONFIG_BUDGET)?;
+        manager.claim(crate::stations::SPACE, crate::stations::CONFIG_BUDGET)
+    }
     pub fn mode(&self) -> BootMode {
         self.mode
     }
