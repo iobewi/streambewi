@@ -18,6 +18,7 @@ macro_rules! mk_static {
 pub mod boot_policy;
 pub mod logging;
 pub mod provisioning;
+pub mod setup;
 pub mod stream;
 pub mod usb;
 
@@ -33,6 +34,7 @@ use iobewi_wifi_manager::WifiManager;
 
 /// Run the product with boot-selected transports. The target prepares configuration
 /// and selects JTAG or OTG before calling this function; there is no live handover.
+#[allow(clippy::too_many_arguments)] // Concrete product resources composed by the target.
 pub async fn run<T, B, Btn, R, W, D, F>(
     boot: boot_policy::BootPolicy<B>,
     manager: WifiManager<T, B>,
@@ -41,6 +43,7 @@ pub async fn run<T, B, Btn, R, W, D, F>(
     reset: F,
     usb: Option<usb::UsbPort<D>>,
     info: provisioning::DeviceInfo,
+    setup_network: Option<Stack<'static>>,
 ) where
     T: WifiTransport<NetworkHandle = Stack<'static>>,
     T::Address: Display,
@@ -68,11 +71,21 @@ pub async fn run<T, B, Btn, R, W, D, F>(
         let stack = network.wait().await;
         stream::run(stack, &stream::STREAM).await
     };
-    join(join3(provisioning_fut, recovery_fut, stream_fut), async {
-        match usb {
-            Some(port) => usb::serve(port).await,
+    let setup_fut = async {
+        match setup_network {
+            Some(stack) => setup::serve(stack).await,
             None => core::future::pending::<()>().await,
         }
-    })
+    };
+    join3(
+        join3(provisioning_fut, recovery_fut, stream_fut),
+        setup_fut,
+        async {
+            match usb {
+                Some(port) => usb::serve(port).await,
+                None => core::future::pending::<()>().await,
+            }
+        },
+    )
     .await;
 }

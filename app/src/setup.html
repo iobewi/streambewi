@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="fr">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Configurer StreamBeWI</title>
+<style>
+body{font:1rem system-ui,sans-serif;max-width:32rem;margin:3rem auto;padding:0 1.25rem;background:#f5f7fa;color:#14263d}main{background:white;padding:1.5rem;border-radius:1rem}label{display:block;margin:1.25rem 0 .4rem}input,button{box-sizing:border-box;width:100%;font:inherit;padding:.8rem;border:1px solid #9aa9ba;border-radius:.4rem}button{background:#174d75;color:white;margin-top:1.5rem;cursor:pointer}small{display:block;margin-top:.4rem;color:#465669}
+</style>
+<main>
+<h1>Configurer StreamBeWI</h1>
+<p>Connectez votre radio à un réseau Wi-Fi 2,4 GHz. Vous pouvez aussi utiliser Improv avec ESP Web Tools par USB.</p>
+<form method="post" action="/wifi" autocomplete="off">
+<label for="ssid">Nom du réseau Wi-Fi</label>
+<input id="ssid" name="ssid" required maxlength="32" autocapitalize="none" spellcheck="false">
+<label for="password">Mot de passe du réseau</label>
+<input id="password" name="password" type="password" maxlength="64">
+<small>Laissez vide pour un réseau ouvert.</small>
+<button type="submit">Enregistrer et vérifier la connexion</button>
+</form>
+<p>La vérification peut interrompre brièvement la connexion à ce point d’accès. Après confirmation, débranchez puis rebranchez StreamBeWI pour activer la radio USB.</p>
+</main>
+</html>

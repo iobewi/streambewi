@@ -242,3 +242,31 @@ fn device_info_reports_the_identity_given_by_the_target() {
     assert_ne!(other.as_ref(), bytes);
     assert!(other.as_ref().windows(5).any(|w| w == b"9.9.9"));
 }
+
+#[test]
+fn web_provisioning_reports_a_flag_failure_and_retries_without_switching_usb() {
+    let backend = Backend::default();
+    let (boot, wifi_space) = ready(BootPolicy::prepare(backend.clone())).unwrap();
+    let mut manager = WifiManager::new(Radio, wifi_space);
+    let mut flag_committed = false;
+    for (id, fail, expected) in [
+        (41, true, crate::setup::Outcome::Storage),
+        (42, false, crate::setup::Outcome::Saved),
+    ] {
+        backend.0.borrow_mut().fail_flag = fail;
+        ready(provision_web(
+            crate::setup::Request {
+                id,
+                ssid: "network".into(),
+                password: "password".into(),
+            },
+            &mut manager,
+            &boot,
+            &mut flag_committed,
+        ));
+        assert_eq!(ready(crate::setup::RESULT.wait()), (id, expected));
+        assert_eq!(flag_committed, !fail);
+        assert!(backend.0.borrow().values.contains_key("wifi"));
+        assert_eq!(boot.mode(), BootMode::Provisioning);
+    }
+}

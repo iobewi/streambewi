@@ -189,6 +189,11 @@ to ignored `target/tools`; first packaging needs network access.
 
 ## Wi-Fi provisioning (Improv Serial)
 
+A provisioning boot also exposes a WPA2 setup AP and a local Web form.
+See [AP provisioning](docs/ap-provisioning.md) for the address, development password,
+build-time override, reboot policy and hardware acceptance checklist.
+
+
 Wi-Fi is configured over the USB-UART bridge (UART0) or the native USB-Serial-JTAG port, whichever the board exposes (both are served; replies go back on the requesting port), with [Improv Serial](https://www.improv-wifi.com/serial/),
 the protocol ESP Web Tools speaks after flashing.
 
