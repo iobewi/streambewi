@@ -95,7 +95,16 @@ impl ReadPolicy for StreamReadPolicy {
         if is_stall(status, self.stream.producer_idle()) {
             self.stall.signal(());
         }
-        decide(status, self.command_start.elapsed())
+        let action = decide(status, self.command_start.elapsed());
+        if action == ReadAction::ZeroFill {
+            // Operating log: every zero sector served is a lost-data event.
+            log::warn!(
+                "usb: ZEROFILL status={:?} command_elapsed={} ms",
+                status,
+                self.command_start.elapsed().as_millis()
+            );
+        }
+        action
     }
 }
 
@@ -174,13 +183,18 @@ where
     // The USB disk is only presented once the stream has delivered the prebuffer: a visible
     // RADIO.MP3 with no audio behind it (Wi-Fi not provisioned/connected, stream down)
     // would look like an empty file to the host. Without data there is no USB device.
+    let mut waits = 0u32;
     while !STREAM.is_ready() {
-        let (written, consumed) = STREAM.progress();
-        log::info!(
-            "stream: prebuffer written={} consumed={}",
-            written,
-            consumed
-        );
+        // One line when the wait starts, then one every 10 s: a silent stream is visible, not flooded.
+        if waits.is_multiple_of(20) {
+            let (written, consumed) = STREAM.progress();
+            log::info!(
+                "stream: waiting for the prebuffer written={} consumed={}",
+                written,
+                consumed
+            );
+        }
+        waits = waits.wrapping_add(1);
         Timer::after(Duration::from_millis(500)).await;
     }
 

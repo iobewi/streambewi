@@ -31,6 +31,8 @@ const CHUNK_BYTES: usize = 2048;
 /// above the 5 s the reader's window covers. It only counts while the producer is reading: a producer
 /// held back by the reader (`wait_for_room`) is not waiting for the network.
 const READ_TIMEOUT: Duration = Duration::from_secs(8);
+/// Period of the stream progress heartbeat in the operating log.
+const PROGRESS_LOG_PERIOD: Duration = Duration::from_secs(60);
 /// Longest the producer waits to open the connection and receive the response headers.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 
@@ -185,7 +187,28 @@ impl FileSource for SharedStreamSource {
     }
 
     fn read_file_sector(&mut self, index: u32, out: &mut [u8; SECTOR_SIZE]) -> ReadStatus {
-        self.with_file(|file| file.read_file_sector(index, out))
+        let before = self
+            .stream
+            .inner
+            .lock(|c| c.borrow().session().map(|s| s.base));
+        let status = self.with_file(|file| file.read_file_sector(index, out));
+        {
+            let after = self
+                .stream
+                .inner
+                .lock(|c| c.borrow().session().map(|s| s.base));
+            if before != after {
+                let (live, _) = self.stream.progress();
+                log::info!(
+                    "stream: REBASE on re-read of sector {} base {:?} -> {:?} live={}",
+                    index,
+                    before,
+                    after,
+                    live
+                );
+            }
+        }
+        status
     }
 }
 
@@ -268,6 +291,7 @@ pub async fn run(stack: Stack<'static>, stream: &'static SharedStream) -> ! {
 
         let mut body = response.body().reader();
         let mut buf = [0u8; CHUNK_BYTES];
+        let mut last_progress_log = Instant::now();
 
         loop {
             stream.wait_for_room().await;
@@ -296,11 +320,11 @@ pub async fn run(stack: Stack<'static>, stream: &'static SharedStream) -> ! {
                     let pushed = stream.push(&buf[..n]);
                     let (written, consumed) = stream.progress();
 
-                    let before_bucket = before / (64 * 1024);
-                    let after_bucket = written / (64 * 1024);
+                    // Prebuffer reached, then a heartbeat every 60 s while data flows.
                     if before < PREBUFFER_BYTES && written >= PREBUFFER_BYTES
-                        || after_bucket != before_bucket
+                        || last_progress_log.elapsed() >= PROGRESS_LOG_PERIOD
                     {
+                        last_progress_log = Instant::now();
                         log::info!(
                             "stream: live={} consumed={} lead={}",
                             written,
