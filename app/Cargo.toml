@@ -8,8 +8,6 @@ description = "StreamBeWI product logic: provisioning, live stream and USB MSC r
 [features]
 default = []
 usb-debug = ["embassy-usb/log", "iobewi-usb-msc/usb-debug"]
-# Qualification instrumentation (extra log lines for the bench); off in the product image.
-qual = []
 
 [dependencies]
 streambewi-core = { path = "../core" }

@@ -6,8 +6,7 @@ extern crate alloc;
 mod qual_mem;
 mod serial;
 
-#[cfg(feature = "qual")]
-fn qual_print(r: &log::Record<'_>) {
+fn console(r: &log::Record<'_>) {
     esp_println::println!("{} - {}: {}", r.level(), r.target(), r.args());
 }
 
@@ -187,11 +186,9 @@ fn main() -> ! {
     qual_mem::paint();
     let p =
         esp_hal::init(esp_hal::Config::default().with_cpu_clock(esp_hal::clock::CpuClock::max()));
-    #[cfg(not(feature = "qual"))]
-    streambewi::logging::install(); // Capture only; never write on Improv transports.
+    streambewi::logging::install(console); // Operating log on UART0 (Improv ignores non-frame text).
     #[cfg(feature = "qual")]
     {
-        iobewi_log::install(qual_print, streambewi::logging::LOG_TARGET); // qualification: console on UART0
         let mut policy = iobewi_log::default_policy(streambewi::logging::LOG_TARGET).unwrap();
         policy
             .add_target("iobewi_usb_msc", log::LevelFilter::Info)

@@ -185,13 +185,11 @@ impl FileSource for SharedStreamSource {
     }
 
     fn read_file_sector(&mut self, index: u32, out: &mut [u8; SECTOR_SIZE]) -> ReadStatus {
-        #[cfg(feature = "qual")]
         let before = self
             .stream
             .inner
             .lock(|c| c.borrow().session().map(|s| s.base));
         let status = self.with_file(|file| file.read_file_sector(index, out));
-        #[cfg(feature = "qual")]
         {
             let after = self
                 .stream

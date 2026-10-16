@@ -96,9 +96,8 @@ impl ReadPolicy for StreamReadPolicy {
             self.stall.signal(());
         }
         let action = decide(status, self.command_start.elapsed());
-        #[cfg(feature = "qual")]
         if action == ReadAction::ZeroFill {
-            // Qualification: evidence of every zero sector served.
+            // Operating log: every zero sector served is a lost-data event.
             log::warn!(
                 "usb: ZEROFILL status={:?} command_elapsed={} ms",
                 status,
