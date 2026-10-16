@@ -1,7 +1,7 @@
 //! Product provisioning page on the AP network only. Radio and DHCP are provided by the target.
 //! HTTP uses picoserve; both UIs submit to the single owner of the Wi-Fi manager.
 use alloc::string::String;
-use core::sync::atomic::{AtomicU32, Ordering};
+use core::sync::atomic::{AtomicU8, AtomicU32, Ordering};
 use embassy_net::Stack;
 use embassy_sync::{
     blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel, signal::Signal,
@@ -42,6 +42,35 @@ pub(crate) enum Outcome {
 pub(crate) static REQUESTS: Channel<CriticalSectionRawMutex, Request, 1> = Channel::new();
 pub(crate) static RESULT: Signal<CriticalSectionRawMutex, (u32, Outcome)> = Signal::new();
 static NEXT_ID: AtomicU32 = AtomicU32::new(0);
+
+/// Last Web provisioning state, written by the Wi-Fi owner (not by the HTTP handler, which is dropped
+/// when the AP client is cut by the channel change). `/status` serves it once the client is back.
+static STATUS: AtomicU8 = AtomicU8::new(0);
+
+pub(crate) fn set_pending() {
+    STATUS.store(1, Ordering::Relaxed);
+}
+
+pub(crate) fn set_outcome(outcome: Outcome) {
+    STATUS.store(
+        match outcome {
+            Outcome::Saved => 2,
+            Outcome::Connection => 3,
+            Outcome::Storage => 4,
+        },
+        Ordering::Relaxed,
+    );
+}
+
+pub(crate) fn status_word() -> &'static str {
+    match STATUS.load(Ordering::Relaxed) {
+        1 => "pending",
+        2 => "saved",
+        3 => "connection",
+        4 => "storage",
+        _ => "none",
+    }
+}
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -116,6 +145,10 @@ pub async fn serve(stack: Stack<'static>) -> ! {
         .route(
             "/",
             get(|| async { (("Content-Type", "text/html; charset=utf-8"), PAGE) }),
+        )
+        .route(
+            "/status",
+            get(|| async { (("Content-Type", "text/plain; charset=utf-8"), status_word()) }),
         )
         .route("/wifi", post(provision));
     // A connection attempt + DHCP may take time. One bounded HTTP client, no keep-alive.

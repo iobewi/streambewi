@@ -265,6 +265,10 @@ fn web_provisioning_reports_a_flag_failure_and_retries_without_switching_usb() {
             &mut flag_committed,
         ));
         assert_eq!(ready(crate::setup::RESULT.wait()), (id, expected));
+        assert_eq!(
+            crate::setup::status_word(),
+            if fail { "storage" } else { "saved" }
+        );
         assert_eq!(flag_committed, !fail);
         assert!(backend.0.borrow().values.contains_key("wifi"));
         assert_eq!(boot.mode(), BootMode::Provisioning);

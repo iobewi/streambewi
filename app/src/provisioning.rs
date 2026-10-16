@@ -292,6 +292,7 @@ async fn provision_web<T, B>(
     B::Error: Debug,
 {
     // Same serialized owner and durable commit order as Improv. No password in logs.
+    crate::setup::set_pending();
     let result = boot
         .provision(manager, &request.ssid, request.password)
         .await;
@@ -306,6 +307,7 @@ async fn provision_web<T, B>(
         }
         Err(ProvisionError::Credentials) => crate::setup::Outcome::Connection,
     };
+    crate::setup::set_outcome(outcome);
     crate::setup::RESULT.signal((request.id, outcome));
 }
 
