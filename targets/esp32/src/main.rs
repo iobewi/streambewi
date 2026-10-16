@@ -54,6 +54,7 @@ static USB_LINK: S3UsbLink = S3UsbLink;
 #[unsafe(no_mangle)]
 pub static STREAMBEWI_CHIP: [u8; 8] = *b"ESP32-S3";
 
+const AP_SOCKETS: usize = 3; // embassy-net's internal DNS socket, DHCP and one setup HTTP connection.
 const SOCKETS: usize = 3; // DHCP, DNS and the live HTTP stream.
 const HEAP_BYTES: usize = 96 * 1024;
 const MIN_STACK_BYTES: usize = 16 * 1024;
@@ -153,12 +154,26 @@ async fn product(p: Resources, spawner: Spawner) {
         }
     };
     static NET: StaticCell<StackResources<SOCKETS>> = StaticCell::new();
-    let transport = iobewi_esp_wifi::WifiManager::<SOCKETS>::new(
+    static AP_NET: StaticCell<StackResources<AP_SOCKETS>> = StaticCell::new();
+    let transport = iobewi_esp_wifi::WifiManager::<SOCKETS, AP_SOCKETS>::new(
         p.wifi,
         spawner,
         NET.init(StackResources::new()),
-    );
-    let manager = iobewi_wifi_manager::WifiManager::new(transport, wifi_space);
+    )
+    .with_access_point(AP_NET.init(StackResources::new()));
+    let mut manager = iobewi_wifi_manager::WifiManager::new(transport, wifi_space);
+    let setup_network = if boot.mode() == BootMode::Provisioning {
+        let ap = streambewi::setup::access_point_config();
+        if manager.start_access_point(&ap).await {
+            log::info!("setup: AP {} ready; open http://172.23.241.1/", ap.ssid());
+            manager.access_point_handle()
+        } else {
+            log::error!("setup: AP startup failed; Improv remains available");
+            None
+        }
+    } else {
+        None
+    };
     let button = Input::new(p.button, InputConfig::default().with_pull(Pull::Up));
     let mut rtc = Rtc::new(p.rtc);
     let reset = move || {
@@ -177,7 +192,17 @@ async fn product(p: Resources, spawner: Spawner) {
         // The package version is what `esp_app_desc!` records in the image descriptor.
         version: env!("CARGO_PKG_VERSION").as_bytes(),
     };
-    streambewi::run(boot, manager, serial, button, reset, usb, info).await;
+    streambewi::run(
+        boot,
+        manager,
+        serial,
+        button,
+        reset,
+        usb,
+        info,
+        setup_network,
+    )
+    .await;
 }
 
 #[esp_hal::main]

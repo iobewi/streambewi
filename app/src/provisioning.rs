@@ -9,7 +9,7 @@ use core::{future::Future, task::Poll};
 use core::fmt::{Debug, Display};
 use core::sync::atomic::{AtomicBool, Ordering};
 
-use embassy_futures::select::{Either, select};
+use embassy_futures::select::{Either, Either3, select, select3};
 use embassy_net::Stack;
 use embassy_sync::{
     blocking_mutex::raw::{CriticalSectionRawMutex, NoopRawMutex},
@@ -225,16 +225,25 @@ where
         } else {
             State::Authorized
         };
-        match select(
+        match select3(
             manager.maintain(&sleep, &mut observer),
             IMPROV_COMMANDS.receive(),
+            crate::setup::REQUESTS.receive(),
         )
         .await
         {
-            Either::First(MaintainError::NotProvisioned) => {
+            Either3::First(MaintainError::NotProvisioned) => {
                 CONFIGURED.store(false, Ordering::Relaxed);
                 log::info!("wifi: no saved credentials; waiting for Improv provisioning");
-                let (port, command) = IMPROV_COMMANDS.receive().await;
+                let (port, command) =
+                    match select(IMPROV_COMMANDS.receive(), crate::setup::REQUESTS.receive()).await
+                    {
+                        Either::First(command) => command,
+                        Either::Second(request) => {
+                            provision_web(request, &mut manager, boot, &mut flag_committed).await;
+                            continue;
+                        }
+                    };
                 handle(
                     command,
                     Reply {
@@ -249,7 +258,7 @@ where
                 )
                 .await;
             }
-            Either::Second((port, command)) => {
+            Either3::Second((port, command)) => {
                 handle(
                     command,
                     Reply {
@@ -264,8 +273,42 @@ where
                 )
                 .await
             }
+            Either3::Third(request) => {
+                provision_web(request, &mut manager, boot, &mut flag_committed).await;
+            }
         }
     }
+}
+
+async fn provision_web<T, B>(
+    request: crate::setup::Request,
+    manager: &mut Manager<T, B>,
+    boot: &BootPolicy<B>,
+    flag_committed: &mut bool,
+) where
+    T: WifiTransport<NetworkHandle = Stack<'static>>,
+    T::Address: Display,
+    B: ConfigBackend,
+    B::Error: Debug,
+{
+    // Same serialized owner and durable commit order as Improv. No password in logs.
+    crate::setup::set_pending();
+    let result = boot
+        .provision(manager, &request.ssid, request.password)
+        .await;
+    let outcome = match result {
+        Ok(()) => {
+            *flag_committed = true;
+            crate::setup::Outcome::Saved
+        }
+        Err(ProvisionError::Flag(_)) => {
+            *flag_committed = false;
+            crate::setup::Outcome::Storage
+        }
+        Err(ProvisionError::Credentials) => crate::setup::Outcome::Connection,
+    };
+    crate::setup::set_outcome(outcome);
+    crate::setup::RESULT.signal((request.id, outcome));
 }
 
 async fn handle<T, B, W>(
