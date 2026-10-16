@@ -186,7 +186,7 @@ where
     let mut waits = 0u32;
     while !STREAM.is_ready() {
         // One line when the wait starts, then one every 10 s: a silent stream is visible, not flooded.
-        if waits % 20 == 0 {
+        if waits.is_multiple_of(20) {
             let (written, consumed) = STREAM.progress();
             log::info!(
                 "stream: waiting for the prebuffer written={} consumed={}",
