@@ -2,9 +2,9 @@
 #![no_main]
 
 extern crate alloc;
-mod serial;
 #[cfg(feature = "qual")]
 mod qual_mem;
+mod serial;
 
 #[cfg(feature = "qual")]
 fn qual_print(r: &log::Record<'_>) {
@@ -193,8 +193,12 @@ fn main() -> ! {
     {
         iobewi_log::install(qual_print, streambewi::logging::LOG_TARGET); // qualification: console on UART0
         let mut policy = iobewi_log::default_policy(streambewi::logging::LOG_TARGET).unwrap();
-        policy.add_target("iobewi_usb_msc", log::LevelFilter::Info).unwrap();
-        policy.add_target("embassy_usb", log::LevelFilter::Trace).unwrap();
+        policy
+            .add_target("iobewi_usb_msc", log::LevelFilter::Info)
+            .unwrap();
+        policy
+            .add_target("embassy_usb", log::LevelFilter::Trace)
+            .unwrap();
         iobewi_log::apply_policy(policy);
     }
     esp_alloc::heap_allocator!(size: HEAP_BYTES);

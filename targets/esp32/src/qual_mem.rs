@@ -48,7 +48,11 @@ pub fn probe(target: &'static str, label: &str) {
     }
     let reserved = start - end;
     let used = start - p;
-    let note = if p == lo { " (paint exhausted: >= value)" } else { "" };
+    let note = if p == lo {
+        " (paint exhausted: >= value)"
+    } else {
+        ""
+    };
     let h = esp_alloc::HEAP.stats();
     log::info!(
         target: target,

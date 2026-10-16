@@ -99,7 +99,11 @@ impl ReadPolicy for StreamReadPolicy {
         #[cfg(feature = "qual")]
         if action == ReadAction::ZeroFill {
             // Qualification: evidence of every zero sector served.
-            log::warn!("usb: ZEROFILL status={:?} command_elapsed={} ms", status, self.command_start.elapsed().as_millis());
+            log::warn!(
+                "usb: ZEROFILL status={:?} command_elapsed={} ms",
+                status,
+                self.command_start.elapsed().as_millis()
+            );
         }
         action
     }
