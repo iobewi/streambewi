@@ -49,7 +49,7 @@ les campagnes précédentes (non journalisé ce jour). SSID et mots de passe mas
 | Web, SSID avec espaces/accents et mot de passe avec symboles | NON EXÉCUTÉ (couvert par les tests hôte) |
 | Changement de canal pendant l'association STA | Client AP éjecté (AP canal 6, réseau canal 11) ; page redevenue joignable après réassociation |
 | Improv, AP actif (client du banc) : `state`, `info`, `scan`, mauvais mot de passe | PASS (réponses sur le port demandeur ; `unable to connect` puis `authorized`) |
-| Improv officiel ESP Web Tools, AP actif (DevKitC-1) | PASS, cas de succès seulement : credentials puis flag OTG enregistrés, succès affiché par l'outil ; mauvais mot de passe non essayé avec l'outil (couvert par le client du banc) |
+| Improv officiel ESP Web Tools, AP actif (DevKitC-1) : mauvais mot de passe puis bon | PASS : échec sans enregistrement (réseau précédent conservé, flux repris), puis credentials et flag OTG enregistrés, succès affiché par l'outil |
 | Web puis Improv rapprochés : requête Web mise en file pendant un Improv, traitée ensuite, une erreur par demandeur | PASS ciblé (pas d'exhaustivité Wi-Fi) |
 | Redémarrage : credentials conservés, STA, flux, prébuffer, MSC, aucun AP ; son confirmé | PASS |
 | BOOT 3 s : flag et Wi-Fi effacés, redémarrage, AP + Web + Improv | PASS |
