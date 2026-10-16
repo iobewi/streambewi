@@ -34,20 +34,65 @@ Si l'AP ne démarre pas, Improv reste disponible avec un diagnostic UART.
   Un seul propriétaire du gestionnaire traite Web et Improv ; `BootPolicy::provision` est commun.
 - L'interface reste limitée au provisioning. Choix des radios et politique de logs : #2 et #15.
 
-## Qualification ciblée sur carte (à exécuter)
+## Qualification ciblée sur carte
 
-- Configuration vierge : AP WPA2, bail DHCP, page accessible, aucun MSC ; Improv officiel en parallèle.
-- Web : SSID avec espace/accents et mot de passe avec symboles ; mauvais mot de passe puis réussite.
-- Credentials puis flag persistés : redémarrage -> STA, flux, prébuffer, MSC, aucun AP.
-- BOOT 3 s : retour AP + Web + Improv au reboot.
-- Démarrer un provisioning Web puis Improv : aucune opération Wi-Fi concurrente ni réponse sur le mauvais port.
-- Observer heap/pile en mode AP et vérifier la disponibilité du formulaire après un échec STA.
+Campagne du 16 octobre 2026 sur la **DevKitC-1** (ESP32-S3 QFN56 rév. v0.2, flash 16 Mio, pont UART CH343),
+via le banc `bench/` (le conteneur n'accède pas à la carte). Réseau de test 2,4 GHz du banc, canal 11 d'après
+les campagnes précédentes (non journalisé ce jour). SSID et mots de passe masqués.
 
-Les tests hôte et liens S3 ne constituent pas un PASS radio/DHCP/HTTP matériel.
+| Scénario | Résultat |
+| --- | --- |
+| Configuration vierge : AP WPA2 annoncé, aucun credential, aucun MSC | PASS |
+| Association d'un client à l'AP, bail DHCP, page sur `http://172.23.241.1/` | PASS (observé par le mainteneur) |
+| Web, mauvais mot de passe : erreur affichée, nouvel essai possible, pas de succès annoncé | PASS |
+| Web, bons credentials : connexion, DHCP, sauvegarde, résultat visible après reconnexion | PASS (avec la page de statut, voir ci-dessous) |
+| Web, SSID avec espaces/accents et mot de passe avec symboles | NON EXÉCUTÉ (couvert par les tests hôte) |
+| Changement de canal pendant l'association STA | Client AP éjecté (AP canal 6, réseau canal 11) ; page redevenue joignable après réassociation |
+| Improv, AP actif (client du banc) : `state`, `info`, `scan`, mauvais mot de passe | PASS (réponses sur le port demandeur ; `unable to connect` puis `authorized`) |
+| Improv officiel ESP Web Tools, AP actif | NON EXÉCUTÉ |
+| Web puis Improv rapprochés : requête Web mise en file pendant un Improv, traitée ensuite, une erreur par demandeur | PASS ciblé (pas d'exhaustivité Wi-Fi) |
+| Redémarrage : credentials conservés, STA, flux, prébuffer, MSC, aucun AP ; son confirmé | PASS |
+| BOOT 3 s : flag et Wi-Fi effacés, redémarrage, AP + Web + Improv | PASS |
+| Waveshare ESP32-S3 Zero | NON EXÉCUTÉ (carte non déboguable) |
+
+### Défauts trouvés et corrigés
+
+1. **`AP_SOCKETS = 2` : panic au démarrage du serveur HTTP** (`314cf5a`). `embassy-net` réserve un socket DNS
+   interne dans chaque pile ; DHCP + écouteur HTTP font donc trois sockets. Avec deux, smoltcp panique
+   (`adding a socket to a full SocketSet`) juste après « AP ready » : l'exécuteur se fige, Improv ne répond
+   plus et la page n'est pas servie. Trace obtenue avec un panic handler de diagnostic local (non versionné).
+   Le commentaire de `rust-mcu-libs` (« 2 = DHCP + un service ») sous-compte ce socket : à corriger séparément.
+2. **Résultat Web perdu quand le canal change** (`20a2418`, `ea2a636`). L'association STA déplace l'AP sur le canal
+   du réseau cible et coupe le client avant la réponse HTTP. La page prévient, le propriétaire du Wi-Fi mémorise
+   le dernier résultat Web, `GET /status` le sert et `/` l'inclut côté serveur (sans JavaScript, `Cache-Control:
+   no-store`) : après réassociation, un rechargement suffit.
+
+### Mesures `qual` (instrumentées, distinctes de l'image nominale)
+
+- AP en attente de provisioning : tas utilisé 52 à 55 Kio sur 96 Kio, maximum 59 580 octets ; pile maximale 15 904 octets.
+- Pendant une tentative STA (échec puis succès) : maximum de tas 63 908 octets (libre minimal 34 396), pile
+  maximale 19 608 octets sur 32 544 réservés (marge 12 936). Les piles des tâches radio ne sont pas couvertes.
+
+### Images (construites localement depuis le commit, `scripts/build-image.sh`, GCC 16.2.0)
+
+| Image | Commit | SHA256 de l'image fusionnée |
+| --- | --- | --- |
+| Normale | `ea2a636` | `65b13afbbaf14e0fc8a2d092411ffee418e0542b72baae6c565ba2e93890ca6f` |
+| `qual` | `ea2a636` | `2476ea5d7da9150bd99ec66cef8fa7eba6d1479f4894f9eaebba05576844bdc7` |
+
+Les essais Web ont tourné sur l'image `qual` de `ea2a636` ; l'image normale de `ea2a636` n'a pas été flashée
+(l'image normale de `314cf5a` l'a été pour Improv). L'image USB debug n'a pas été reconstruite ni testée. Les
+empreintes CI de la PR n'ont pas pu être comparées (artefact non téléchargeable sans authentification).
+
+### Limites
+
+- AP encore visible après la configuration jusqu'au redémarrage : voulu par #1 (pas de bascule à chaud).
+- Canal du réseau cible non relevé ce jour ; client AP : un appareil, pas de campagne multi-clients.
+- Avertissement `esp_wifi_internal_tx returned error: 12309` observé pendant et après l'association STA ; non analysé.
 
 ## Vérification logicielle de cette implémentation
 
-- 37 tests hôte (politiques existantes, validation en octets, décodage du formulaire avec
+- 37 tests hôte, inchangés après les correctifs (politiques existantes, validation en octets, décodage du formulaire avec
   accents/symboles, refus des champs inconnus/dupliqués et des entrées invalides,
   échec du commit du flag puis nouvelle demande Web réussie sans bascule USB).
 - Clippy hôte strict (`--all-targets -- -D warnings`), Rustfmt et `git diff --check` : PASS.
@@ -55,4 +100,4 @@ Les tests hôte et liens S3 ne constituent pas un PASS radio/DHCP/HTTP matériel
   TaskPool produit : 16 808 octets ; pile réservée par le linker : 33 456 octets.
   Ce ne sont pas des mesures de consommation maximale. Avertissement RWX connu.
 - Lien release ESP32-S3 avec `qual` (inclut USB debug) : PASS.
-- Tests AP/radio/DHCP/navigateur et Improv simultanés sur matériel : NON EXÉCUTÉS.
+- Tests AP/radio/DHCP/navigateur et Improv simultanés sur matériel : voir la section de qualification ci-dessus.
