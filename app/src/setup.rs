@@ -62,14 +62,37 @@ pub(crate) fn set_outcome(outcome: Outcome) {
     );
 }
 
-pub(crate) fn status_word() -> &'static str {
+/// The one user-facing status text, served by `/status` and injected in `/` (works without JavaScript,
+/// e.g. in a phone's captive-portal sheet). Empty when no Web request was made.
+pub(crate) fn status_message() -> &'static str {
     match STATUS.load(Ordering::Relaxed) {
-        1 => "pending",
-        2 => "saved",
-        3 => "connection",
-        4 => "storage",
-        _ => "none",
+        1 => {
+            "Vérification en cours… Si votre Wi-Fi se coupe, rejoignez de nouveau StreamBeWI-Setup puis rechargez cette page : le résultat s’affichera ici."
+        }
+        2 => "Wi-Fi enregistré. Débranchez puis rebranchez StreamBeWI pour écouter la radio.",
+        3 => {
+            "Connexion impossible ou enregistrement Wi-Fi échoué. Vérifiez le nom et le mot de passe, puis réessayez."
+        }
+        4 => {
+            "Wi-Fi enregistré, mais l’activation USB n’a pas été enregistrée. Réessayez avant de redémarrer."
+        }
+        _ => "",
     }
+}
+
+async fn page() -> ([(&'static str, &'static str); 2], String) {
+    let (head, tail) = PAGE.split_once("<!--S-->").unwrap_or((PAGE, ""));
+    let mut body = String::with_capacity(PAGE.len() + 160);
+    body.push_str(head);
+    body.push_str(status_message());
+    body.push_str(tail);
+    (
+        [
+            ("Content-Type", "text/html; charset=utf-8"),
+            ("Cache-Control", "no-store"),
+        ],
+        body,
+    )
 }
 
 #[derive(Deserialize)]
@@ -142,13 +165,18 @@ async fn provision(
 /// No listener is bound to STA; an AP client must open the explicit local address (no captive DNS).
 pub async fn serve(stack: Stack<'static>) -> ! {
     let router = picoserve::Router::new()
-        .route(
-            "/",
-            get(|| async { (("Content-Type", "text/html; charset=utf-8"), PAGE) }),
-        )
+        .route("/", get(page))
         .route(
             "/status",
-            get(|| async { (("Content-Type", "text/plain; charset=utf-8"), status_word()) }),
+            get(|| async {
+                (
+                    [
+                        ("Content-Type", "text/plain; charset=utf-8"),
+                        ("Cache-Control", "no-store"),
+                    ],
+                    status_message(),
+                )
+            }),
         )
         .route("/wifi", post(provision));
     // A connection attempt + DHCP may take time. One bounded HTTP client, no keep-alive.

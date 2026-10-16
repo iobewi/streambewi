@@ -4,12 +4,12 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Configurer StreamBeWI</title>
 <style>
-body{font:1rem system-ui,sans-serif;max-width:32rem;margin:3rem auto;padding:0 1.25rem;background:#f5f7fa;color:#14263d}main{background:white;padding:1.5rem;border-radius:1rem}label{display:block;margin:1.25rem 0 .4rem}input,button{box-sizing:border-box;width:100%;font:inherit;padding:.8rem;border:1px solid #9aa9ba;border-radius:.4rem}button{background:#174d75;color:white;margin-top:1.5rem;cursor:pointer}small{display:block;margin-top:.4rem;color:#465669}
+body{font:1rem system-ui,sans-serif;max-width:32rem;margin:3rem auto;padding:0 1.25rem;background:#f5f7fa;color:#14263d}main{background:white;padding:1.5rem;border-radius:1rem}label{display:block;margin:1.25rem 0 .4rem}input,button{box-sizing:border-box;width:100%;font:inherit;padding:.8rem;border:1px solid #9aa9ba;border-radius:.4rem}button{background:#174d75;color:white;margin-top:1.5rem;cursor:pointer}#state:empty{display:none}#state{background:#e8f1f8;padding:.8rem;border-radius:.4rem}small{display:block;margin-top:.4rem;color:#465669}
 </style>
 <main>
 <h1>Configurer StreamBeWI</h1>
 <p>Connectez votre radio à un réseau Wi-Fi 2,4 GHz. Vous pouvez aussi utiliser Improv avec ESP Web Tools par USB.</p>
-<p id="state" role="status" hidden></p>
+<p id="state" role="status"><!--S--></p>
 <form id="f" method="post" action="/wifi" autocomplete="off">
 <label for="ssid">Nom du réseau Wi-Fi</label>
 <input id="ssid" name="ssid" required maxlength="32" autocapitalize="none" spellcheck="false">
@@ -21,10 +21,9 @@ body{font:1rem system-ui,sans-serif;max-width:32rem;margin:3rem auto;padding:0 1
 <p><strong>Attention :</strong> pendant la vérification, le Wi-Fi de StreamBeWI change de canal et votre appareil peut être déconnecté de <b>StreamBeWI-Setup</b>. Si cela arrive, rejoignez de nouveau ce réseau : cette page affichera le résultat. Après confirmation, débranchez puis rebranchez StreamBeWI pour activer la radio USB.</p>
 </main>
 <script>
-var T={pending:"Vérification en cours… Si votre Wi-Fi se coupe, rejoignez de nouveau StreamBeWI-Setup : le résultat s’affichera ici.",saved:"Wi-Fi enregistré. Débranchez puis rebranchez StreamBeWI pour écouter la radio.",connection:"Connexion impossible ou enregistrement Wi-Fi échoué. Vérifiez le nom et le mot de passe, puis réessayez.",storage:"Wi-Fi enregistré, mais l’activation USB n’a pas été enregistrée. Réessayez avant de redémarrer."};
 var st=document.getElementById("state");
-function poll(){fetch("/status",{cache:"no-store"}).then(function(r){return r.text()}).then(function(w){var m=T[w.trim()];st.hidden=!m;if(m)st.textContent=m}).catch(function(){})}
-document.getElementById("f").addEventListener("submit",function(e){e.preventDefault();var f=e.target;st.hidden=false;st.textContent=T.pending;fetch("/wifi",{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},body:new URLSearchParams(new FormData(f)).toString()}).then(poll,function(){})});
-poll();setInterval(poll,2000);
+function poll(){fetch("/status",{cache:"no-store"}).then(function(r){return r.text()}).then(function(m){st.textContent=m}).catch(function(){})}
+document.getElementById("f").addEventListener("submit",function(e){e.preventDefault();var f=e.target;st.textContent="Vérification en cours… Si votre Wi-Fi se coupe, rejoignez de nouveau StreamBeWI-Setup : le résultat s’affichera ici.";fetch("/wifi",{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},body:new URLSearchParams(new FormData(f)).toString()}).then(poll,function(){})});
+setInterval(poll,2000);
 </script>
 </html>
