@@ -183,13 +183,18 @@ where
     // The USB disk is only presented once the stream has delivered the prebuffer: a visible
     // RADIO.MP3 with no audio behind it (Wi-Fi not provisioned/connected, stream down)
     // would look like an empty file to the host. Without data there is no USB device.
+    let mut waits = 0u32;
     while !STREAM.is_ready() {
-        let (written, consumed) = STREAM.progress();
-        log::info!(
-            "stream: prebuffer written={} consumed={}",
-            written,
-            consumed
-        );
+        // One line when the wait starts, then one every 10 s: a silent stream is visible, not flooded.
+        if waits % 20 == 0 {
+            let (written, consumed) = STREAM.progress();
+            log::info!(
+                "stream: waiting for the prebuffer written={} consumed={}",
+                written,
+                consumed
+            );
+        }
+        waits = waits.wrapping_add(1);
         Timer::after(Duration::from_millis(500)).await;
     }
 
