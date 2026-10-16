@@ -186,26 +186,13 @@ impl Read for Rx {
         core::future::pending().await
     }
 }
-struct Bank(std::vec::IntoIter<iobewi_board::Serial<Rx, Tx>>);
-impl SerialBank for Bank {
-    type Rx = Rx;
-    type Tx = Tx;
-    fn take_next(&mut self) -> Option<iobewi_board::Serial<Rx, Tx>> {
-        self.0.next()
-    }
-}
 #[test]
 fn finite_banks_preserve_order_and_empty_readers_stay_pending() {
     for count in [0, 3] {
-        let bank = Bank(
-            (0..count)
-                .map(|i| iobewi_board::Serial {
-                    rx: Rx(i),
-                    tx: Tx(vec![i as u8]),
-                })
-                .collect::<Vec<_>>()
-                .into_iter(),
-        );
+        let bank = (0..count)
+            .map(|i| (Rx(i), Tx(vec![i as u8])))
+            .collect::<Vec<_>>()
+            .into_iter();
         let (rx, ports) = take_ports(bank);
         assert_eq!(
             rx.iter().map(|r| r.0).collect::<Vec<_>>(),

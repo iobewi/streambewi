@@ -2,7 +2,7 @@
 # Build the StreamBeWI firmware and produce a flashable image.
 # The firmware carries no Wi-Fi credentials (provisioned at runtime via Improv Serial),
 # so the output in dist/ is safe to version and share.
-# Re-runnable; run from anywhere. Requires: rustup toolchains 1.95.0 + esp, espflash.
+# Re-runnable; run from anywhere. Requires: rustup toolchains stable + esp, espflash 4.6.0, Python esptool 5.5.0.
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -33,9 +33,9 @@ export RUSTFLAGS="-C force-frame-pointers \
 SOURCE_DATE_EPOCH="$(git log -1 --format=%ct -- . ':(exclude)dist' ':(exclude)dist-local')"
 export SOURCE_DATE_EPOCH
 
-CORE_CMD="cargo +1.95.0 test -p streambewi-core -p streambewi --target x86_64-unknown-linux-gnu"
-BUILD_CMD="cargo +esp build -p $PKG --release -Z build-std=core,alloc --target $TARGET"
-IMAGE_CMD="espflash save-image --chip esp32s3 --merge --skip-padding $ELF_SRC $DIST/$NAME.bin"
+CORE_CMD="cargo +stable test -p streambewi-core -p streambewi --locked --target x86_64-unknown-linux-gnu"
+BUILD_CMD="cargo +esp build -p $PKG --release --locked -Z build-std=core,alloc --target $TARGET"
+IMAGE_CMD="python3 tools/package_image.py $ELF_SRC $DIST/$NAME.bin"
 
 echo "== host tests"
 $CORE_CMD
@@ -59,9 +59,10 @@ DIRTY=""
   echo "target:       $TARGET (ESP32-S3)"
   echo "profile:      release"
   echo "delivery:     $BUILD_KIND"
+  echo "runtime:      native rust-mcu-libs"
   echo "rustc (esp):  $(rustc +esp --version)"
   echo "cargo (esp):  $(cargo +esp --version)"
-  echo "rustc (core): $(rustc +1.95.0 --version)"
+  echo "rustc (core): $(rustc +stable --version)"
   echo "espflash:     $(espflash --version)"
   echo
   echo "RUSTFLAGS:    $RUSTFLAGS"
@@ -74,7 +75,7 @@ DIRTY=""
   echo
   echo "flash layout: single merged image (bootloader + partition table + app) at 0x0"
   echo "  0x0 -> $NAME.bin"
-  echo "  (espflash default bootloader and partition table; no custom partitions)"
+  echo "  (espflash upstream bootloader; product partition table targets/esp32/partitions.csv)"
   echo
   echo "sha256:"
   sed 's/^/  /' "$DIST/SHA256SUMS"

@@ -5,8 +5,8 @@
 //! rolling window and USB MSC themselves live in `iobewi-fat16`, `iobewi-rolling-stream` and
 //! `iobewi-usb-msc`.
 
-use iobewi_fat16::{FileSource, ReadStatus, SECTOR_SIZE};
 pub use iobewi_fat16::{Fat16Config, Geometry};
+use iobewi_fat16::{FileSource, ReadStatus, SECTOR_SIZE};
 use iobewi_rolling_stream::{ReadStatus as WindowStatus, RollingStream};
 
 /// Rolling window capacity in RAM.
@@ -77,15 +77,26 @@ impl FileSource for StreamFile<'_> {
 
     fn read_file_sector(&mut self, index: u32, out: &mut [u8; SECTOR_SIZE]) -> ReadStatus {
         let offset = index as u64 * SECTOR_SIZE as u64;
-        if let Some(session) = self.stream.session() {
-            if is_far_ahead(session.base.saturating_add(offset), self.stream.written()) {
-                // Probe far beyond the live edge (e.g. Windows reading the file tail):
-                // answer with zeroes now instead of blocking the MSC for hours.
-                out.fill(0);
-                return ReadStatus::Ready;
-            }
+        if let Some(session) = self.stream.session()
+            && is_far_ahead(session.base.saturating_add(offset), self.stream.written())
+        {
+            // Probe far beyond the live edge (e.g. Windows reading the file tail):
+            // answer with zeroes now instead of blocking the MSC for hours.
+            out.fill(0);
+            return ReadStatus::Ready;
         }
-        match self.stream.read(offset, out) {
+        let mut status = self.stream.read(offset, out);
+        // Reading the first sector of the file means the player (re)opened it (e.g. stop, then
+        // play on the Metronic). By then the head of the session has left the window, and
+        // answering zeroes makes the player give up. Position the session exactly as an
+        // enumeration does (`begin_session`: retain behind the live edge) and read again.
+        // Window, prebuffer and lead are unchanged; any other expired sector is still answered
+        // as expired.
+        if status == WindowStatus::Expired && index == 0 {
+            self.stream.begin_session();
+            status = self.stream.read(offset, out);
+        }
+        match status {
             WindowStatus::Ready => ReadStatus::Ready,
             WindowStatus::Pending => ReadStatus::Pending,
             WindowStatus::Expired => ReadStatus::Expired,
@@ -149,6 +160,34 @@ mod tests {
         sector.fill(0xAA);
         assert_eq!(file.read_file_sector(tail, &mut sector), ReadStatus::Ready);
         assert!(sector.iter().all(|b| *b == 0));
+    }
+
+    #[test]
+    fn reopening_the_file_rebases_instead_of_serving_zeroes() {
+        let mut s = filled(80 * 1024);
+        let mut file = StreamFile::new(&mut s);
+        file.begin_session();
+        let base = file.stream.session().unwrap().base;
+        // A player consuming sequentially lets the live edge run far past the 96 KiB window.
+        let data: [u8; 1024] = core::array::from_fn(|i| (i as u8) | 1);
+        let mut sector = [0u8; SECTOR_SIZE];
+        let mut pos = 0u32;
+        while file.stream.written() < base + 300 * 1024 {
+            while file.read_file_sector(pos, &mut sector) == ReadStatus::Ready {
+                pos += 1;
+            }
+            let n = file.stream.writable().min(1024);
+            file.stream.push(&data[..n]);
+        }
+        // Any other expired sector is still answered as Expired (zeroes): no hidden rebase.
+        assert_eq!(file.read_file_sector(5, &mut sector), ReadStatus::Expired);
+        assert_eq!(file.stream.session().unwrap().base, base);
+        // Reopening the file (first sector) rebases on the live edge and serves valid data.
+        sector.fill(0);
+        assert_eq!(file.read_file_sector(0, &mut sector), ReadStatus::Ready);
+        assert!(sector.iter().all(|b| *b != 0));
+        assert!(file.stream.session().unwrap().base > base);
+        assert_eq!(file.read_file_sector(1, &mut sector), ReadStatus::Ready);
     }
 
     #[test]

@@ -1,4 +1,198 @@
 #![no_std]
 #![no_main]
 
-iobewi_entry::entry!(streambewi::run);
+extern crate alloc;
+mod serial;
+
+use alloc::vec;
+use embassy_executor::Spawner;
+use embassy_net::StackResources;
+use esp_hal::{
+    Blocking,
+    gpio::{Input, InputConfig, Pull},
+    peripherals::{
+        FLASH, GPIO0, GPIO19, GPIO20, GPIO43, GPIO44, RTC_TIMER, UART0, USB_DEVICE, USB_FS, WIFI,
+    },
+    rtc_cntl::{Rtc, RwdtStage, RwdtStageAction},
+    timer::timg::TimerGroup,
+    uart::{Config as UartConfig, Uart},
+    usb::usb_serial_jtag::UsbSerialJtag,
+};
+use iobewi_config_space::storage::{SpaceSpec, Store};
+use iobewi_esp_config_space::EspConfigFlash;
+use static_cell::StaticCell;
+use streambewi::boot_policy::{self, BootMode, BootPolicy};
+
+esp_bootloader_esp_idf::esp_app_desc!();
+
+#[unsafe(no_mangle)]
+pub static STREAMBEWI_CHIP: [u8; 8] = *b"ESP32-S3";
+
+const SOCKETS: usize = 3; // DHCP, DNS and the live HTTP stream.
+const HEAP_BYTES: usize = 96 * 1024;
+const MIN_STACK_BYTES: usize = 16 * 1024;
+const SPACES: &[SpaceSpec] = &[
+    SpaceSpec::new("wifi", iobewi_wifi_manager::CONFIG_BUDGET.max_bytes()),
+    SpaceSpec::new(boot_policy::SPACE, boot_policy::CONFIG_BUDGET.max_bytes()),
+];
+
+// One concrete S3 composition; there is no portable Board / resource factory.
+struct Resources {
+    flash: FLASH<'static>,
+    wifi: WIFI<'static>,
+    uart: UART0<'static>,
+    rx: GPIO44<'static>,
+    tx: GPIO43<'static>,
+    button: GPIO0<'static>,
+    rtc: RTC_TIMER<'static>,
+    jtag: USB_DEVICE<'static>,
+    usb: USB_FS<'static>,
+    dp: GPIO20<'static>,
+    dm: GPIO19<'static>,
+}
+
+// Fatal startup diagnostics are allowed before UART0 becomes an Improv port.
+// One nonblocking FIFO attempt per byte: no retry, flush or USB register access.
+fn boot_result<T, E: core::fmt::Debug>(
+    result: Result<T, E>,
+    uart: &mut Uart<'static, Blocking>,
+    stage: &'static str,
+) -> T {
+    match result {
+        Ok(value) => value,
+        Err(error) => {
+            log::error!("startup {stage}: {error:?}");
+            for byte in stage.as_bytes().iter().chain(b"\r\n") {
+                if !uart.write_ready() {
+                    break;
+                }
+                let _ = uart.write(core::slice::from_ref(byte));
+            }
+            loop {
+                core::hint::spin_loop();
+            }
+        }
+    }
+}
+
+#[embassy_executor::task]
+async fn product(p: Resources, spawner: Spawner) {
+    let mut uart = Uart::new(p.uart, UartConfig::default())
+        .expect("UART0 unavailable")
+        .with_rx(p.rx)
+        .with_tx(p.tx);
+    let shared = iobewi_esp_flash::init(p.flash);
+    let flash = boot_result(
+        EspConfigFlash::from_label(shared, "config").await,
+        &mut uart,
+        "STREAMBEWI:CONFIG-PARTITION",
+    );
+    let blank = boot_result(flash.is_blank().await, &mut uart, "STREAMBEWI:CONFIG-READ");
+    static STORE: StaticCell<Store<EspConfigFlash>> = StaticCell::new();
+    let store = STORE.init(boot_result(
+        Store::new(flash, esp_hal::rng::Rng::new().random(), SPACES),
+        &mut uart,
+        "STREAMBEWI:CONFIG-MANIFEST",
+    ));
+    // Explicit factory policy: initialize a wholly blank region only.
+    // Never format after mount errors or reinterpret a previous NVS region.
+    if blank {
+        boot_result(store.format().await, &mut uart, "STREAMBEWI:CONFIG-INIT");
+    }
+    boot_result(store.mount().await, &mut uart, "STREAMBEWI:CONFIG-MOUNT");
+    let (boot, wifi_space) = boot_result(
+        BootPolicy::prepare(store.backend()).await,
+        &mut uart,
+        "STREAMBEWI:CONFIG-CLAIMS",
+    );
+    if let Some(error) = boot.read_error() {
+        log::error!("USB boot flag unreadable: {error:?}; provisioning this boot");
+    }
+
+    let (rx, tx) = uart.into_async().split();
+    let mut serial = vec![(serial::Rx::Uart(rx), serial::Tx::Uart(tx))];
+    // Read durable mode first; construct exactly one native USB controller.
+    let usb = match boot.mode() {
+        BootMode::Provisioning => {
+            let (rx, tx) = UsbSerialJtag::new(p.jtag).into_async().split();
+            serial.push((serial::Rx::Jtag(rx), serial::Tx::Jtag(tx)));
+            None
+        }
+        BootMode::MassStorage => {
+            static OUT: StaticCell<[u8; 1024]> = StaticCell::new();
+            Some(iobewi_esp_usb::device(
+                p.usb,
+                p.dp,
+                p.dm,
+                OUT.init([0; 1024]),
+            ))
+        }
+    };
+    static NET: StaticCell<StackResources<SOCKETS>> = StaticCell::new();
+    let transport = iobewi_esp_wifi::WifiManager::<SOCKETS>::new(
+        p.wifi,
+        spawner,
+        NET.init(StackResources::new()),
+    );
+    let manager = iobewi_wifi_manager::WifiManager::new(transport, wifi_space);
+    let button = Input::new(p.button, InputConfig::default().with_pull(Pull::Up));
+    let mut rtc = Rtc::new(p.rtc);
+    let reset = move || {
+        // Preserve broad RTC system reset for the subsequent JTAG provisioning boot.
+        rtc.rwdt
+            .set_timeout(RwdtStage::Stage0, esp_hal::time::Duration::from_millis(100));
+        rtc.rwdt
+            .set_stage_action(RwdtStage::Stage0, RwdtStageAction::ResetSystem);
+        rtc.rwdt.enable();
+        loop {
+            core::hint::spin_loop();
+        }
+    };
+    streambewi::run(boot, manager, serial, button, reset, usb, b"ESP32-S3").await;
+}
+
+#[esp_hal::main]
+fn main() -> ! {
+    let p =
+        esp_hal::init(esp_hal::Config::default().with_cpu_clock(esp_hal::clock::CpuClock::max()));
+    streambewi::logging::install(); // Capture only; never write on Improv transports.
+    esp_alloc::heap_allocator!(size: HEAP_BYTES);
+    unsafe extern "C" {
+        static _stack_start: u8;
+        static _stack_end: u8;
+    }
+    let stack = (&raw const _stack_start as usize) - (&raw const _stack_end as usize);
+    assert!(
+        stack >= MIN_STACK_BYTES,
+        "insufficient linker stack reservation"
+    );
+    let timer = TimerGroup::new(p.TIMG0);
+    esp_rtos::start(timer.timer0, p.FROM_CPU_INTR0);
+    let resources = Resources {
+        flash: p.FLASH,
+        wifi: p.WIFI,
+        uart: p.UART0,
+        rx: p.GPIO44,
+        tx: p.GPIO43,
+        button: p.GPIO0,
+        rtc: p.RTC_TIMER,
+        jtag: p.USB_DEVICE,
+        usb: p.USB_FS,
+        dp: p.GPIO20,
+        dm: p.GPIO19,
+    };
+    static EXECUTOR: StaticCell<esp_rtos::embassy::Executor> = StaticCell::new();
+    EXECUTOR
+        .init(esp_rtos::embassy::Executor::new())
+        .run(|spawner| {
+            spawner.spawn(product(resources, spawner).unwrap());
+        })
+}
+
+#[panic_handler]
+fn panic(_info: &core::panic::PanicInfo) -> ! {
+    // No USB/JTAG/UART acquisition from panic: these are owned by Improv/MSC.
+    loop {
+        core::hint::spin_loop();
+    }
+}

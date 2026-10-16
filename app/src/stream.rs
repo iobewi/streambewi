@@ -9,15 +9,14 @@ use embassy_net::{
 use embassy_sync::blocking_mutex::{Mutex, raw::CriticalSectionRawMutex};
 use embassy_time::{Duration, Timer};
 use embedded_io_async::Read as _;
+use iobewi_fat16::{FileSource, ReadStatus, SECTOR_SIZE};
 use reqwless::{
     client::HttpClient,
     request::{Method, RequestBuilder},
 };
-use iobewi_fat16::{FileSource, ReadStatus, SECTOR_SIZE};
 use streambewi_core::{PREBUFFER_BYTES, Stream, StreamFile, is_ready, new_stream, progress};
 
-pub const STREAM_URL: &str =
-    "http://icecast.radiofrance.fr/monpetitfranceinter-midfi.mp3";
+pub const STREAM_URL: &str = "http://icecast.radiofrance.fr/monpetitfranceinter-midfi.mp3";
 
 pub static STREAM: SharedStream = SharedStream::new();
 
@@ -28,6 +27,12 @@ const CHUNK_BYTES: usize = 2048;
 pub struct SharedStream {
     inner: Mutex<CriticalSectionRawMutex, RefCell<Stream>>,
     reconnects: AtomicU32,
+}
+
+impl Default for SharedStream {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl SharedStream {

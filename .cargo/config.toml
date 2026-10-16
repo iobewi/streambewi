@@ -3,7 +3,8 @@ target = "xtensa-esp32s3-none-elf"
 rustflags = ["-C", "force-frame-pointers"]
 
 [target.xtensa-esp32s3-none-elf]
-runner = "espflash flash --monitor"
+# espflash 4.6 cannot parse our custom data/0x40 partition; flash the
+# packaged image with esptool via scripts/flash.sh instead of cargo run.
 
 [unstable]
 build-std = ["core"]

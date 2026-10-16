@@ -6,11 +6,12 @@ use iobewi_config_space::{
     Budget, ClaimError, ConfigBackend, ConfigManager, ConfigSpace, SpaceError,
 };
 use iobewi_wifi_core::WifiProvisioning;
-use iobewi_wifi_manager::CONFIG_BUDGET;
+use iobewi_wifi_manager::CONFIG_BUDGET as WIFI_CONFIG_BUDGET;
 
-const SPACE: &str = "usb_boot";
+pub const SPACE: &str = "usb_boot";
 const FALSE: &[u8] = b"USB1\x00";
 const TRUE: &[u8] = b"USB1\x01";
+pub const CONFIG_BUDGET: Budget = Budget::new(TRUE.len());
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BootMode {
     Provisioning,
@@ -46,8 +47,8 @@ impl<B: ConfigBackend> BootPolicy<B> {
     /// unreadable/invalid flag falls back without writing or clearing anything.
     pub async fn prepare(backend: B) -> Result<(Self, ConfigSpace<B>), ClaimError> {
         let mut manager = ConfigManager::new(backend.clone());
-        let wifi = manager.claim("wifi", CONFIG_BUDGET)?;
-        let flag = manager.claim(SPACE, Budget::new(TRUE.len()))?;
+        let wifi = manager.claim("wifi", WIFI_CONFIG_BUDGET)?;
+        let flag = manager.claim(SPACE, CONFIG_BUDGET)?;
         let (mode, read_error) = match flag.load().await {
             Ok(None) => (BootMode::Provisioning, None),
             Ok(Some(value)) if value.data == FALSE => (BootMode::Provisioning, None),

@@ -4,8 +4,10 @@ StreamBeWI turns an ESP32-S3 into a live internet-radio source for USB players s
 Metronic 477144 children's player: the board streams an HTTP MP3 over Wi-Fi and presents it to
 the player as a read-only USB disk holding one virtual `RADIO.MP3`.
 
-It is built on the IOBEWI framework (see Architecture). The stages below record how the USB and
-stream behaviour was established on real hardware.
+It consumes the reusable crates of `rust-mcu-libs`, pinned to
+`671ca69b1103cabc1ca24f40c043e8fa73a9d21f`. The product owns S3 startup and composition.
+The historical stages below describe earlier hardware evidence; the new migration
+still requires its own network/Metronic acceptance.
 
 Target stream:
 
@@ -21,36 +23,34 @@ stream.
 
 ## Architecture
 
-```text
-targets/esp32   ESP32-S3 entry! invocation (IOBEWI owns startup and board wiring)
-      |  Board
-      v
-app/            `streambewi`: portable product logic (provisioning, stream, USB radio); no HAL
-      |
-      +--> core/   `streambewi-core`: pure policy (1 GiB RADIO.MP3 geometry, prebuffer, far-ahead)
-      +--> IOBEWI portable crates: iobewi-fat16, iobewi-rolling-stream, iobewi-usb-msc,
-           iobewi-wifi-core/manager, iobewi-config-space
-```
+- `targets/esp32`: explicit esp-hal / esp-rtos startup, one flash owner, one EKV
+  Store, UART0 and boot-selected USB-JTAG or OTG, concrete S3 Wi-Fi transport,
+  recovery reset and resource reservations. No Board/entry framework dependency.
+- `app`: product provisioning/recovery policy, reqwless HTTP producer, bounded
+  shared stream and USB radio composition. Its APIs accept prepared resources.
+- `core`: pure product policy, including 1 GiB RADIO.MP3, 96 KiB window,
+  64 KiB prebuffer, 80 KiB maximum lead and far-ahead zero probes.
+- `rust-mcu-libs`: ConfigSpace/EKV, logging, Improv, Wi-Fi mechanics, rolling,
+  virtual FAT16, MSC and ESP adaptations. All Git dependencies are pinned to the
+  same revision; no path patches or legacy iobewi dependencies remain.
 
-`streambewi::run<B: Board>(board)` consumes the board once. IOBEWI owns the ESP
-peripherals, GPIO profile, allocator, Wi-Fi startup, shared flash and NVS discovery
-by partition label. The product declares three sockets, a 96 KiB heap and a
-16 KiB minimum linker stack reservation in `BOARD_RESOURCES`. Its network bound
-remains Embassy `Stack<'static>`; the Board contract itself does not impose it.
+The persisted USB flag is read before either native USB controller is constructed.
+Provisioning uses UART0 plus USB-JTAG for that boot. MassStorage uses UART0 plus
+OTG; the disk is exposed only after configuration and audio prebuffer are ready.
+Saving credentials does not switch USB in the current boot. BOOT held for three
+seconds saves provisioning mode, clears credentials, then requests a broad RTC
+system reset. The logger captures to RAM without writing on Improv transports.
 
-The product reads the persisted USB flag before consuming the boot I/O factory.
-Provisioning keeps JTAG for the entire boot; MSC selects OTG at boot but waits
-for the stream prebuffer before enumerating. Improv consumes every serial-bank
-port and routes replies to the originating port. Chip identity comes from Board
-metadata. See [USB boot policy](docs/usb-boot-policy.md).
+The target reserves a 96 KiB heap, three network sockets and a minimum 16 KiB
+linker stack. The ELF inspection gate reports actual product TaskPool storage and
+linker stack reservation; these are not runtime stack high-water measurements.
 
-All IOBEWI dependencies are pinned to `f0360f51a61c2a475924ab4633b77757b2a832b7`
-(the published candidate in [IOBEWI PR #24](https://github.com/iobewi/iobewi/pull/24)),
-without local patches. This migration therefore depends on that framework PR.
-See [migration validation](docs/board-entry-migration.md) for actual future measurements
-and the hardware acceptance still required.
+See [migration inventory and verification](docs/rust-mcu-libs-migration.md).
+The [former Board migration](docs/board-entry-migration.md) and
+[USB boot policy](docs/usb-boot-policy.md) preserve the historical rationale.
 
-## Stages
+## Historical stages
+
 
 ### P0 — virtual FAT16 model
 
@@ -169,7 +169,7 @@ From the repository root:
 
 ```sh
 # (already at the repository root)
-cargo test -p streambewi-core -p streambewi
+cargo +stable test -p streambewi-core -p streambewi --locked --target x86_64-unknown-linux-gnu
 
 cargo +esp build -p streambewi-esp32 --release \
   -Z build-std=core,alloc \
@@ -179,27 +179,29 @@ cargo +esp build -p streambewi-esp32 --release \
 The firmware contains **no Wi-Fi credentials**: they are entered at runtime (see
 [Wi-Fi provisioning](#wi-fi-provisioning-improv-serial)), so `dist/` can be versioned.
 
-Flash/monitor, assuming `espflash` is installed:
-
-```sh
-cargo +esp run -p streambewi-esp32 --release \
-  -Z build-std=core,alloc \
-  --target xtensa-esp32s3-none-elf
-```
+Packaging and flashing use `scripts/build-release.sh` and `scripts/flash.sh` below.
+There is no `cargo run` flash runner: espflash 4.6.0 panics on custom data/0x40.
+The packaging helper uses espflash 4.6.0 for its app image and upstream bootloader,
+Espressif's v6.0 partition generator (SHA-256 checked) for the table, and
+`python3 -m esptool` 5.5.0 for merging/writing. Install Python dependencies with
+`python3 -m pip install esptool==5.5.0`. The partition generator is downloaded once
+to ignored `target/tools`; first packaging needs network access.
 
 ## Wi-Fi provisioning (Improv Serial)
 
 Wi-Fi is configured over the USB-UART bridge (UART0) or the native USB-Serial-JTAG port, whichever the board exposes (both are served; replies go back on the requesting port), with [Improv Serial](https://www.improv-wifi.com/serial/),
 the protocol ESP Web Tools speaks after flashing.
 
-- `improv-serial` and IOBEWI's `iobewi-wifi-manager` / `iobewi-wifi-core` /
-  `iobewi-config-space` drive provisioning in `app/src/provisioning.rs`; the radio, flash and
-  storage are the IOBEWI ESP drivers plugged in by `targets/esp32`.
-- Credentials are validated first (association + DHCP) and only then committed to the `nvs`
-  partition discovered by the `nvs` label through IOBEWI Board startup and ConfigSpace.
-  A previous image's raw A/B records at that address are not valid NVS: flash with the erase
-  option once.
-- Reflashing the merged image rewrites that region: provision again after each flash.
+- The current Improv, Wi-Fi policy and ConfigSpace crates come from rust-mcu-libs.
+- Credentials are validated through association/DHCP before their ConfigSpace commit.
+  The target mounts EKV in a `config` partition of type data/0x40. Only a wholly blank
+  partition is initialized. Mount failures never trigger formatting.
+- NVS and EKV formats differ. There is no automatic migration of old credentials.
+  Use the product partition table on a backed-up development board and provision
+  again when starting from a fresh configuration region. A merged factory image
+  spans the config region and replaces it with blank bytes: provision again after
+  flashing that image. Do not erase the entire
+  board as an implicit recovery procedure.
 - During provisioning the native port serves JTAG and no OTG driver is created.
 - Credentials are committed first, then the OTG flag; a flag commit failure is an
   Improv error and a fresh provisioning request retries it.
@@ -235,7 +237,7 @@ Board: ESP32-S3. Two different USB connectors are involved:
 The native port is JTAG in a provisioning boot and OTG in an MSC boot. UART0
 continues to serve Improv in both modes. This composition installs no physical
 console/panic output; stage logs below describe the historical measured firmware.
-The versioned dist image has not been rebuilt with the new boot policy.
+The versioned dist image has not been rebuilt for this migration.
 
 `dist/` holds the current (P2, Improv-provisioned) image; it contains no credentials. The
 older P1-only image remains in Git history (commit `5277330`).
@@ -256,7 +258,9 @@ scripts/flash.sh
 scripts/flash.sh --port /dev/ttyUSB0
 ```
 
-The port is auto-detected by `espflash` unless `--port` is given. Monitor only:
+The script refuses the historical dist until `scripts/build-release.sh` has
+produced an image with the new runtime metadata. The port is auto-detected by
+`espflash` unless `--port` is given. Monitor only:
 `espflash monitor --chip esp32s3`.
 
 ### Rebuild the artefacts
@@ -265,7 +269,10 @@ The port is auto-detected by `espflash` unless `--port` is given. Monitor only:
 scripts/build-release.sh
 ```
 
-Runs the core tests, the release build (real link), and `espflash save-image --merge`.
+Runs host tests, the release build (real link), and `tools/package_image.py`
+with `targets/esp32/partitions.csv` and a 4 MB image header. The standalone development
+layout is config 0x9000/256 KiB and factory 0x50000/1536 KiB; it does not replace
+or migrate an existing OTA layout. Back up a populated board before selecting a new layout.
 Regenerates `dist/`.
 
 `SOURCE_DATE_EPOCH` is the date of the last commit touching the sources, excluding

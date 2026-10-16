@@ -11,8 +11,8 @@ pub const LOG_TARGET: &str = "streambewi";
 
 fn no_console(_: &log::Record<'_>) {}
 
-/// Installs the global logger. Call once, first thing in [`run`](crate::run),
-/// before the product logs.
+/// Installs the global logger. The target calls this once before
+/// configuration preparation and before [`run`](crate::run).
 pub fn install() {
     iobewi_log::install(no_console, LOG_TARGET);
 }

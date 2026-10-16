@@ -1,11 +1,10 @@
-//! Wi-Fi provisioning for StreamBeWI: Improv Serial (ESP Web Tools) over the board serial bank,
+//! Wi-Fi provisioning for StreamBeWI: Improv Serial (ESP Web Tools) over target-supplied serial ports,
 //! on top of IOBEWI's `WifiManager` (portable policy). Credentials persist through ConfigSpace.
 //! Nothing platform-specific lives here: transports, storage, button and reset are ports.
 
 use crate::boot_policy::{BootMode, BootPolicy, ProvisionError, Recovery};
 use alloc::{boxed::Box, string::ToString, vec::Vec};
 use core::{future::Future, task::Poll};
-use iobewi_board::{Reset, SerialBank};
 
 use core::fmt::{Debug, Display};
 use core::sync::atomic::{AtomicBool, Ordering};
@@ -64,10 +63,10 @@ pub fn is_configured() -> bool {
 
 /// BOOT recovery persists provisioning first, then clears Wi-Fi and restarts.
 /// A failed flag commit preserves credentials and does not request reset.
-pub async fn recovery_watch<Btn: Wait, B: ConfigBackend, R: Reset>(
+pub async fn recovery_watch<Btn: Wait, B: ConfigBackend, R: FnMut()>(
     mut button: Btn,
     boot: &BootPolicy<B>,
-    reset: R,
+    mut reset: R,
 ) -> ! {
     loop {
         if button.wait_for_low().await.is_err() {
@@ -81,13 +80,13 @@ pub async fn recovery_watch<Btn: Wait, B: ConfigBackend, R: Reset>(
             match boot.recover().await {
                 Ok(Recovery::Cleared) => {
                     log::info!("recovery: provisioning flag and Wi-Fi cleared; restarting");
-                    reset.reset();
+                    reset();
                 }
                 Ok(Recovery::ResidualCredentials(_)) => {
                     log::error!(
                         "recovery: provisioning flag saved, Wi-Fi clear FAILED; restarting with residual credentials"
                     );
-                    reset.reset();
+                    reset();
                 }
                 Err(_) => {
                     log::error!("recovery: flag commit FAILED; credentials unchanged, no reset")
@@ -105,22 +104,17 @@ pub type Manager<T, B> = WifiManager<T, B>;
 
 static IMPROV_COMMANDS: Channel<CriticalSectionRawMutex, (Port, ParsedCommand), 2> = Channel::new();
 
-/// Index assigned while consuming the finite serial bank.
+/// Index assigned while consuming the supplied serial ports.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Port(pub usize);
 
-/// Independently owned transmit halves, in bank order.
+/// Independently owned transmit halves, in iterator order.
 pub struct Ports<W> {
     pub tx: Vec<W>,
 }
 
-pub fn take_ports<S: SerialBank>(mut bank: S) -> (Vec<S::Rx>, Ports<S::Tx>) {
-    let mut rx = Vec::new();
-    let mut tx = Vec::new();
-    while let Some(serial) = bank.take_next() {
-        rx.push(serial.rx);
-        tx.push(serial.tx);
-    }
+pub fn take_ports<R, W>(serial: impl IntoIterator<Item = (R, W)>) -> (Vec<R>, Ports<W>) {
+    let (rx, tx) = serial.into_iter().unzip();
     (rx, Ports { tx })
 }
 
@@ -205,12 +199,11 @@ where
 {
     let sleep = EmbassySleep;
     let mut observer = LogObserver { network };
-    let mut state = State::Authorized;
     let mut flag_committed = boot.mode() == BootMode::MassStorage;
 
     loop {
         CONFIGURED.store(true, Ordering::Relaxed);
-        *(&mut state) = if flag_committed && manager.is_online() {
+        let mut state = if flag_committed && manager.is_online() {
             State::Provisioned
         } else {
             State::Authorized

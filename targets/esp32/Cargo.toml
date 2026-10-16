@@ -4,13 +4,24 @@ version = "0.1.0"
 edition = "2024"
 publish = false
 
-[dependencies]
-streambewi = { path = "../../app" }
-iobewi-entry = { git = "https://github.com/iobewi/iobewi", rev = "f0360f51a61c2a475924ab4633b77757b2a832b7", features = ["esp32s3"] }
-
-[build-dependencies]
-iobewi-entry-build = { git = "https://github.com/iobewi/iobewi", rev = "f0360f51a61c2a475924ab4633b77757b2a832b7" }
-
 [features]
 default = []
 usb-debug = ["streambewi/usb-debug"]
+
+[dependencies]
+streambewi = { path = "../../app" }
+esp-hal = { version = "~1.2", default-features = false, features = ["esp32s3", "rt", "unstable"] }
+esp-rtos = { version = "~0.4", default-features = false, features = ["esp32s3", "embassy", "esp-alloc", "esp-radio"] }
+esp-alloc = { version = "~0.11", default-features = false, features = ["esp32s3", "global-allocator", "compat"] }
+esp-bootloader-esp-idf = { version = "~0.6", default-features = false, features = ["esp32s3"] }
+embassy-executor = { version = "0.10", default-features = false }
+embassy-net = { version = "0.9.1", default-features = false, features = ["dhcpv4", "medium-ethernet", "tcp", "dns"] }
+embedded-io-async = "0.7"
+static_cell = "2.1"
+log = "0.4"
+iobewi-config-space = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "671ca69b1103cabc1ca24f40c043e8fa73a9d21f" }
+iobewi-esp-config-space = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "671ca69b1103cabc1ca24f40c043e8fa73a9d21f", features = ["esp32s3"] }
+iobewi-esp-flash = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "671ca69b1103cabc1ca24f40c043e8fa73a9d21f", features = ["esp32s3"] }
+iobewi-esp-wifi = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "671ca69b1103cabc1ca24f40c043e8fa73a9d21f", features = ["esp32s3"] }
+iobewi-esp-usb = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "671ca69b1103cabc1ca24f40c043e8fa73a9d21f", features = ["esp32s3"] }
+iobewi-wifi-manager = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "671ca69b1103cabc1ca24f40c043e8fa73a9d21f" }
