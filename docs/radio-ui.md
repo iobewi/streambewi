@@ -33,8 +33,8 @@ L'application utilise ainsi le démarrage USB existant ; pas de mélange en dire
 La modification du flux actif ou sa suppression provoque aussi un redémarrage ; modifier son nom
 ou son logo, ou ajouter/modifier un favori inactif, n'en provoque pas. Une nouvelle sélection de
 la même station n'écrit rien et ne redémarre pas. Un seul `RADIO.MP3` reste présenté.
-Ce raccordement doit encore être qualifié sur Metronic : comportement de la reprise et temps
-perçu, y compris si le lecteur coupe l'alimentation USB.
+Qualifié sur Metronic : voir « Qualification matérielle » (la reprise du lecteur après un
+redémarrage logiciel n'est pas fiable, défaut matériel documenté plus bas).
 
 « En lecture » signifie que le firmware a servi des secteurs du fichier dans les six dernières
 secondes. Cela tolère les lectures par rafales du Metronic et **ne mesure pas le son audible**.
@@ -98,15 +98,129 @@ Une image factory fusionnée réinitialise la configuration comme auparavant.
   Captures de contrôle dans `target/ui-check/`, non versionnées.
 - Requête réelle Radio Browser FIP : HTTP 200, CORS `*`, entrées MP3 HTTP et logos reçus.
   Cela ne qualifie pas les flux ni la lecture audio de ces entrées sur carte.
-- Liens ESP32-S3 normal et qual : PASS (Rust esp 1.98.1.0, GCC 15.2.0_20250920).
-  TaskPool produit : 21 104 octets ; pile réservée par le linker : 28 016 octets normal,
-  27 784 octets qual. Ce ne sont pas des mesures dynamiques. Avertissement RWX connu.
+- Liens ESP32-S3 normal et qual : PASS. TaskPool produit : 21 104 octets ; pile réservée par le
+  linker après correctif (`db801fe`) : 44 400 octets normal, 44 168 octets qual (tas 80 Kio, pile
+  minimale 36 Kio vérifiée au boot). Ce ne sont pas des mesures dynamiques (voir la qualification
+  matérielle). Avertissement RWX connu.
 
-## Qualification matérielle restante
+## Qualification matérielle
 
-Sur S3 Zero + Metronic : conserver la configuration existante avec une écriture applicative
-sur layout compatible ; vérifier l'accueil sur STA, l'interface AP après BOOT, Improv et Wi-Fi.
-Ajouter deux vrais flux compatibles, changer de station et confirmer le son, recharger la page
-et redémarrer pour vérifier la persistance, modifier/supprimer un favori et tester une mauvaise
-URL. Observer heap/pile lors d'une écriture et avec huit favoris. Pas de nouvelle campagne
-exhaustive Wi-Fi ou USB. #16 reste une réserve indépendante.
+Qualification faite sur la carte, avec le Metronic, le 16 octobre 2026. Les mesures instrumentées
+et les mesures nominales sont distinguées. Rien n'est fusionné ni clôturé ici.
+
+### Carte, révision, images
+
+| Élément | Valeur |
+| --- | --- |
+| Carte | ESP32-S3-DevKitC-1 (pont CH343), ESP32-S3 QFN56 rév. v0.2, flash 16 Mio, MAC `9c:13:9e:ac:4e:8c` |
+| Waveshare ESP32-S3 Zero | **NON EXÉCUTÉ** : le testeur a demandé de faire la campagne sur la DevKitC ; la Zero n'a pas été utilisée pour #2 |
+| Layout | `config` 0x9000 (0x40000), `factory` 0x50000 (0x180000) |
+| Méthode d'écriture | Application seule à 0x50000, configuration conservée ; aucune image fusionnée à 0x0, aucun effacement global |
+| Sauvegarde avant #2 | `config` 0x9000 : sha256 `b9352b7d…0653` ; `factory` 0x50000 : `94a86fda…8e01` (fichiers locaux du banc) |
+
+Images du commit `db801fe` (HEAD de `feat/2-radio-ui`), construites localement (GCC 16.2.0 ; la CI
+utilise GCC 15.2.0, les empreintes CI peuvent donc différer et n'ont pas été comparées) :
+
+| Image | sha256 |
+| --- | --- |
+| nominale fusionnée | `fc0404718a3576f83d9aa5fd4c45648d7553153c3487c084841cf01d7314f22c` |
+| nominale, application seule (0x50000) | `5952ee422f08b1e8c15621dbd5169d376b2c3aa307c6e1e44b4b3afc147dd7f1` |
+| qual fusionnée | `3e607746ce32c4baead5df22611f66ed3eb157a2ed1d6995cb96edb50ef7deae` |
+| qual, application seule (0x50000) | `134817a74ad37b57a203436fed669233f957ef47c5adcdc028ca0efd89873a32` |
+
+**Image nominale finale réellement testée : `db801fe`, application seule `5952ee42…`**, flashée
+sur la DevKitC. L'image du commit initial `dc30e8e` (nominale et qual) n'a pas permis d'ouvrir
+l'interface : voir le défaut D1. Les mesures mémoire ont été prises sur l'image `qual` de
+`db801fe`, **instrumentée** (sonde de tas et de pile) ; elles ne sont pas des mesures nominales.
+Les images de diagnostic utilisées pour D2 (chronométrage des opérations flash, fusion des
+écritures) ne sont pas dans la branche.
+
+### Résultats
+
+| Étape | Vérification | Résultat |
+| --- | --- | --- |
+| 1 | Interface en mode client (STA, flux, MSC, son) ouverte sur l'IPv4 de la clé | PASS (traces : IP, flux HTTP 200, MSC, relecture du disque) |
+| 1 | AP absent en usage normal | PASS (aucune ligne AP après un boot configuré) |
+| 1 | Détail visuel de l'accueil, des tuiles, du Wi-Fi, de l'engrenage sur téléphone | NON CONFIRMÉ : le testeur a utilisé l'interface sans que le détail soit consigné |
+| 1 | « En lecture » = lectures récentes, pas le son audible | NON EXÉCUTÉ |
+| 2 | Deux vrais flux MP3 HTTP directs, dont FIP | PASS (FIP, `monpetitfranceinter`, `allzic52`, `franceinter` sur `icecast.radiofrance.fr`, HTTP 200) |
+| 2 | Logo absent : petite radio + nom | NON CONFIRMÉ |
+| 2 | Modifier nom ou logo sans redémarrage | NON EXÉCUTÉ isolément (testé par les tests hôte) |
+| 2 | Le rechargement conserve les données | PASS (les 8 favoris survivent à un reset) |
+| 3 | Sélection d'une autre station : redémarrage automatique, nouveau flux, disque de retour | PASS côté carte |
+| 3 | Son de la nouvelle station sur le Metronic | PASS après un reset matériel, voir D3 pour la reprise |
+| 3 | Plusieurs changements entre deux stations | PASS côté carte (quatre sélections successives pilotées depuis le banc) |
+| 3 | Redémarrage volontaire conserve la sélection | PASS |
+| 3 | Resélection de la station active : pas de redémarrage | NON EXÉCUTÉ sur la carte (couvert par un test hôte) |
+| 3 | Reprise de la lecture par le Metronic après un redémarrage logiciel | **FAIL partiel** (D3) |
+| 4 | Modifier l'URL de la station active : redémarrage | PASS côté carte |
+| 4 | Supprimer une station inactive : pas de redémarrage | **FAIL partiel** : pas de redémarrage mais coupure du lecteur (D2, issue #19) |
+| 4 | Supprimer la station active : remplacement valide et redémarrage | PASS côté carte (FIP devient active) |
+| 4 | Dernière station protégée | PASS (bouton grisé ; refus firmware couvert par un test hôte, non observé sur la carte) |
+| 5 | Catalogue Radio Browser depuis un téléphone avec Internet | PASS |
+| 5 | Résultat incompatible non proposé | PASS (seuls des flux HTTP sont listés ; peu de choix car la plupart sont en HTTPS) |
+| 5 | Favoris sans catalogue ni logo | PASS (ajout manuel de `franceinter`) |
+| 5 | URL invalide refusée sans perte | PASS (« Vérifiez le nom et l'adresse du flux MP3 direct HTTP (256 caractères maximum). ») |
+| 5 | URL valide mais injoignable : interface locale accessible | PASS (`example.invalid` active ; `GET /` 395 ms et `/api/state` 77 ms) |
+| 6 | BOOT 3 s : provisioning, même interface sur `172.23.241.1`, pas de MSC | PASS (AP prêt, MSC absent) |
+| 6 | Favoris conservés après BOOT | NON CONFIRMÉ explicitement à ce moment (les 8 favoris étaient présents à l'étape 7, après le BOOT et le provisioning) |
+| 6 | Scan des réseaux | PASS (configuration Web réussie ; aucun défaut signalé par le testeur) |
+| 6 | Provisioning Web réussi, puis STA et MSC après redémarrage | PASS (IP, flux, MSC, relecture, AP absent) |
+| 6 | Contrôle court Improv avec l'AP actif | Couvert par #1, non rejoué |
+| 6 | Résultat affiché après reconnexion sur changement de canal | Couvert par #1, non rejoué |
+| 7 | Tas et pile pendant la navigation, les écritures et la lecture | PASS (mesures ci-dessous, image qual) |
+| 7 | Huit favoris conservés, refus propre du 9ᵉ | PASS (« La liste est pleine ou trop volumineuse (8 stations maximum). ») |
+
+### Mesures mémoire (image qual `db801fe`, instrumentée)
+
+| Situation | Tas utilisé | Pic du tas | Libre au pire | Pic de pile | Marge de pile |
+| --- | --- | --- | --- | --- | --- |
+| Repos avec lecture | 48 772 | 54 384 | 27 536 | 27 580 | 16 588 |
+| Navigation et rechargements | 49 320 | 61 692 | 20 228 | 30 748 | 13 420 |
+| Écritures de favoris jusqu'à 8 | 49 652 | 74 584 | 7 336 | 32 540 | 11 628 |
+| 9ᵉ refusé, scan Wi-Fi, catalogue | 50 200 | 74 584 | 7 336 | 32 540 | 11 628 |
+| Après reset, 8 favoris | 49 412 | 61 696 | 20 224 | 27 596 | 16 572 |
+
+Tas de 80 Kio (81 920 octets), pile de 44 168 octets réservés. L'utilisé stable est quasi constant,
+donc pas de fuite observée ; les pics sont transitoires. **Les écritures de favoris laissent
+7,3 Kio de tas libre au pire** : marge faible, à surveiller si le chemin d'écriture grossit.
+Ces valeurs viennent de l'image instrumentée ; les réservations de l'ELF ne sont pas une
+consommation maximale.
+
+### Défauts
+
+**D1 — Corrigé (`db801fe`).** Sur l'image initiale `dc30e8e`, toute requête HTTP locale provoquait
+un dépassement de pile (panic silencieux). Cause : tas de 96 Kio, pile restante de 26,6 Kio, alors
+qu'une requête coûte environ 10 Kio de pile (pic mesuré 31 Kio). Correctif : tas de 80 Kio, pile
+minimale de 36 Kio vérifiée au boot. Vérifié sur l'image nominale : `GET /`, `/ui.css`, `/ui.js`,
+`/api/state` répondent sans panic.
+
+**D2 — Ouvert, issue #19.** Une écriture de configuration (ajout ou suppression de favori) pendant
+la lecture peut couper le Metronic (« no usb »). Mesures par opération flash : 9 à 21 écritures
+et un effacement par commit, 4 à 244 octets chacune, mais environ 50 ms par appel (surcoût fixe
+indépendant de la taille), exécutées dans une section critique. Aucune opération isolée ne dépasse
+51 ms et l'exécuteur n'est pas bloqué (la cession du tour après chaque opération ne corrige pas).
+Une fusion expérimentale des écritures contiguës, sur image de diagnostic seulement, ramène les
+écritures à 7 à 9 par commit (242 à 392 ms de flash cumulé) mais la coupure reste possible (1
+commit sur 3). Aucun correctif n'est dans la branche ; l'arbitrage est renvoyé au mainteneur
+(couche flash et USB partagée avec #1). Les suppressions successives aggravent l'exposition.
+
+**D3 — Observation matérielle, hors correctif.** Après un redémarrage logiciel (reset RTC WDT),
+le Metronic ne relit pas toujours le disque (compteur de secondes puis « no usb »). Un reset
+matériel de la carte le rétablit à chaque fois (au moins 8 essais). Branchée sur un PC Windows, la
+carte réénumère correctement après chaque reset logiciel. Le chemin de reset est partagé avec #1
+et n'est pas modifié ici.
+
+### Limites et observations
+
+- Flux HTTP 301 non suivis (`direct.franceinter.fr`) ; HTTPS audio hors périmètre : peu de
+  résultats du catalogue sont utilisables.
+- Après provisioning réussi, l'AP reste actif jusqu'au redémarrage (voulu par #1). Suggestion à
+  arbitrer pour #1 : redémarrage automatique après une connexion réussie, une fois le statut reçu.
+- Avertissement `esp_wifi_internal_tx returned error: 12309` observé en mode AP, non analysé.
+- Le test d'URL injoignable laisse le Metronic en « no usb » tant que la station est active.
+- Les requêtes de diagnostic depuis le banc passent par le navigateur en mode `no-cors` : les
+  réponses ne sont pas lisibles, seul le temps de réponse est consigné.
+- Retour arrière : après l'enregistrement de favoris, un ancien firmware sans `stations` dans son
+  manifeste refuse cette clé ; conserver une sauvegarde de la configuration (voir ci-dessus).
+- Zero non qualifiée pour #2. #15 et #16 restent des chantiers distincts.
