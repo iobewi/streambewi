@@ -39,7 +39,7 @@ pub async fn run<T, B, Btn, R, W, D, F>(
     serial: impl IntoIterator<Item = (R, W)>,
     button: Btn,
     reset: F,
-    usb: Option<D>,
+    usb: Option<usb::UsbPort<D>>,
     info: provisioning::DeviceInfo,
 ) where
     T: WifiTransport<NetworkHandle = Stack<'static>>,
@@ -70,7 +70,7 @@ pub async fn run<T, B, Btn, R, W, D, F>(
     };
     join(join3(provisioning_fut, recovery_fut, stream_fut), async {
         match usb {
-            Some(driver) => usb::serve(driver).await,
+            Some(port) => usb::serve(port).await,
             None => core::future::pending::<()>().await,
         }
     })

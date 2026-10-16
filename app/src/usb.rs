@@ -3,22 +3,50 @@
 //! CONFIGURED and the stream is ready (on some boards the USB pins are shared with the serial
 //! port Improv uses).
 
-use embassy_futures::join::join;
+use embassy_futures::join::join3;
+use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal};
 use embassy_time::{Duration, Instant, Timer};
 #[cfg(feature = "usb-debug")]
 use embassy_usb::Handler;
 use embassy_usb::{Builder, driver::Driver};
 use iobewi_fat16::{ReadStatus, VirtualFat16};
 use iobewi_usb_msc::{InquiryIdentity, MscClass, ReadAction, ReadPolicy, State as MscState};
-use streambewi_core::FAT16_CONFIG;
+use streambewi_core::{FAT16_CONFIG, PREBUFFER_BYTES};
 
 use crate::provisioning;
-use crate::stream::{STREAM, SharedStreamSource};
+use crate::stream::{STREAM, SharedStream, SharedStreamSource};
 
 /// Longest total wait for stream data inside one READ(10) command (not per sector): a host aborts
 /// a command after its own timeout (Windows gave up after ~20 s) whatever the number of sectors
 /// it asked for, so a per-sector wait would accumulate beyond it (8 sectors x 5 s = 40 s).
 const PENDING_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// A host that is starving for data while the producer has been silent this long finds nothing
+/// valid to read: the device leaves the bus instead of answering with data it does not have.
+const STALL_BEFORE_DROP: Duration = Duration::from_secs(2);
+/// How long the device stays off the bus, so that the host registers the removal.
+const DISCONNECT_HOLD: Duration = Duration::from_millis(1500);
+const RECONNECT_POLL: Duration = Duration::from_millis(200);
+
+/// Soft-connect and soft-disconnect of the USB device, provided by the target (the portable
+/// product cannot reach the controller).
+pub trait UsbLink: Sync {
+    fn set_connected(&self, connected: bool);
+}
+
+/// What the product needs to present the disk: the controller driver and its soft connection.
+pub struct UsbPort<D> {
+    pub driver: D,
+    pub link: &'static dyn UsbLink,
+}
+
+/// Raised when a reader starves while the producer is silent; consumed by the link supervisor.
+static STALL: Signal<CriticalSectionRawMutex, ()> = Signal::new();
+
+/// A reader waits for data (`Pending`) and the producer has delivered nothing for too long.
+fn is_stall(status: ReadStatus, producer_idle: Duration) -> bool {
+    status == ReadStatus::Pending && producer_idle >= STALL_BEFORE_DROP
+}
 
 const MSC_IDENTITY: InquiryIdentity = InquiryIdentity {
     vendor: *b"IOBEWI  ",
@@ -41,12 +69,19 @@ fn decide(status: ReadStatus, command_elapsed: Duration) -> ReadAction {
 /// shared by all the sectors of one READ(10) command.
 struct StreamReadPolicy {
     command_start: Instant,
+    stream: &'static SharedStream,
+    stall: &'static Signal<CriticalSectionRawMutex, ()>,
 }
 
 impl StreamReadPolicy {
-    fn new() -> Self {
+    fn new(
+        stream: &'static SharedStream,
+        stall: &'static Signal<CriticalSectionRawMutex, ()>,
+    ) -> Self {
         Self {
             command_start: Instant::now(),
+            stream,
+            stall,
         }
     }
 }
@@ -57,7 +92,46 @@ impl ReadPolicy for StreamReadPolicy {
     }
 
     fn unavailable(&mut self, status: ReadStatus, _sector_elapsed: Duration) -> ReadAction {
+        if is_stall(status, self.stream.producer_idle()) {
+            self.stall.signal(());
+        }
         decide(status, self.command_start.elapsed())
+    }
+}
+
+/// Takes the device off the bus when the stream stalls under a starving reader and presents it
+/// again once the stream has delivered a fresh prebuffer, as at boot: the host never sees a file it
+/// cannot read, and re-enumerates onto data that is current.
+struct LinkSupervisor {
+    stream: &'static SharedStream,
+    stall: &'static Signal<CriticalSectionRawMutex, ()>,
+    link: &'static dyn UsbLink,
+    hold: Duration,
+    poll: Duration,
+}
+
+impl LinkSupervisor {
+    async fn run(&self) -> ! {
+        loop {
+            self.cycle().await;
+        }
+    }
+
+    async fn cycle(&self) {
+        self.stall.wait().await;
+        let (written_at_stall, _) = self.stream.progress();
+        log::info!("usb: stream stalled, leaving the bus");
+        // The player will resume at the offset it had: keep the session through the reconnection.
+        self.stream.hold_session();
+        self.link.set_connected(false);
+        Timer::after(self.hold).await;
+        while self.stream.progress().0 < written_at_stall + PREBUFFER_BYTES {
+            Timer::after(self.poll).await;
+        }
+        // Reads that kept waiting while the device was off the bus must not drop it again.
+        self.stall.reset();
+        log::info!("usb: stream back, rejoining the bus");
+        self.link.set_connected(true);
     }
 }
 
@@ -85,10 +159,11 @@ impl Handler for BusLog {
 }
 
 /// Enumerates the boot-selected USB driver once configuration and prebuffer are ready.
-pub async fn serve<D>(driver: D)
+pub async fn serve<D>(port: UsbPort<D>)
 where
     D: Driver<'static>,
 {
+    let UsbPort { driver, link } = port;
     // UNCONFIGURED (no Wi-Fi network saved): no stream is possible, MSC stays off.
     while !provisioning::is_configured() {
         log::info!("provisioning: UNCONFIGURED, MSC off (waiting for Improv)");
@@ -151,12 +226,22 @@ where
 
     let device_fut = usb_device.run();
     let msc_fut = async {
-        if let Err(err) = msc.run(&mut disk, &mut StreamReadPolicy::new()).await {
+        if let Err(err) = msc
+            .run(&mut disk, &mut StreamReadPolicy::new(&STREAM, &STALL))
+            .await
+        {
             log::info!("msc: fatal endpoint error: {:?}", err);
         }
     };
 
-    join(device_fut, msc_fut).await;
+    let supervisor = LinkSupervisor {
+        stream: &STREAM,
+        stall: &STALL,
+        link,
+        hold: DISCONNECT_HOLD,
+        poll: RECONNECT_POLL,
+    };
+    join3(device_fut, msc_fut, supervisor.run()).await;
 }
 
 #[cfg(test)]
@@ -192,11 +277,119 @@ mod tests {
 
     #[test]
     fn a_new_command_gets_a_fresh_budget() {
-        let mut policy = StreamReadPolicy::new();
+        let stream: &'static SharedStream = Box::leak(Box::new(SharedStream::new()));
+        let stall: &'static Signal<CriticalSectionRawMutex, ()> =
+            Box::leak(Box::new(Signal::new()));
+        let mut policy = StreamReadPolicy::new(stream, stall);
         policy.command_started();
         assert!(matches!(
             policy.unavailable(ReadStatus::Pending, Duration::from_secs(60)),
             ReadAction::RetryAfter(_)
         ));
+    }
+
+    #[test]
+    fn a_reader_starving_under_a_silent_producer_is_a_stall() {
+        let long = STALL_BEFORE_DROP;
+        assert!(is_stall(ReadStatus::Pending, long));
+        assert!(is_stall(ReadStatus::Pending, Duration::MAX));
+        // Pacing at the live edge: the producer keeps delivering, the reader merely waits.
+        assert!(!is_stall(ReadStatus::Pending, Duration::from_millis(500)));
+        // Expired data is not a stall of the stream.
+        assert!(!is_stall(ReadStatus::Expired, Duration::MAX));
+    }
+
+    struct FakeLink(std::sync::Mutex<Vec<bool>>);
+    impl UsbLink for FakeLink {
+        fn set_connected(&self, connected: bool) {
+            self.0.lock().unwrap().push(connected);
+        }
+    }
+
+    #[test]
+    fn a_stall_leaves_the_bus_and_rejoins_after_a_fresh_prebuffer_keeping_the_session() {
+        use iobewi_fat16::{FileSource, SECTOR_SIZE};
+        let stream: &'static SharedStream = Box::leak(Box::new(SharedStream::new()));
+        let stall: &'static Signal<CriticalSectionRawMutex, ()> =
+            Box::leak(Box::new(Signal::new()));
+        let link: &'static FakeLink = Box::leak(Box::new(FakeLink(Default::default())));
+        let data = [0x55u8; 1024];
+        for _ in 0..80 {
+            stream.push(&data);
+        }
+        // A reader is served and has drained the window: it starves, as in a stream interruption.
+        let mut source = SharedStreamSource::new(stream);
+        source.begin_session();
+        let mut sector = [0u8; SECTOR_SIZE];
+        let mut index = 0;
+        while source.read_file_sector(index, &mut sector) == ReadStatus::Ready {
+            index += 1;
+        }
+        let (written_at_stall, consumed) = stream.progress();
+        let supervisor = LinkSupervisor {
+            stream,
+            stall,
+            link,
+            hold: Duration::from_millis(30),
+            poll: Duration::from_millis(5),
+        };
+        stall.signal(());
+        embassy_futures::block_on(embassy_futures::join::join(supervisor.cycle(), async {
+            Timer::after(Duration::from_millis(10)).await;
+            assert_eq!(*link.0.lock().unwrap(), vec![false]);
+            Timer::after(Duration::from_millis(60)).await;
+            // Held down: the stream has not delivered a fresh prebuffer yet.
+            assert_eq!(*link.0.lock().unwrap(), vec![false]);
+            for _ in 0..70 {
+                assert_eq!(stream.push(&data), data.len());
+            }
+        }));
+        assert_eq!(*link.0.lock().unwrap(), vec![false, true]);
+        assert!(stream.progress().0 >= written_at_stall + PREBUFFER_BYTES);
+        // Reads that kept waiting during the hold do not drop the link again at once.
+        assert!(!stall.signaled());
+        // The host re-enumerates: ending and beginning its MSC session leaves the window alone, so
+        // the player resumes at its own offset, on the data that arrived meanwhile.
+        source.end_session();
+        source.begin_session();
+        assert_eq!(stream.progress().1, consumed);
+        assert_eq!(
+            source.read_file_sector(index, &mut sector),
+            ReadStatus::Ready
+        );
+        assert!(sector.iter().all(|b| *b == 0x55));
+        // Only that one reconnection is kept: the next session starts on the live edge as usual.
+        source.end_session();
+        source.begin_session();
+        assert_ne!(stream.progress().1, consumed);
+    }
+
+    #[test]
+    fn a_throttled_producer_is_not_a_stalled_one() {
+        use iobewi_fat16::FileSource;
+        let stream: &'static SharedStream = Box::leak(Box::new(SharedStream::new()));
+        let data = [0x55u8; 1024];
+        for _ in 0..80 {
+            stream.push(&data);
+        }
+        // A reader that has read nothing: the window fills up to the lead and the producer is held.
+        let mut source = SharedStreamSource::new(stream);
+        source.begin_session();
+        while stream.push(&data) > 0 {}
+        assert_eq!(stream.writable(), 0);
+        // The producer waits for room for a long time (the host reads ahead of the stream, or not at
+        // all): that is not silence of the stream.
+        embassy_futures::block_on(embassy_futures::join::join(stream.wait_for_room(), async {
+            Timer::after(Duration::from_millis(120)).await;
+            assert!(stream.producer_idle() < Duration::from_millis(40));
+            assert!(!is_stall(ReadStatus::Pending, stream.producer_idle()));
+            // The reader catches up: there is room again.
+            let mut sector = [0u8; iobewi_fat16::SECTOR_SIZE];
+            let mut index = 0;
+            while source.read_file_sector(index, &mut sector) == ReadStatus::Ready {
+                index += 1;
+            }
+        }));
+        assert!(stream.writable() > 0);
     }
 }

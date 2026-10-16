@@ -25,6 +25,17 @@ use streambewi::boot_policy::{self, BootMode, BootPolicy};
 
 esp_bootloader_esp_idf::esp_app_desc!();
 
+/// Soft-connect of the native USB device (DCTL.SDIS), used by the product when the stream stalls.
+struct S3UsbLink;
+
+impl streambewi::usb::UsbLink for S3UsbLink {
+    fn set_connected(&self, connected: bool) {
+        iobewi_esp_usb::set_connected(connected);
+    }
+}
+
+static USB_LINK: S3UsbLink = S3UsbLink;
+
 #[unsafe(no_mangle)]
 pub static STREAMBEWI_CHIP: [u8; 8] = *b"ESP32-S3";
 
@@ -120,12 +131,10 @@ async fn product(p: Resources, spawner: Spawner) {
         }
         BootMode::MassStorage => {
             static OUT: StaticCell<[u8; 1024]> = StaticCell::new();
-            Some(iobewi_esp_usb::device(
-                p.usb,
-                p.dp,
-                p.dm,
-                OUT.init([0; 1024]),
-            ))
+            Some(streambewi::usb::UsbPort {
+                driver: iobewi_esp_usb::device(p.usb, p.dp, p.dm, OUT.init([0; 1024])),
+                link: &USB_LINK,
+            })
         }
     };
     static NET: StaticCell<StackResources<SOCKETS>> = StaticCell::new();
