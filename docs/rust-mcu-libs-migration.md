@@ -382,3 +382,38 @@ Les deux images sont fabriquées par `scripts/build-image.sh` (même commande qu
 5. La validation sur la cible (S3 Zero) n'a plus d'intérêt pour la suite : la DevKitC-1 est identique et sert de banc.
 
 **Fusion** : rien n'est fusionné, #67 reste ouverte.
+
+### Dernier contrôle et acceptation avec réserve (16 octobre 2026)
+
+**Révision finale** : `streambewi@dc6e4e8` (PR #14, CI `core` et `esp32s3` vertes), `rust-mcu-libs@a525c33`. `668905f` reste une référence testée ; elle ne valide pas ce binaire. Les empreintes ci-dessous remplacent celles de la section précédente pour l'image à livrer.
+
+Changements depuis `668905f` : instrumentation en feature `qual` (désactivée par défaut, compilée par la CI) ; journal d'exploitation Info/Warn sur l'UART0 dans l'image de production (réseau, flux, bus USB, `REBASE`, `ZEROFILL`, provisioning), sans ligne répétitive (attente du prébuffer toutes les 10 s, battement du flux toutes les 60 s). Le niveau est fixé à la compilation ; la politique persistée (`iobewi-log-config`) et son transport sont suivis dans streambewi#15.
+
+| Image (construction locale, `scripts/build-image.sh`) | SHA-256 |
+| --- | --- |
+| **nominale**, application à 0x50000 (743 584 o) | `cde4999472d746aa64716a83d54d252026af34463ca87f8d172633adf87a4cbe` |
+| nominale, image complète | `81c8ee1f5178c9c9b4fdd5c8d05d8bbb7f46d7e567ca9344d4418dde53e3b3c0` |
+| nominale, ELF | `88083a9d71ffa06a1bebd10c1de40099e137ede575fcef7fcebe59dd2bfcfd20` |
+| `qual`, application à 0x50000 (751 232 o) | `9a967216b00d941885da6fd035bb91c219a9737bb26b7d2387c6815e5ec3bac6` |
+| `qual`, image complète | `b604c633a1e4a183ac326e304c0d700760228c3cb28687f907951a3c037fc476` |
+| `qual`, ELF | `eee59fdfb93e9eccf92a0135a96e3cc0a94aad897955fb902abd596854609874` |
+
+L'identité octet pour octet avec les artefacts de la CI n'a pas été vérifiée.
+
+**Banc** : DevKitC-1 uniquement (la S3 Zero n'a pas d'UART et ne valide pas), Metronic 477144, coupure du WAN à la main.
+
+| Image | Coupure | Résultat |
+| --- | --- | --- |
+| nominale `07a541b` | 43 s | **échec** : le son n'est pas revenu (image muette, pas de trace) |
+| nominale `dc6e4e8` | ~59 s, premier essai après démarrage | **échec** : le son n'est pas revenu |
+| nominale `dc6e4e8` | 3 × ~60 s | reprise seule à chaque fois |
+| `qual` `dc6e4e8` | 1 + 3 × 50–60 s | reprise seule à chaque fois |
+| nominale `668905f` | 81 s | reprise seule |
+
+Les séquences stop/pause/play (dont 5 s) du Metronic ont été validées sur `668905f` et n'ont pas été rejouées sur `dc6e4e8`, la logique de lecture étant inchangée.
+
+**Réserve connue : reprise intermittente après coupure du flux.** Dans le cas échoué de `dc6e4e8`, la séquence de reconnexion se déroule (arrêt du bus, abandon à 8 s, tentatives, `HTTP 200`, `rejoining the bus`, `REBASE`), puis le Metronic enchaîne trois fins de session avec `consumed=0` et quitte le bus. L'image nominale n'écrit pas les traces MSC/USB : **la cause n'est pas établie** et aucune hypothèse n'est retenue. Taux observé : 1 échec sur 8 coupures comparables avec `dc6e4e8`, plus 1 échec avec `07a541b` ; la reprise n'est donc **pas démontrée systématique**. Détail, traces et limites : streambewi#16. Investigation reportée ; elle reprendra si le défaut devient gênant en usage ou si une reproduction plus déterministe apparaît. Aucune nouvelle instrumentation ni campagne n'est prévue d'ici là.
+
+**Verdict : acceptation avec réserve.** La chaîne complète (lecture continue, pause, stop/play, coupure du flux avec reconnexion et rejoin) a fonctionné sur le Metronic dans la majorité des essais, sous réserve de la reprise intermittente ci-dessus. Limites inchangées : lecteurs concurrents (`docs/concurrent-readers.md`), un seul lecteur et une seule carte, S3 Zero non validable.
+
+**Fusion** : rien n'est fusionné, #67 reste ouverte. Cette acceptation n'autorise pas encore les fusions.
