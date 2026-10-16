@@ -4,7 +4,7 @@
 //! port Improv uses).
 
 use embassy_futures::join::join;
-use embassy_time::{Duration, Timer};
+use embassy_time::{Duration, Instant, Timer};
 #[cfg(feature = "usb-debug")]
 use embassy_usb::Handler;
 use embassy_usb::{Builder, driver::Driver};
@@ -15,7 +15,9 @@ use streambewi_core::FAT16_CONFIG;
 use crate::provisioning;
 use crate::stream::{STREAM, SharedStreamSource};
 
-/// Longest wait for stream data inside one READ(10) sector (Windows gave up after ~20 s).
+/// Longest total wait for stream data inside one READ(10) command (not per sector): a host aborts
+/// a command after its own timeout (Windows gave up after ~20 s) whatever the number of sectors
+/// it asked for, so a per-sector wait would accumulate beyond it (8 sectors x 5 s = 40 s).
 const PENDING_TIMEOUT: Duration = Duration::from_secs(5);
 
 const MSC_IDENTITY: InquiryIdentity = InquiryIdentity {
@@ -24,18 +26,38 @@ const MSC_IDENTITY: InquiryIdentity = InquiryIdentity {
     revision: *b"0001",
 };
 
+/// Decision for an unavailable sector, given how long the current READ(10) command has waited.
+fn decide(status: ReadStatus, command_elapsed: Duration) -> ReadAction {
+    match status {
+        ReadStatus::Pending if command_elapsed < PENDING_TIMEOUT => {
+            ReadAction::RetryAfter(Duration::from_millis(5))
+        }
+        _ => ReadAction::ZeroFill,
+    }
+}
+
 /// Product policy for unavailable sectors: wait for data that is about to arrive, but never
-/// wedge the MSC on a stalled stream; expired data is answered with zeroes.
-struct StreamReadPolicy;
+/// wedge the MSC on a stalled stream; expired data is answered with zeroes. The wait budget is
+/// shared by all the sectors of one READ(10) command.
+struct StreamReadPolicy {
+    command_start: Instant,
+}
+
+impl StreamReadPolicy {
+    fn new() -> Self {
+        Self {
+            command_start: Instant::now(),
+        }
+    }
+}
 
 impl ReadPolicy for StreamReadPolicy {
-    fn unavailable(&mut self, status: ReadStatus, elapsed: Duration) -> ReadAction {
-        match status {
-            ReadStatus::Pending if elapsed < PENDING_TIMEOUT => {
-                ReadAction::RetryAfter(Duration::from_millis(5))
-            }
-            _ => ReadAction::ZeroFill,
-        }
+    fn command_started(&mut self) {
+        self.command_start = Instant::now();
+    }
+
+    fn unavailable(&mut self, status: ReadStatus, _sector_elapsed: Duration) -> ReadAction {
+        decide(status, self.command_start.elapsed())
     }
 }
 
@@ -129,10 +151,52 @@ where
 
     let device_fut = usb_device.run();
     let msc_fut = async {
-        if let Err(err) = msc.run(&mut disk, &mut StreamReadPolicy).await {
+        if let Err(err) = msc.run(&mut disk, &mut StreamReadPolicy::new()).await {
             log::info!("msc: fatal endpoint error: {:?}", err);
         }
     };
 
     join(device_fut, msc_fut).await;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pending_waits_within_the_command_budget_then_zero_fills() {
+        let retry = ReadAction::RetryAfter(Duration::from_millis(5));
+        assert_eq!(decide(ReadStatus::Pending, Duration::from_millis(0)), retry);
+        assert_eq!(
+            decide(ReadStatus::Pending, Duration::from_millis(4_999)),
+            retry
+        );
+        assert_eq!(
+            decide(ReadStatus::Pending, PENDING_TIMEOUT),
+            ReadAction::ZeroFill
+        );
+        // Once the command has used its budget, every further sector of it is zero-filled at once.
+        assert_eq!(
+            decide(ReadStatus::Pending, Duration::from_secs(30)),
+            ReadAction::ZeroFill
+        );
+    }
+
+    #[test]
+    fn expired_data_is_never_waited_for() {
+        assert_eq!(
+            decide(ReadStatus::Expired, Duration::from_millis(0)),
+            ReadAction::ZeroFill
+        );
+    }
+
+    #[test]
+    fn a_new_command_gets_a_fresh_budget() {
+        let mut policy = StreamReadPolicy::new();
+        policy.command_started();
+        assert!(matches!(
+            policy.unavailable(ReadStatus::Pending, Duration::from_secs(60)),
+            ReadAction::RetryAfter(_)
+        ));
+    }
 }
