@@ -39,7 +39,7 @@
       const result=await request(url, values);
       if(result.restart) {
         rebooting=true; message('notice','Changement de station… Votre radio revient dans quelques instants.');
-        message('settings-result','Votre choix est enregistré. La radio redémarre.');
+        message('settings-result','Votre choix est pris en compte. La radio change de station.');
         $('settings-panel').close(); $('play-label').textContent='Changement de station…';
       } else { message('settings-result','C’est enregistré !'); await refresh(); }
       return result;
@@ -96,7 +96,7 @@
     if(refreshBusy)return;refreshBusy=true;
     try {
       const next=await request('/api/state');
-      if(rebooting&&!next.restarting) { rebooting=false;message('notice','Votre station est choisie. Bonne écoute !'); }
+      if(rebooting&&!next.restarting) { rebooting=false;if(next.persisted===false)message('notice','Station active, mais non enregistrée : l’ancienne reviendra au redémarrage.',true);else message('notice','Votre station est choisie. Bonne écoute !'); }
       state=next;failures=0;render(next);
     } catch(_) { failures++;if(failures>2&&!rebooting) { $('play-label').textContent='Connexion à votre radio…'; $('play-state').classList.remove('reading'); } }
     finally {refreshBusy=false;}

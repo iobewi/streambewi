@@ -1,5 +1,6 @@
 use core::cell::{Cell, RefCell};
 use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use embassy_futures::select::{Either3, select3};
 
 use embassy_net::{
     Stack,
@@ -67,6 +68,8 @@ pub struct SharedStream {
     last_read: Mutex<CriticalSectionRawMutex, Cell<u64>>,
     /// Keep the consumer session across the next reconnection of the host (see `hold_session`).
     hold: AtomicBool,
+    /// Incremented by every station change; a USB stall cycle started before it must not act after it.
+    generation: AtomicU32,
     /// Ticks of the last accepted push (0: nothing pushed yet); a critical section, since the target
     /// has no 64-bit atomics.
     last_push: Mutex<CriticalSectionRawMutex, Cell<u64>>,
@@ -85,6 +88,7 @@ impl SharedStream {
             reconnects: AtomicU32::new(0),
             last_read: Mutex::new(Cell::new(0)),
             hold: AtomicBool::new(false),
+            generation: AtomicU32::new(0),
             last_push: Mutex::new(Cell::new(0)),
         }
     }
@@ -150,6 +154,33 @@ impl SharedStream {
     /// bytes after the interruption are simply the data that arrived since.
     pub fn hold_session(&self) {
         self.hold.store(true, Ordering::Release);
+    }
+
+    /// Time since the last sector served to the host; `None` if none yet.
+    pub(crate) fn since_last_read(&self) -> Option<Duration> {
+        self.last_read.lock(|last| match last.get() {
+            0 => None,
+            ticks => Some(Instant::now() - Instant::from_ticks(ticks)),
+        })
+    }
+
+    pub(crate) fn generation(&self) -> u32 {
+        self.generation.load(Ordering::Acquire)
+    }
+
+    /// Start a new station: the old consumer session ends, nothing is held across it, and the producer
+    /// counts as not having delivered yet. The window itself needs no clearing: positions are absolute
+    /// and the caller waits for `PREBUFFER_BYTES` written past the returned position, so the next
+    /// session (`begin_session`: 64 KiB behind the live edge) starts inside the new station's data.
+    /// Returns the live position at the change.
+    pub(crate) fn begin_station_change(&self) -> u64 {
+        self.hold.store(false, Ordering::Release);
+        self.generation.fetch_add(1, Ordering::AcqRel);
+        self.inner.lock(|cell| {
+            cell.borrow_mut().end_session();
+        });
+        self.last_push.lock(|last| last.set(0));
+        self.progress().0
     }
 
     fn mark_reconnect(&self) -> u32 {
@@ -226,7 +257,26 @@ impl FileSource for SharedStreamSource {
     }
 }
 
-pub async fn run(stack: Stack<'static>, stream: &'static SharedStream, url: &str) -> ! {
+/// Minimum time the disk stays off the bus on a station change: the host must register the removal.
+const SWITCH_DETACH: Duration = Duration::from_millis(1_500);
+/// The MSC is quiet once no sector has been served for this long (or after `QUIET_WAIT`).
+const QUIET_AFTER: Duration = Duration::from_millis(300);
+const QUIET_WAIT: Duration = Duration::from_secs(2);
+
+/// Runs the producer and applies station changes without a restart.
+///
+/// On a change (`setup::SWITCH`, raised once the new selection is held in RAM) the disk leaves the bus,
+/// the old connection is dropped, the selection is written to flash (`persist`) while nobody is on the
+/// bus to be starved by the flash critical sections, and the disk comes back once the write is done,
+/// `SWITCH_DETACH` has elapsed and a fresh prebuffer of the new station is in the window. A failed write
+/// is logged and leaves the selection active but flagged unsaved (`Radio::is_unsaved`).
+pub async fn run(
+    stack: Stack<'static>,
+    stream: &'static SharedStream,
+    link: Option<&'static dyn crate::usb::UsbLink>,
+    active_url: impl AsyncFn() -> alloc::string::String,
+    persist: impl AsyncFn() -> Result<bool, ()>,
+) -> ! {
     let tcp_state = mk_static!(
         TcpClientState<1, 4096, 4096>,
         TcpClientState::<1, 4096, 4096>::new()
@@ -239,11 +289,83 @@ pub async fn run(stack: Stack<'static>, stream: &'static SharedStream, url: &str
         log::info!("net: got IP {}", config.address);
     }
 
+    // `None` until the first station change; then the instant the disk left the bus and the live
+    // position it must pass by one prebuffer before the disk comes back.
+    let mut pending_attach: Option<(Instant, u64)> = None;
+    loop {
+        let url = active_url().await;
+        let attach = async {
+            if let (Some(link), Some((since, live))) = (link, pending_attach) {
+                while stream.progress().0 < live + PREBUFFER_BYTES {
+                    Timer::after(Duration::from_millis(100)).await;
+                }
+                Timer::at(since + SWITCH_DETACH).await;
+                crate::usb::clear_stall();
+                link.set_connected(true);
+                crate::setup::RESTARTING.store(0, Ordering::Relaxed);
+                log::info!(
+                    "station: disk back after {} ms (live={})",
+                    since.elapsed().as_millis(),
+                    stream.progress().0
+                );
+            }
+            core::future::pending::<()>().await
+        };
+        let switched = select3(
+            produce(&tcp_client, &dns_client, stream, &url),
+            attach,
+            crate::setup::SWITCH.wait(),
+        )
+        .await;
+        match switched {
+            Either3::Third(()) => {}
+            Either3::First(never) => match never {},
+            Either3::Second(()) => unreachable!(),
+        }
+        // The old producer is dropped (its socket is released). Leave the bus first, then restart.
+        let since = Instant::now();
+        if let Some(link) = link {
+            link.set_connected(false);
+        }
+        let live = stream.begin_station_change();
+        log::info!("station: switching, disk off the bus (live={})", live);
+        // No sector served recently: the host is no longer reading. A soft disconnect (DCTL.SDIS) raises no
+        // device event, so the MSC session itself only ends at the host's next bus reset.
+        let waited = Instant::now();
+        while stream
+            .since_last_read()
+            .is_some_and(|idle| idle < QUIET_AFTER)
+            && waited.elapsed() < QUIET_WAIT
+        {
+            Timer::after(Duration::from_millis(50)).await;
+        }
+        let started = Instant::now();
+        match persist().await {
+            Ok(wrote) => log::info!(
+                "station: selection persisted={} in {} ms",
+                wrote,
+                started.elapsed().as_millis()
+            ),
+            Err(()) => log::error!(
+                "station: persisting the selection FAILED after {} ms: active in RAM, NOT saved",
+                started.elapsed().as_millis()
+            ),
+        }
+        pending_attach = Some((since, live));
+    }
+}
+
+async fn produce(
+    tcp_client: &TcpClient<'_, 1, 4096, 4096>,
+    dns_client: &DnsSocket<'_>,
+    stream: &'static SharedStream,
+    url: &str,
+) -> core::convert::Infallible {
     loop {
         let reconnect = stream.mark_reconnect();
         log::info!("stream: connecting attempt={} url={}", reconnect, url);
 
-        let mut client = HttpClient::new(&tcp_client, &dns_client);
+        let mut client = HttpClient::new(tcp_client, dns_client);
         let mut header_buf = [0u8; 2048];
 
         let request = match with_timeout(CONNECT_TIMEOUT, client.request(Method::GET, url)).await {
@@ -427,6 +549,27 @@ mod tests {
             Duration::from_millis(50),
         ));
         assert_eq!(out, Err(ReadStop::Closed));
+    }
+
+    #[test]
+    fn a_station_change_ends_the_session_and_drops_the_hold() {
+        let stream: &'static SharedStream = Box::leak(Box::new(SharedStream::new()));
+        let data = [0x55u8; 1024];
+        for _ in 0..80 {
+            stream.push(&data);
+        }
+        let mut source = SharedStreamSource::new(stream);
+        source.begin_session();
+        stream.hold_session();
+        let before = stream.generation();
+        let live = stream.begin_station_change();
+        assert_eq!(live, 80 * 1024);
+        assert_eq!(stream.generation(), before + 1);
+        assert!(stream.inner.lock(|c| c.borrow().session().is_none()));
+        // The next enumeration starts a fresh session instead of keeping the old one.
+        source.begin_session();
+        assert!(stream.inner.lock(|c| c.borrow().session().is_some()));
+        assert_eq!(stream.producer_idle(), Duration::MAX);
     }
 
     #[test]

@@ -50,8 +50,10 @@ pub(crate) static RESULT: Signal<CriticalSectionRawMutex, (u32, Outcome)> = Sign
 static NEXT_ID: AtomicU32 = AtomicU32::new(0);
 pub(crate) static SCAN_REQUESTS: Channel<CriticalSectionRawMutex, (), 1> = Channel::new();
 pub(crate) static RESTART: Signal<CriticalSectionRawMutex, ()> = Signal::new();
+/// A station change applied without a restart (MSC boot only): handled by the producer.
+pub(crate) static SWITCH: Signal<CriticalSectionRawMutex, ()> = Signal::new();
 static SCANNING: AtomicU8 = AtomicU8::new(0);
-static RESTARTING: AtomicU8 = AtomicU8::new(0);
+pub(crate) static RESTARTING: AtomicU8 = AtomicU8::new(0);
 static MODE_SETUP: AtomicU8 = AtomicU8::new(0);
 #[derive(Clone, Serialize)]
 struct Network {
@@ -72,6 +74,9 @@ static WIFI: embassy_sync::blocking_mutex::Mutex<CriticalSectionRawMutex, RefCel
         ip: String::new(),
         networks: Vec::new(),
     }));
+pub(crate) fn in_setup() -> bool {
+    MODE_SETUP.load(Ordering::Relaxed) != 0
+}
 pub(crate) fn set_setup(value: bool) {
     MODE_SETUP.store(u8::from(value), Ordering::Relaxed);
 }
@@ -245,7 +250,11 @@ fn mutation(
         Ok(restart) => {
             if restart {
                 RESTARTING.store(1, Ordering::Relaxed);
-                RESTART.signal(());
+                if MODE_SETUP.load(Ordering::Relaxed) != 0 {
+                    RESTART.signal(());
+                } else {
+                    SWITCH.signal(());
+                }
             }
             (
                 StatusCode::OK,
@@ -273,7 +282,7 @@ async fn state<B: ConfigBackend>(radio: &Radio<B>) -> ([(&'static str, &'static 
             "networks":networks, "scanning":SCANNING.load(Ordering::Relaxed) != 0,
             "setup":MODE_SETUP.load(Ordering::Relaxed) != 0,
             "reading":crate::stream::STREAM.is_reading(), "ready":crate::stream::STREAM.is_ready(),
-            "restarting":RESTARTING.load(Ordering::Relaxed) != 0,
+            "restarting":RESTARTING.load(Ordering::Relaxed) != 0, "persisted":!radio.is_unsaved(),
             "wifi_message":status_message(), "wifi_status":STATUS.load(Ordering::Relaxed),
         })
         .to_string(),

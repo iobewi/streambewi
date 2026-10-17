@@ -43,6 +43,11 @@ pub struct UsbPort<D> {
 /// Raised when a reader starves while the producer is silent; consumed by the link supervisor.
 static STALL: Signal<CriticalSectionRawMutex, ()> = Signal::new();
 
+/// Forget a stall raised before the device left the bus on purpose (station change).
+pub(crate) fn clear_stall() {
+    STALL.reset();
+}
+
 /// A reader waits for data (`Pending`) and the producer has delivered nothing for too long.
 fn is_stall(status: ReadStatus, producer_idle: Duration) -> bool {
     status == ReadStatus::Pending && producer_idle >= STALL_BEFORE_DROP
@@ -129,13 +134,21 @@ impl LinkSupervisor {
     async fn cycle(&self) {
         self.stall.wait().await;
         let (written_at_stall, _) = self.stream.progress();
+        let generation = self.stream.generation();
         log::info!("usb: stream stalled, leaving the bus");
         // The player will resume at the offset it had: keep the session through the reconnection.
         self.stream.hold_session();
         self.link.set_connected(false);
         Timer::after(self.hold).await;
-        while self.stream.progress().0 < written_at_stall + PREBUFFER_BYTES {
+        while self.stream.progress().0 < written_at_stall + PREBUFFER_BYTES
+            && self.stream.generation() == generation
+        {
             Timer::after(self.poll).await;
+        }
+        if self.stream.generation() != generation {
+            // A station change took over the bus while this cycle waited: it rejoins by itself.
+            log::info!("usb: stall cycle superseded by a station change");
+            return;
         }
         // Reads that kept waiting while the device was off the bus must not drop it again.
         self.stall.reset();

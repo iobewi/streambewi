@@ -1,5 +1,6 @@
 //! Product-owned favorites, persisted atomically in one ConfigSpace.
 use alloc::{string::String, vec, vec::Vec};
+use core::sync::atomic::{AtomicBool, Ordering};
 use embassy_sync::{blocking_mutex::raw::NoopRawMutex, mutex::Mutex};
 use iobewi_config_space::{Budget, ConfigBackend, ConfigSpace};
 use serde::{Deserialize, Serialize};
@@ -101,6 +102,8 @@ pub enum Error {
 pub struct Radio<B: ConfigBackend> {
     space: ConfigSpace<B>,
     catalog: Mutex<NoopRawMutex, Catalog>,
+    /// The catalog in RAM is ahead of the stored one (a selection not yet written).
+    dirty: AtomicBool,
 }
 impl<B: ConfigBackend> Radio<B> {
     pub async fn load(space: ConfigSpace<B>) -> Result<Self, Error> {
@@ -116,6 +119,7 @@ impl<B: ConfigBackend> Radio<B> {
         Ok(Self {
             space,
             catalog: Mutex::new(catalog),
+            dirty: AtomicBool::new(false),
         })
     }
     pub async fn snapshot(&self) -> Catalog {
@@ -136,7 +140,21 @@ impl<B: ConfigBackend> Radio<B> {
             .commit(&bytes)
             .await
             .map_err(|_| Error::Storage)?;
+        self.dirty.store(false, Ordering::Relaxed);
         Ok(())
+    }
+    /// True while the active selection exists only in RAM: it must not be presented as saved.
+    pub fn is_unsaved(&self) -> bool {
+        self.dirty.load(Ordering::Relaxed)
+    }
+    /// Write a selection held in RAM. `Ok(false)`: nothing to write.
+    pub async fn persist(&self) -> Result<bool, Error> {
+        if !self.is_unsaved() {
+            return Ok(false);
+        }
+        let snapshot = self.catalog.lock().await.clone();
+        self.commit(&snapshot).await?;
+        Ok(true)
     }
     /// Return whether the active audio source changed (apply at the next product restart).
     pub async fn save(
@@ -185,7 +203,16 @@ impl<B: ConfigBackend> Radio<B> {
         *current = next;
         Ok(changed)
     }
+    /// Make `id` the active station. Returns whether the active audio source changed.
+    ///
+    /// While the product runs the disk, the selection is applied in RAM and written later by `persist`,
+    /// while the disk is off the bus: a flash write in front of the host makes some players reset the bus
+    /// (issue #19) and not come back. In the provisioning boot there is no disk, and the product restarts
+    /// right after: the selection is written at once.
     pub async fn select(&self, id: u32) -> Result<bool, Error> {
+        self.apply_selection(id, crate::setup::in_setup()).await
+    }
+    async fn apply_selection(&self, id: u32, write_now: bool) -> Result<bool, Error> {
         let mut current = self.catalog.lock().await;
         if current.selected == id {
             return Ok(false);
@@ -195,7 +222,11 @@ impl<B: ConfigBackend> Radio<B> {
             return Err(Error::Missing);
         }
         next.selected = id;
-        self.commit(&next).await?;
+        if write_now {
+            self.commit(&next).await?;
+        } else {
+            self.dirty.store(true, Ordering::Relaxed);
+        }
         *current = next;
         Ok(true)
     }
@@ -296,6 +327,9 @@ mod tests {
             );
             assert!(radio.select(2).await.unwrap());
             assert!(!radio.select(2).await.unwrap());
+            assert_eq!(radio.persist().await, Ok(true));
+            assert!(!radio.is_unsaved());
+            assert_eq!(radio.persist().await, Ok(false));
             let reloaded = load(backend.clone()).await.unwrap();
             assert_eq!(reloaded.snapshot().await.selected, 2);
             assert_eq!(reloaded.active_url().await, "http://example.org/fip.mp3");
@@ -339,9 +373,39 @@ mod tests {
                 .unwrap();
             let old = radio.snapshot().await;
             backend.fail.set(true);
-            assert_eq!(radio.select(2).await, Err(Error::Storage));
-            assert_eq!(radio.snapshot().await, old);
+            // The selection is applied in RAM and flagged unsaved; writing it fails, the durable one is kept.
+            assert_eq!(radio.select(2).await, Ok(true));
+            assert!(radio.is_unsaved());
+            assert_eq!(radio.persist().await, Err(Error::Storage));
+            assert!(radio.is_unsaved());
+            assert_eq!(radio.snapshot().await.selected, 2);
             assert_eq!(load(backend).await.unwrap().snapshot().await, old);
+        });
+    }
+    #[test]
+    fn a_selection_written_at_once_keeps_the_old_one_when_the_write_fails() {
+        // Provisioning boot: the selection is written straight away and a failed write changes nothing.
+        embassy_futures::block_on(async {
+            let backend = Backend::default();
+            let radio = load(backend.clone()).await.unwrap();
+            radio
+                .save(
+                    None,
+                    "FIP".into(),
+                    "http://example.org/fip".into(),
+                    "".into(),
+                )
+                .await
+                .unwrap();
+            let old = radio.snapshot().await;
+            backend.fail.set(true);
+            assert_eq!(radio.apply_selection(2, true).await, Err(Error::Storage));
+            assert!(!radio.is_unsaved());
+            assert_eq!(radio.snapshot().await, old);
+            backend.fail.set(false);
+            assert_eq!(radio.apply_selection(2, true).await, Ok(true));
+            assert!(!radio.is_unsaved());
+            assert_eq!(load(backend).await.unwrap().snapshot().await.selected, 2);
         });
     }
     #[test]
