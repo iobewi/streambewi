@@ -19,6 +19,7 @@ pub mod boot_policy;
 pub mod logging;
 pub mod provisioning;
 pub mod setup;
+pub mod stations;
 pub mod stream;
 pub mod usb;
 
@@ -44,6 +45,7 @@ pub async fn run<T, B, Btn, R, W, D, F>(
     usb: Option<usb::UsbPort<D>>,
     info: provisioning::DeviceInfo,
     setup_network: Option<Stack<'static>>,
+    radio: stations::Radio<B>,
 ) where
     T: WifiTransport<NetworkHandle = Stack<'static>>,
     T::Address: Display,
@@ -60,6 +62,7 @@ pub async fn run<T, B, Btn, R, W, D, F>(
         core::future::pending::<()>().await;
         return;
     }
+    setup::set_setup(boot.mode() == boot_policy::BootMode::Provisioning);
     let network = provisioning::NetworkSignal::new();
     let (readers, ports) = provisioning::take_ports(serial);
     let provisioning_fut = join(
@@ -67,25 +70,31 @@ pub async fn run<T, B, Btn, R, W, D, F>(
         provisioning::readers(readers),
     );
     let recovery_fut = provisioning::recovery_watch(button, &boot, reset);
-    let stream_fut = async {
-        let stack = network.wait().await;
-        stream::run(stack, &stream::STREAM).await
+    let station_url = radio.active_url().await;
+    // Exactly one HTTP server per boot: the AP during setup, STA during normal operation.
+    // Share the first STA-ready signal with the producer rather than giving Signal two waiters.
+    let services = async {
+        let (web_stack, station_stack) = match setup_network {
+            Some(ap) => (ap, None),
+            None => {
+                let sta = network.wait().await;
+                (sta, Some(sta))
+            }
+        };
+        let producer = async {
+            let sta = match station_stack {
+                Some(sta) => sta,
+                None => network.wait().await,
+            };
+            stream::run(sta, &stream::STREAM, &station_url).await
+        };
+        join(producer, setup::serve(web_stack, &radio)).await;
     };
-    let setup_fut = async {
-        match setup_network {
-            Some(stack) => setup::serve(stack).await,
+    join(join3(provisioning_fut, recovery_fut, services), async {
+        match usb {
+            Some(port) => usb::serve(port).await,
             None => core::future::pending::<()>().await,
         }
-    };
-    join3(
-        join3(provisioning_fut, recovery_fut, stream_fut),
-        setup_fut,
-        async {
-            match usb {
-                Some(port) => usb::serve(port).await,
-                None => core::future::pending::<()>().await,
-            }
-        },
-    )
+    })
     .await;
 }

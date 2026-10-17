@@ -1,29 +1,31 @@
 <!doctype html>
 <html lang="fr">
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Configurer StreamBeWI</title>
-<style>
-body{font:1rem system-ui,sans-serif;max-width:32rem;margin:3rem auto;padding:0 1.25rem;background:#f5f7fa;color:#14263d}main{background:white;padding:1.5rem;border-radius:1rem}label{display:block;margin:1.25rem 0 .4rem}input,button{box-sizing:border-box;width:100%;font:inherit;padding:.8rem;border:1px solid #9aa9ba;border-radius:.4rem}button{background:#174d75;color:white;margin-top:1.5rem;cursor:pointer}#state:empty{display:none}#state{background:#e8f1f8;padding:.8rem;border-radius:.4rem}small{display:block;margin-top:.4rem;color:#465669}
-</style>
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#fbf7ee">
+<title>StreamBeWI · Votre petite radio</title>
+<link rel="stylesheet" href="/ui.css"><script src="/ui.js" defer></script>
+</head>
+<body>
+<svg class="symbols" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+<symbol id="radio" viewBox="0 0 160 130"><path d="m66 35 53-26" stroke="#244954" stroke-width="5" stroke-linecap="round"/><circle cx="120" cy="9" r="5" fill="#244954"/><rect x="21" y="36" width="121" height="79" rx="24" fill="#ef977e"/><rect x="31" y="44" width="102" height="62" rx="18" fill="#fbd8ac"/><rect x="41" y="53" width="53" height="43" rx="9" fill="#eac69e"/><path d="M49 63h36M49 73h36M49 83h36" stroke="#31545c" stroke-width="4" stroke-linecap="round"/><circle cx="114" cy="66" r="10" fill="#31545c"/><circle cx="114" cy="90" r="6" fill="#ef977e"/><path d="m41 115-2 5m82-5 2 5" stroke="#31545c" stroke-width="6" stroke-linecap="round"/><path d="m9 43-6-7m12-5-3-10m136 22 8-6" stroke="#ee957c" stroke-width="4" stroke-linecap="round"/></symbol>
+<symbol id="wifi" viewBox="0 0 24 24"><path d="M2 8a16 16 0 0 1 20 0M5.5 11.5a11 11 0 0 1 13 0M9 15a5 5 0 0 1 6 0"/><circle cx="12" cy="19" r="1"/></symbol>
+<symbol id="gear" viewBox="0 0 24 24"><path d="m9 3 1-2h4l1 2 2 1 2-.2 2 3-1 2v3l1 2-2 3-2-.2-2 1-1 2h-4l-1-2-2-1-2 .2-2-3 1-2v-3l-1-2 2-3 2 .2z" transform="translate(0 1)"/><circle cx="12" cy="11" r="3"/></symbol>
+<symbol id="check" viewBox="0 0 24 24"><path d="m5 12 5 5 9-10"/></symbol>
+</svg>
+<div class="shell">
+<header><a class="brand" href="/" aria-label="Accueil StreamBeWI"><svg class="brand-radio"><use href="#radio"/></svg><span>StreamBeWI</span></a><nav aria-label="Réglages"><button id="open-wifi" class="icon-button" aria-label="Choisir le réseau Wi-Fi"><svg class="line-icon"><use href="#wifi"/></svg><i id="wifi-dot"></i></button><button id="open-settings" class="icon-button" aria-label="Ouvrir les réglages"><svg class="line-icon"><use href="#gear"/></svg></button></nav></header>
 <main>
-<h1>Configurer StreamBeWI</h1>
-<p>Connectez votre radio à un réseau Wi-Fi 2,4 GHz. Vous pouvez aussi utiliser Improv avec ESP Web Tools par USB.</p>
-<p id="state" role="status"><!--S--></p>
-<form id="f" method="post" action="/wifi" autocomplete="off">
-<label for="ssid">Nom du réseau Wi-Fi</label>
-<input id="ssid" name="ssid" required maxlength="32" autocapitalize="none" spellcheck="false">
-<label for="password">Mot de passe du réseau</label>
-<input id="password" name="password" type="password" maxlength="64">
-<small>Laissez vide pour un réseau ouvert.</small>
-<button type="submit">Enregistrer et vérifier la connexion</button>
-</form>
-<p><strong>Attention :</strong> pendant la vérification, le Wi-Fi de StreamBeWI change de canal et votre appareil peut être déconnecté de <b>StreamBeWI-Setup</b>. Si cela arrive, rejoignez de nouveau ce réseau : cette page affichera le résultat. Après confirmation, débranchez puis rebranchez StreamBeWI pour activer la radio USB.</p>
-</main>
-<script>
-var st=document.getElementById("state");
-function poll(){fetch("/status",{cache:"no-store"}).then(function(r){return r.text()}).then(function(m){st.textContent=m}).catch(function(){})}
-document.getElementById("f").addEventListener("submit",function(e){e.preventDefault();var f=e.target;st.textContent="Vérification en cours… Si votre Wi-Fi se coupe, rejoignez de nouveau StreamBeWI-Setup : le résultat s’affichera ici.";fetch("/wifi",{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},body:new URLSearchParams(new FormData(f)).toString()}).then(poll,function(){})});
-setInterval(poll,2000);
-</script>
-</html>
+<h1>On écoute quoi ?</h1><p class="intro">Choisissez votre radio.</p>
+<section class="now" aria-label="Station choisie"><div id="hero-art" class="hero-art"><svg><use href="#radio"/></svg></div><div><h2 id="active-name">Votre petite radio</h2><p id="play-state" role="status"><span class="status-dot"></span><span id="play-label">Connexion…</span></p></div><span class="note note-one" aria-hidden="true">♪</span><span class="note note-two" aria-hidden="true">♫</span></section>
+<p id="notice" class="notice" role="status"><!--S--></p>
+<section id="stations" class="stations" aria-label="Vos stations favorites"><p class="loading">Vos radios arrivent…</p></section>
+<button id="add-shortcut" class="text-button">+ Ajouter une radio</button>
+</main><footer><span aria-hidden="true">❧</span> La radio, tout simplement.</footer>
+</div>
+<dialog id="wifi-panel" class="sheet"><div class="sheet-head"><h2>Votre Wi-Fi</h2><button class="close" aria-label="Fermer le Wi-Fi" data-close>×</button></div><p id="wifi-current" class="muted"></p><button id="scan" class="text-button">Rechercher les réseaux</button><div id="networks" class="network-list"></div>
+<form id="wifi-form" action="/wifi" method="post" autocomplete="off"><label for="ssid">Nom du réseau</label><input id="ssid" name="ssid" required maxlength="32" autocapitalize="none" spellcheck="false"><label for="password">Mot de passe</label><div class="password-row"><input id="password" name="password" type="password" maxlength="64" autocomplete="new-password"><button id="show-password" type="button" aria-label="Afficher le mot de passe">Voir</button></div><small>Laissez vide pour un réseau ouvert.</small><button id="connect" class="primary" type="submit">Se connecter</button></form>
+<p id="wifi-result" class="notice" role="status"></p><details class="help"><summary>Besoin d’un coup de pouce ?</summary><p>Utilisez un réseau 2,4 GHz. Pendant la connexion, votre téléphone peut quitter StreamBeWI-Setup : rejoignez-le puis rechargez cette page pour retrouver le résultat.</p><p>Au premier réglage, débranchez puis rebranchez la clé après confirmation. Vous pouvez aussi configurer le Wi-Fi par USB avec Improv et ESP Web Tools.</p></details></dialog>
+<dialog id="settings-panel" class="sheet settings"><div class="sheet-head"><h2>Votre coin réglages</h2><button class="close" aria-label="Fermer les réglages" data-close>×</button></div><p class="muted">Des radios qui vous ressemblent.</p><h3>Vos favoris <small>8 maximum</small></h3><div id="manage-list"></div><hr><h3>Trouver une radio</h3><form id="search-form" class="search"><label class="sr-only" for="query">Nom de la radio</label><input id="query" placeholder="FIP, France Inter…" required maxlength="80"><button class="primary" type="submit">Chercher</button></form><p id="search-message" class="muted" role="status"></p><div id="search-results"></div><p class="credit">Catalogue <a href="https://www.radio-browser.info/" target="_blank" rel="noopener noreferrer">Radio Browser</a> · nécessite Internet sur votre téléphone.</p><hr><details id="manual"><summary>Ajouter une adresse ou modifier une radio</summary><form id="station-form"><input type="hidden" id="station-id"><label for="station-name">Nom de la radio</label><input id="station-name" required maxlength="64"><label for="station-url">Adresse du flux</label><input id="station-url" type="url" required maxlength="256" placeholder="http://…"><small>Flux MP3 direct en HTTP. Les listes de lecture, AAC, HLS et flux HTTPS ne sont pas pris en charge pour le moment.</small><label for="station-logo">Adresse du logo <span class="muted">(facultatif)</span></label><input id="station-logo" type="url" maxlength="256" placeholder="https://…"><button class="primary" type="submit">Enregistrer</button><button id="clear-editor" type="button" class="text-button">Nouveau favori</button></form></details><p id="settings-result" class="notice" role="status"></p></dialog>
+<noscript><p class="noscript">Activez JavaScript pour choisir les radios. Le <a href="#wifi-form">formulaire Wi-Fi</a> reste disponible ci-dessous.</p><style>dialog#wifi-panel{display:block;position:static;width:auto;max-width:35rem;margin:2rem auto}dialog#wifi-panel::backdrop{display:none}</style></noscript>
+</body></html>

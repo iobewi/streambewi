@@ -55,10 +55,20 @@ static USB_LINK: S3UsbLink = S3UsbLink;
 pub static STREAMBEWI_CHIP: [u8; 8] = *b"ESP32-S3";
 
 const AP_SOCKETS: usize = 3; // embassy-net's internal DNS socket, DHCP and one setup HTTP connection.
-const SOCKETS: usize = 3; // DHCP, DNS and the live HTTP stream.
-const HEAP_BYTES: usize = 96 * 1024;
-const MIN_STACK_BYTES: usize = 16 * 1024;
+const SOCKETS: usize = 4; // DHCP, internal DNS, live HTTP stream, local UI.
+// Measured on the S3 (qual image): heap peak ~60 KiB with the local UI; each HTTP request costs ~10 KiB of
+// stack (peak ~31 KiB). 96 KiB of heap left a 26.6 KiB stack and every request overflowed it.
+const HEAP_BYTES: usize = 80 * 1024;
+const MIN_STACK_BYTES: usize = 36 * 1024;
+/// How long the disk stays off the USB bus before a software reset. Measured on the Metronic over 10
+/// restarts each: 0 resumed after the bare RTC reset, 10 resumed with this detach (first read 0.8 to 1.1 s
+/// after the MSC came up).
+const DETACH_BEFORE_RESET_MS: u32 = 1_500;
 const SPACES: &[SpaceSpec] = &[
+    SpaceSpec::new(
+        streambewi::stations::SPACE,
+        streambewi::stations::CONFIG_BUDGET.max_bytes(),
+    ),
     SpaceSpec::new("wifi", iobewi_wifi_manager::CONFIG_BUDGET.max_bytes()),
     SpaceSpec::new(boot_policy::SPACE, boot_policy::CONFIG_BUDGET.max_bytes()),
 ];
@@ -136,6 +146,16 @@ async fn product(p: Resources, spawner: Spawner) {
         log::error!("USB boot flag unreadable: {error:?}; provisioning this boot");
     }
 
+    let station_space = boot_result(
+        BootPolicy::claim_stations(store.backend()),
+        &mut uart,
+        "STREAMBEWI:STATIONS-CLAIM",
+    );
+    let radio = boot_result(
+        streambewi::stations::Radio::load(station_space).await,
+        &mut uart,
+        "STREAMBEWI:STATIONS-LOAD",
+    );
     let (rx, tx) = uart.into_async().split();
     let mut serial = vec![(serial::Rx::Uart(rx), serial::Tx::Uart(tx))];
     // Read durable mode first; construct exactly one native USB controller.
@@ -176,7 +196,14 @@ async fn product(p: Resources, spawner: Spawner) {
     };
     let button = Input::new(p.button, InputConfig::default().with_pull(Pull::Up));
     let mut rtc = Rtc::new(p.rtc);
+    let otg_active = usb.is_some();
     let reset = move || {
+        if otg_active {
+            // Only when the disk is presented over USB-OTG (never in the provisioning boot, where the
+            // port belongs to USB-Serial/JTAG): let the host see the disk leave before the reset.
+            iobewi_esp_usb::set_connected(false);
+            esp_hal::delay::Delay::new().delay_millis(DETACH_BEFORE_RESET_MS);
+        }
         // Preserve broad RTC system reset for the subsequent JTAG provisioning boot.
         rtc.rwdt
             .set_timeout(RwdtStage::Stage0, esp_hal::time::Duration::from_millis(100));
@@ -201,6 +228,7 @@ async fn product(p: Resources, spawner: Spawner) {
         usb,
         info,
         setup_network,
+        radio,
     )
     .await;
 }

@@ -9,7 +9,7 @@ use core::{future::Future, task::Poll};
 use core::fmt::{Debug, Display};
 use core::sync::atomic::{AtomicBool, Ordering};
 
-use embassy_futures::select::{Either, Either3, select, select3};
+use embassy_futures::select::{Either3, Either4, select3, select4};
 use embassy_net::Stack;
 use embassy_sync::{
     blocking_mutex::raw::{CriticalSectionRawMutex, NoopRawMutex},
@@ -43,10 +43,12 @@ struct LogObserver<'a> {
 
 impl LinkObserver<Stack<'static>> for LogObserver<'_> {
     fn link_down(&mut self) {
+        crate::setup::set_offline();
         log::info!("wifi: link down, reconnecting");
     }
     fn ready(&mut self, network: Stack<'static>) {
         log::info!("wifi: ready");
+        crate::setup::set_network(network);
         self.network.signal(network);
     }
 }
@@ -69,7 +71,18 @@ pub async fn recovery_watch<Btn: Wait, B: ConfigBackend, R: FnMut()>(
     mut reset: R,
 ) -> ! {
     loop {
-        if button.wait_for_low().await.is_err() {
+        let pressed =
+            embassy_futures::select::select(button.wait_for_low(), crate::setup::RESTART.wait())
+                .await;
+        let result = match pressed {
+            embassy_futures::select::Either::First(result) => result,
+            embassy_futures::select::Either::Second(()) => {
+                Timer::after(Duration::from_millis(1200)).await;
+                reset();
+                continue;
+            }
+        };
+        if result.is_err() {
             Timer::after(Duration::from_millis(100)).await;
             continue;
         }
@@ -225,25 +238,34 @@ where
         } else {
             State::Authorized
         };
-        match select3(
+        match select4(
             manager.maintain(&sleep, &mut observer),
             IMPROV_COMMANDS.receive(),
             crate::setup::REQUESTS.receive(),
+            crate::setup::SCAN_REQUESTS.receive(),
         )
         .await
         {
-            Either3::First(MaintainError::NotProvisioned) => {
+            Either4::First(MaintainError::NotProvisioned) => {
                 CONFIGURED.store(false, Ordering::Relaxed);
                 log::info!("wifi: no saved credentials; waiting for Improv provisioning");
-                let (port, command) =
-                    match select(IMPROV_COMMANDS.receive(), crate::setup::REQUESTS.receive()).await
-                    {
-                        Either::First(command) => command,
-                        Either::Second(request) => {
-                            provision_web(request, &mut manager, boot, &mut flag_committed).await;
-                            continue;
-                        }
-                    };
+                let (port, command) = match select3(
+                    IMPROV_COMMANDS.receive(),
+                    crate::setup::REQUESTS.receive(),
+                    crate::setup::SCAN_REQUESTS.receive(),
+                )
+                .await
+                {
+                    Either3::First(command) => command,
+                    Either3::Second(request) => {
+                        provision_web(request, &mut manager, boot, &mut flag_committed).await;
+                        continue;
+                    }
+                    Either3::Third(()) => {
+                        crate::setup::set_scan(manager.scan().await);
+                        continue;
+                    }
+                };
                 handle(
                     command,
                     Reply {
@@ -258,7 +280,7 @@ where
                 )
                 .await;
             }
-            Either3::Second((port, command)) => {
+            Either4::Second((port, command)) => {
                 handle(
                     command,
                     Reply {
@@ -273,8 +295,11 @@ where
                 )
                 .await
             }
-            Either3::Third(request) => {
+            Either4::Third(request) => {
                 provision_web(request, &mut manager, boot, &mut flag_committed).await;
+            }
+            Either4::Fourth(()) => {
+                crate::setup::set_scan(manager.scan().await);
             }
         }
     }
@@ -299,6 +324,10 @@ async fn provision_web<T, B>(
     let outcome = match result {
         Ok(()) => {
             *flag_committed = true;
+            crate::setup::set_ssid(&request.ssid);
+            if let Some(stack) = manager.network_handle() {
+                crate::setup::set_network(stack);
+            }
             crate::setup::Outcome::Saved
         }
         Err(ProvisionError::Flag(_)) => {
@@ -369,6 +398,10 @@ async fn handle<T, B, W>(
                 .await;
             if result.is_ok() {
                 *flag_committed = true;
+                crate::setup::set_ssid(&settings.ssid);
+                if let Some(stack) = manager.network_handle() {
+                    crate::setup::set_network(stack);
+                }
                 log::info!("improv: credentials and OTG flag saved; restart required for MSC");
                 *state = State::Provisioned;
                 tx.send(&improv::state_frame(*state)).await;

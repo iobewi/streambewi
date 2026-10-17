@@ -64,6 +64,7 @@ pub(crate) async fn read_bounded<R: embedded_io_async::Read>(
 pub struct SharedStream {
     inner: Mutex<CriticalSectionRawMutex, RefCell<Stream>>,
     reconnects: AtomicU32,
+    last_read: Mutex<CriticalSectionRawMutex, Cell<u64>>,
     /// Keep the consumer session across the next reconnection of the host (see `hold_session`).
     hold: AtomicBool,
     /// Ticks of the last accepted push (0: nothing pushed yet); a critical section, since the target
@@ -82,11 +83,19 @@ impl SharedStream {
         Self {
             inner: Mutex::new(RefCell::new(new_stream())),
             reconnects: AtomicU32::new(0),
+            last_read: Mutex::new(Cell::new(0)),
             hold: AtomicBool::new(false),
             last_push: Mutex::new(Cell::new(0)),
         }
     }
 
+    /// Recent file data requests; this cannot prove that the player's speaker is audible.
+    pub fn is_reading(&self) -> bool {
+        self.last_read.lock(|last| {
+            last.get() != 0
+                && Instant::now() - Instant::from_ticks(last.get()) < Duration::from_secs(6)
+        })
+    }
     pub fn is_ready(&self) -> bool {
         self.inner.lock(|cell| is_ready(&cell.borrow()))
     }
@@ -192,6 +201,11 @@ impl FileSource for SharedStreamSource {
             .inner
             .lock(|c| c.borrow().session().map(|s| s.base));
         let status = self.with_file(|file| file.read_file_sector(index, out));
+        if status == ReadStatus::Ready {
+            self.stream
+                .last_read
+                .lock(|last| last.set(Instant::now().as_ticks().max(1)));
+        }
         {
             let after = self
                 .stream
@@ -212,7 +226,7 @@ impl FileSource for SharedStreamSource {
     }
 }
 
-pub async fn run(stack: Stack<'static>, stream: &'static SharedStream) -> ! {
+pub async fn run(stack: Stack<'static>, stream: &'static SharedStream, url: &str) -> ! {
     let tcp_state = mk_static!(
         TcpClientState<1, 4096, 4096>,
         TcpClientState::<1, 4096, 4096>::new()
@@ -227,32 +241,27 @@ pub async fn run(stack: Stack<'static>, stream: &'static SharedStream) -> ! {
 
     loop {
         let reconnect = stream.mark_reconnect();
-        log::info!(
-            "stream: connecting attempt={} url={}",
-            reconnect,
-            STREAM_URL
-        );
+        log::info!("stream: connecting attempt={} url={}", reconnect, url);
 
         let mut client = HttpClient::new(&tcp_client, &dns_client);
         let mut header_buf = [0u8; 2048];
 
-        let request =
-            match with_timeout(CONNECT_TIMEOUT, client.request(Method::GET, STREAM_URL)).await {
-                Ok(Ok(request)) => request,
-                Ok(Err(err)) => {
-                    log::info!("stream: request error {:?}", err);
-                    Timer::after(Duration::from_secs(2)).await;
-                    continue;
-                }
-                Err(_) => {
-                    log::info!(
-                        "stream: no connection after {} s, retrying",
-                        CONNECT_TIMEOUT.as_secs()
-                    );
-                    Timer::after(Duration::from_secs(2)).await;
-                    continue;
-                }
-            };
+        let request = match with_timeout(CONNECT_TIMEOUT, client.request(Method::GET, url)).await {
+            Ok(Ok(request)) => request,
+            Ok(Err(err)) => {
+                log::info!("stream: request error {:?}", err);
+                Timer::after(Duration::from_secs(2)).await;
+                continue;
+            }
+            Err(_) => {
+                log::info!(
+                    "stream: no connection after {} s, retrying",
+                    CONNECT_TIMEOUT.as_secs()
+                );
+                Timer::after(Duration::from_secs(2)).await;
+                continue;
+            }
+        };
 
         // reqwless already provides Host from the URL.
         let mut request = request.headers(&[
