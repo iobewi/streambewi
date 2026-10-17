@@ -60,6 +60,10 @@ const SOCKETS: usize = 4; // DHCP, internal DNS, live HTTP stream, local UI.
 // stack (peak ~31 KiB). 96 KiB of heap left a 26.6 KiB stack and every request overflowed it.
 const HEAP_BYTES: usize = 80 * 1024;
 const MIN_STACK_BYTES: usize = 36 * 1024;
+/// How long the disk stays off the USB bus before a software reset. Measured on the Metronic over 10
+/// restarts each: 0 resumed after the bare RTC reset, 10 resumed with this detach (first read 0.8 to 1.1 s
+/// after the MSC came up).
+const DETACH_BEFORE_RESET_MS: u32 = 1_500;
 const SPACES: &[SpaceSpec] = &[
     SpaceSpec::new(
         streambewi::stations::SPACE,
@@ -192,7 +196,14 @@ async fn product(p: Resources, spawner: Spawner) {
     };
     let button = Input::new(p.button, InputConfig::default().with_pull(Pull::Up));
     let mut rtc = Rtc::new(p.rtc);
+    let otg_active = usb.is_some();
     let reset = move || {
+        if otg_active {
+            // Only when the disk is presented over USB-OTG (never in the provisioning boot, where the
+            // port belongs to USB-Serial/JTAG): let the host see the disk leave before the reset.
+            iobewi_esp_usb::set_connected(false);
+            esp_hal::delay::Delay::new().delay_millis(DETACH_BEFORE_RESET_MS);
+        }
         // Preserve broad RTC system reset for the subsequent JTAG provisioning boot.
         rtc.rwdt
             .set_timeout(RwdtStage::Stage0, esp_hal::time::Duration::from_millis(100));
