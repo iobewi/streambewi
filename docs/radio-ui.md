@@ -148,11 +148,11 @@ Les images de diagnostic utilisées pour D2 (chronométrage des opérations flas
 | 2 | Modifier nom ou logo sans redémarrage | NON EXÉCUTÉ isolément (testé par les tests hôte) |
 | 2 | Le rechargement conserve les données | PASS (les 8 favoris survivent à un reset) |
 | 3 | Sélection d'une autre station : redémarrage automatique, nouveau flux, disque de retour | PASS côté carte |
-| 3 | Son de la nouvelle station sur le Metronic | PASS après un reset matériel, voir D3 pour la reprise |
+| 3 | Son de la nouvelle station sur le Metronic | PASS ; reprise après redémarrage logiciel : voir D3 |
 | 3 | Plusieurs changements entre deux stations | PASS côté carte (quatre sélections successives pilotées depuis le banc) |
 | 3 | Redémarrage volontaire conserve la sélection | PASS |
 | 3 | Resélection de la station active : pas de redémarrage | NON EXÉCUTÉ sur la carte (couvert par un test hôte) |
-| 3 | Reprise de la lecture par le Metronic après un redémarrage logiciel | **FAIL partiel** (D3) |
+| 3 | Reprise de la lecture par le Metronic après un redémarrage logiciel | **PASS après correctif D3** : 10/10 (contrôlé), 10/12 (changement réel de station) |
 | 4 | Modifier l'URL de la station active : redémarrage | PASS côté carte |
 | 4 | Supprimer une station inactive : pas de redémarrage | **FAIL partiel** : pas de redémarrage mais coupure du lecteur (D2, issue #19) |
 | 4 | Supprimer la station active : remplacement valide et redémarrage | PASS côté carte (FIP devient active) |
@@ -205,11 +205,23 @@ Une fusion expérimentale des écritures contiguës, sur image de diagnostic seu
 commit sur 3). Aucun correctif n'est dans la branche ; l'arbitrage est renvoyé au mainteneur
 (couche flash et USB partagée avec #1). Les suppressions successives aggravent l'exposition.
 
-**D3 — Observation matérielle, hors correctif.** Après un redémarrage logiciel (reset RTC WDT),
-le Metronic ne relit pas toujours le disque (compteur de secondes puis « no usb »). Un reset
-matériel de la carte le rétablit à chaque fois (au moins 8 essais). Branchée sur un PC Windows, la
-carte réénumère correctement après chaque reset logiciel. Le chemin de reset est partagé avec #1
-et n'est pas modifié ici.
+**D3 — Corrigé pour le redémarrage logiciel contrôlé.** Après un redémarrage logiciel (reset RTC
+WDT), le Metronic ne relisait pas le disque (compteur de secondes puis « no usb »). Cause
+retenue : le reset coupe le bus sans que l'hôte voie le disque partir. Correctif (commit
+`fix(esp32): detach USB before software reset`) : détachement USB-OTG (`DCTL.SDIS`) pendant
+1 500 ms avant le reset, uniquement quand le disque est présenté en USB-OTG (jamais au boot de
+provisioning, où le port appartient à USB-Serial/JTAG). Mesures sur le Metronic :
+
+- redémarrage logiciel contrôlé : 10 reprises sur 10 avec le détachement, 0 sur 10 sans ;
+- changement réel de station : 10 reprises sur 12 ; les 2 échecs suivent le motif de
+  battements (flapping) également observé après un reset EN, hors périmètre du correctif ;
+- provisioning #1 vérifié : BOOT pendant le prebuffer (AP, pas de panic), saisie Web puis reset
+  matériel (STA, MSC, session, pas d'AP) ;
+- Windows vérifié : le disque disparaît puis réapparaît seul après un redémarrage logiciel.
+
+Ce n'est pas une fiabilité USB de 100 % en toutes circonstances : des reprises échouent encore
+(2 sur 12) et un reset matériel reste le dernier recours. Les coupures dues aux écritures flash
+restent traitées dans #19.
 
 ### Limites et observations
 
