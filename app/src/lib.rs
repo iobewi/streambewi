@@ -70,7 +70,7 @@ pub async fn run<T, B, Btn, R, W, D, F>(
         provisioning::readers(readers),
     );
     let recovery_fut = provisioning::recovery_watch(button, &boot, reset);
-    let station_url = radio.active_url().await;
+    let link = usb.as_ref().map(|port| port.link);
     // Exactly one HTTP server per boot: the AP during setup, STA during normal operation.
     // Share the first STA-ready signal with the producer rather than giving Signal two waiters.
     let services = async {
@@ -86,7 +86,14 @@ pub async fn run<T, B, Btn, R, W, D, F>(
                 Some(sta) => sta,
                 None => network.wait().await,
             };
-            stream::run(sta, &stream::STREAM, &station_url).await
+            stream::run(
+                sta,
+                &stream::STREAM,
+                link,
+                async || radio.active_url().await,
+                async || radio.persist().await.map_err(|_| ()),
+            )
+            .await
         };
         join(producer, setup::serve(web_stack, &radio)).await;
     };
