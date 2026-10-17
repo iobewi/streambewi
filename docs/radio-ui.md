@@ -27,14 +27,22 @@ Les écritures sont sérialisées et l'état RAM n'est publié qu'après commit 
 Les credentials Wi-Fi et le flag USB gardent leurs espaces existants. BOOT efface le Wi-Fi,
 pas les favoris.
 
-**La sélection d'une autre station entraîne un redémarrage automatique**, 1,2 s après sa
-sauvegarde pour permettre l'accusé de réception HTTP. La page affiche « Changement de station… ».
-L'application utilise ainsi le démarrage USB existant ; pas de mélange en direct de deux flux.
-La modification du flux actif ou sa suppression provoque aussi un redémarrage ; modifier son nom
-ou son logo, ou ajouter/modifier un favori inactif, n'en provoque pas. Une nouvelle sélection de
-la même station n'écrit rien et ne redémarre pas. Un seul `RADIO.MP3` reste présenté.
-Qualifié sur Metronic : voir « Qualification matérielle » (la reprise du lecteur après un
-redémarrage logiciel n'est pas fiable, défaut matériel documenté plus bas).
+**La sélection d'une autre station est appliquée sans redémarrage** quand le disque est présenté
+(démarrage USB normal). La sélection est d'abord prise en compte en RAM ; le disque quitte alors le
+bus (`DCTL.SDIS`), l'ancien flux est abandonné, la sélection est écrite en flash **pendant que le
+disque est détaché** (personne n'est sur le bus pour subir les sections critiques de la flash, voir
+#19), puis le disque revient une fois l'écriture terminée, 1 500 ms au moins après le détachement et
+un prébuffer de 64 Kio de la nouvelle station reçu. Le Wi-Fi, la page Web et l'exécuteur ne sont pas
+redémarrés ; la page affiche « Changement de station… » jusqu'au retour du disque. Si l'écriture
+échoue, la station reste active en RAM mais `/api/state` renvoie `persisted: false` et la page le dit :
+l'ancienne station reviendra au redémarrage. En démarrage de provisioning (pas de disque), la
+sélection est écrite tout de suite et la carte redémarre comme avant.
+La modification du flux actif ou sa suppression suit le même changement de station, mais son écriture
+a lieu **avant** le détachement (risque de #19 conservé) ; modifier son nom ou son logo, ou
+ajouter/modifier un favori inactif, ne change pas de station. Une nouvelle sélection de la même
+station n'écrit rien et ne change rien. Un seul `RADIO.MP3` reste présenté.
+Qualifié sur Metronic : voir « Changement de station sans redémarrage ». Les redémarrages restants
+(BOOT, provisioning) passent par le détachement USB de D3.
 
 « En lecture » signifie que le firmware a servi des secteurs du fichier dans les six dernières
 secondes. Cela tolère les lectures par rafales du Metronic et **ne mesure pas le son audible**.
@@ -147,15 +155,15 @@ Les images de diagnostic utilisées pour D2 (chronométrage des opérations flas
 | 2 | Logo absent : petite radio + nom | NON CONFIRMÉ |
 | 2 | Modifier nom ou logo sans redémarrage | NON EXÉCUTÉ isolément (testé par les tests hôte) |
 | 2 | Le rechargement conserve les données | PASS (les 8 favoris survivent à un reset) |
-| 3 | Sélection d'une autre station : redémarrage automatique, nouveau flux, disque de retour | PASS côté carte |
+| 3 | Sélection d'une autre station : nouveau flux, disque de retour (sans redémarrage) | PASS côté carte et Metronic, voir « Changement de station sans redémarrage » |
 | 3 | Son de la nouvelle station sur le Metronic | PASS ; reprise après redémarrage logiciel : voir D3 |
 | 3 | Plusieurs changements entre deux stations | PASS côté carte (quatre sélections successives pilotées depuis le banc) |
 | 3 | Redémarrage volontaire conserve la sélection | PASS |
 | 3 | Resélection de la station active : pas de redémarrage | NON EXÉCUTÉ sur la carte (couvert par un test hôte) |
 | 3 | Reprise de la lecture par le Metronic après un redémarrage logiciel | **PASS après correctif D3** : 10/10 (contrôlé), 10/12 (changement réel de station) |
-| 4 | Modifier l'URL de la station active : redémarrage | PASS côté carte |
+| 4 | Modifier l'URL de la station active : changement de station | PASS côté carte (qualifié avant le passage sans redémarrage) |
 | 4 | Supprimer une station inactive : pas de redémarrage | **FAIL partiel** : pas de redémarrage mais coupure du lecteur (D2, issue #19) |
-| 4 | Supprimer la station active : remplacement valide et redémarrage | PASS côté carte (FIP devient active) |
+| 4 | Supprimer la station active : remplacement valide et changement de station | PASS côté carte (qualifié avant le passage sans redémarrage ; FIP devient active) |
 | 4 | Dernière station protégée | PASS (bouton grisé ; refus firmware couvert par un test hôte, non observé sur la carte) |
 | 5 | Catalogue Radio Browser depuis un téléphone avec Internet | PASS |
 | 5 | Résultat incompatible non proposé | PASS (seuls des flux HTTP sont listés ; peu de choix car la plupart sont en HTTPS) |
@@ -222,6 +230,35 @@ provisioning, où le port appartient à USB-Serial/JTAG). Mesures sur le Metroni
 Ce n'est pas une fiabilité USB de 100 % en toutes circonstances : des reprises échouent encore
 (2 sur 12) et un reset matériel reste le dernier recours. Les coupures dues aux écritures flash
 restent traitées dans #19.
+
+### Changement de station sans redémarrage
+
+Qualifié sur ESP32-S3 DevKitC et Metronic 477144 uniquement (Sony non qualifié). Même séquence que
+ci-dessus, 1 500 ms de détachement minimum, alternances FIP et allzic, un arrêt prévu après deux
+blocages consécutifs.
+
+| Variante | Énumérations USB | Remarque |
+|---|---|---|
+| Écriture flash avant le détachement | 2 sur 12 | reset de bus de l'hôte pendant l'écriture, puis lecteur bloqué sur « scan » |
+| Sans écriture flash (référence) | 5 sur 5, son revenu 5 fois | 0 écriture et 0 effacement mesurés |
+| Écriture pendant le détachement, image instrumentée | 5 sur 5, son revenu 5 fois | écriture de 0,75 à 4,6 s, réattachement à 1,8 à 5,4 s |
+| Écriture pendant le détachement, image finale | 9 cycles propres sur 10, son revenu aux 5 changements du contrôle | 1 cycle en blocage (voir ci-dessous) |
+
+Mesures communes : aucun reset de bus de l'hôte pendant la sélection, aucune écriture manquée, aucun
+`ZEROFILL`, un reboot restaure la dernière station sélectionnée depuis la flash. Le délai de réponse
+HTTP est de 70 à 100 ms (jusqu'à 1,9 s une fois, sans cause établie). La durée du changement dépend
+de l'écriture flash (16 à 99 écritures, 0,5 à 6,3 s).
+
+**Limite connue, ouverte (proche de #19) :** sur l'image finale, un cycle sur 10 a énuméré puis le
+lecteur a repris à N+1 (`lba=1141`, juste après `0..1140`), secteur en avance de 386 Kio sur le bord live
+de la nouvelle station : `Pending`, trois resets de bus après environ 1,2 s, puis bus suspendu et
+compteur de secondes figé. Le cycle suivant a remis le lecteur en route. Même signature que le LBA 990
+observé avant. Le déclencheur est côté carte (secteur non disponible), le blocage côté lecteur ; les
+essais ne permettent pas de les séparer. Une correction toucherait la politique de session de
+`StreamFile` et n'a pas été faite.
+
+Non qualifié : URL injoignable et retour à une station valide, resélection de la station active sur
+la carte, modification ou suppression de la station active sans redémarrage, Windows, séries longues.
 
 ### Limites et observations
 
