@@ -356,7 +356,9 @@ async fn put_log_config<B: ConfigBackend>(
     body: &str,
 ) -> (StatusCode, [(&'static str, &'static str); 2], String) {
     use crate::diag::PutError;
-    match diag.replace_yaml(body, in_setup()).await {
+    // Boxed: the persistence future (policy copies, YAML buffer) lives on the heap for the one AP request
+    // instead of inflating the task future of the whole web server.
+    match alloc::boxed::Box::pin(diag.replace_yaml(body, in_setup())).await {
         Ok(generation) => (
             StatusCode::OK,
             JSON_HEADERS,

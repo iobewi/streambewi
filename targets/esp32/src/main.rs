@@ -154,7 +154,9 @@ async fn product(p: Resources, spawner: Spawner) {
         &mut uart,
         "STREAMBEWI:LOG-CLAIM",
     );
-    let diag = streambewi::diag::Diag::load(log_space, streambewi::logging::LOG_TARGET).await;
+    let diag = alloc::boxed::Box::new(
+        streambewi::diag::Diag::load(log_space, streambewi::logging::LOG_TARGET).await,
+    );
     let (rx, tx) = uart.into_async().split();
     let mut serial = vec![(serial::Rx::Uart(rx), serial::Tx::Uart(tx))];
     // Read durable mode first; construct exactly one native USB controller.

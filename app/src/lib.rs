@@ -47,7 +47,7 @@ pub async fn run<T, B, Btn, R, W, D, F>(
     info: provisioning::DeviceInfo,
     setup_network: Option<Stack<'static>>,
     radio: stations::Radio<B>,
-    diag: diag::Diag<B>,
+    diag: alloc::boxed::Box<diag::Diag<B>>,
 ) where
     T: WifiTransport<NetworkHandle = Stack<'static>>,
     T::Address: Display,

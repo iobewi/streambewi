@@ -262,7 +262,7 @@ struct PolicyState {
 
 pub struct Diag<B: ConfigBackend> {
     config: Mutex<NoopRawMutex, LogConfig<B>>,
-    state: BlockingMutex<NoopRawMutex, RefCell<PolicyState>>,
+    state: BlockingMutex<NoopRawMutex, RefCell<Box<PolicyState>>>,
     history: BlockingMutex<NoopRawMutex, RefCell<History>>,
 }
 
@@ -270,12 +270,12 @@ impl<B: ConfigBackend> Diag<B> {
     /// Reads the `log` space once. An absent, unreadable or invalid policy keeps the fallback already
     /// installed (and any policy the target applied itself); it is never written back or formatted.
     pub async fn load(space: ConfigSpace<B>, application_target: &str) -> Self {
-        let mut state = PolicyState {
+        let mut state = Box::new(PolicyState {
             policy: iobewi_log::default_policy(application_target)
                 .unwrap_or_else(|_| LogPolicy::new(log::LevelFilter::Info)),
             source: Source::Default,
             load_error: false,
-        };
+        });
         match space.load().await {
             Ok(None) => {}
             Ok(Some(stored)) => match decode(&stored.data) {
@@ -329,11 +329,10 @@ impl<B: ConfigBackend> Diag<B> {
             .await
             .map_err(|_| PutError::Storage)?;
         self.state.lock(|s| {
-            *s.borrow_mut() = PolicyState {
-                policy,
-                source: Source::Persisted,
-                load_error: false,
-            }
+            let mut state = s.borrow_mut();
+            state.policy = policy;
+            state.source = Source::Persisted;
+            state.load_error = false;
         });
         Ok(generation)
     }

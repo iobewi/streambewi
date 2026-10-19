@@ -54,7 +54,7 @@ Limite : l'assainissement est lexical. Un secret placé dans le chemin d'une URL
 - Au démarrage : politique absente = comportement actuel (aucune écriture, aucun formatage) ; politique illisible ou invalide = comportement actuel et `load_error: true`, le contenu stocké n'est pas écrasé.
 - Le démarrage lit le `ConfigSpace` lui-même puis applique la politique décodée : `LogConfig::reload` n'expose pas la politique appliquée, et l'interface doit pouvoir la renvoyer. La liste des cibles `qual` (debug USB) appliquée par le firmware de qualification n'est donc pas reflétée par `GET /api/logs/config`.
 - Le calcul d'admission du magasin EKV passe de 32 à 40 pages sur 48 (`boot_policy::SPACES`, test `spaces_fit_the_config_partition`). Aucun reformatage.
-- La pile libre du firmware passe de 46 336 à 39 384 octets (minimum exigé : 36 864) : les futures du serveur grossissent. À requalifier sur carte (sonde `qual`).
+- Pile libre du firmware : 46 336 octets avant, 45 008 après (minimum exigé : 36 864). Le premier jet la faisait tomber à 39 384 : la tâche `product` (future du serveur) grossissait de 6,7 Ko ; `Diag` et son état sont maintenant sur le tas (`Box`), et la persistance d'un PUT est `Box::pin` (tas, le temps de la requête AP). Il y a donc ≈ 7 Ko de tas en plus (historique, états) et jusqu'à 6 Ko transitoires par lecture : à mesurer sur carte avec la sonde `qual` (tas de 80 Ko, pic mesuré avant ce chantier ≈ 60 Ko).
 
 ## Hors périmètre
 
