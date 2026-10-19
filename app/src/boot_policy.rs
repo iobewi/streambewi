@@ -12,6 +12,20 @@ pub const SPACE: &str = "usb_boot";
 const FALSE: &[u8] = b"USB1\x00";
 const TRUE: &[u8] = b"USB1\x01";
 pub const CONFIG_BUDGET: Budget = Budget::new(TRUE.len());
+/// Every ConfigSpace of the product, as admitted by the store. Adding a space is admission arithmetic
+/// only (the store is not reformatted); `spaces_fit_the_config_partition` keeps it within the 64-page layout.
+pub const SPACES: &[iobewi_config_space::storage::SpaceSpec] = &[
+    iobewi_config_space::storage::SpaceSpec::new(
+        crate::stations::SPACE,
+        crate::stations::CONFIG_BUDGET.max_bytes(),
+    ),
+    iobewi_config_space::storage::SpaceSpec::new("wifi", WIFI_CONFIG_BUDGET.max_bytes()),
+    iobewi_config_space::storage::SpaceSpec::new(SPACE, CONFIG_BUDGET.max_bytes()),
+    iobewi_config_space::storage::SpaceSpec::new(
+        crate::diag::SPACE,
+        crate::diag::CONFIG_BUDGET.max_bytes(),
+    ),
+];
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BootMode {
     Provisioning,
@@ -73,6 +87,14 @@ impl<B: ConfigBackend> BootPolicy<B> {
         manager.claim("wifi", WIFI_CONFIG_BUDGET)?;
         manager.claim(SPACE, CONFIG_BUDGET)?;
         manager.claim(crate::stations::SPACE, crate::stations::CONFIG_BUDGET)
+    }
+    /// Admit the log policy after the spaces above, in the same claim order.
+    pub fn claim_log(backend: B) -> Result<ConfigSpace<B>, ClaimError> {
+        let mut manager = ConfigManager::new(backend);
+        manager.claim("wifi", WIFI_CONFIG_BUDGET)?;
+        manager.claim(SPACE, CONFIG_BUDGET)?;
+        manager.claim(crate::stations::SPACE, crate::stations::CONFIG_BUDGET)?;
+        manager.claim(crate::diag::SPACE, crate::diag::CONFIG_BUDGET)
     }
     pub fn mode(&self) -> BootMode {
         self.mode

@@ -193,6 +193,7 @@ The default page now presents station favorites with their logos, a Wi-Fi panel 
 It is served on the setup AP or on the device's local IPv4 in a normal STA boot.
 Favorites persist without reflashing; selecting a station applies it with an automatic restart.
 See [radio interface](docs/radio-ui.md) for operation, limits and hardware acceptance.
+See [diagnostic logs](docs/diagnostic-logs.md) for the recent-log and log-policy HTTP API (#15).
 
 ## Wi-Fi provisioning (Improv Serial)
 

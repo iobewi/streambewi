@@ -15,7 +15,7 @@ Le style reprend la maquette validée ; aucun nouvel asset généré n'est néce
   gestionnaire Wi-Fi reste propriétaire unique, avec Improv en parallèle. Le résultat Web
   est consultable après reconnexion du téléphone, comme dans #1.
 - L'engrenage donne accès à l'ajout, la modification, la suppression et la recherche de radios.
-  Pas d'OTA ni de configuration avancée des logs dans cette livraison (#15 reste distincte).
+  Pas d'OTA dans cette livraison. Le diagnostic des journaux est décrit dans [diagnostic-logs.md](diagnostic-logs.md) (#15).
 
 ## Choix et changement de station
 
