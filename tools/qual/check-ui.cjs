@@ -9,12 +9,13 @@ const root=path.resolve(__dirname,'../../app/src');
  const browser=await chromium.launch({headless:true,executablePath:process.env.CHROMIUM_EXECUTABLE});
  const page=await browser.newPage({viewport:{width:390,height:844},deviceScaleFactor:1});
  const errors=[];page.on('pageerror',e=>errors.push(e.message));
- let state={catalog:{version:1,selected:1,stations:[{id:1,name:'FIP',url:'http://example.org/fip',logo:''},{id:2,name:'France Inter',url:'http://example.org/inter',logo:''},{id:3,name:'France Culture',url:'http://example.org/culture',logo:''},{id:4,name:'Radio classique',url:'http://example.org/classique',logo:''}]},online:true,ssid:'Maison',ip:'192.168.1.42',networks:[{ssid:'Maison',strength:-40,secured:true},{ssid:'Livebox-Salon',strength:-60,secured:true}],scanning:false,setup:false,reading:true,ready:true,restarting:false,wifi_message:'',wifi_status:0};
+ let state={catalog:{version:1,selected:1,stations:[{id:1,name:'FIP',url:'http://example.org/fip',logo:''},{id:2,name:'France Inter',url:'http://example.org/inter',logo:''},{id:3,name:'France Culture',url:'http://example.org/culture',logo:''},{id:4,name:'Radio classique',url:'http://example.org/classique',logo:''}]},online:true,ssid:'Maison',ip:'192.168.1.42',networks:[{ssid:'Maison',strength:-40,secured:true},{ssid:'Livebox-Salon',strength:-60,secured:true}],scanning:false,setup:true,reading:true,ready:true,restarting:false,wifi_message:'',wifi_status:0};
  const actions=[];
  await page.route('http://streambewi.test/**',async route=>{
   const u=new URL(route.request().url()),p=u.pathname;
   if(p==='/api/state')return route.fulfill({json:state});
   if(p==='/api/scan')return route.fulfill({status:202,body:'Recherche en cours'});
+  if(p==='/wifi'&&!state.setup)return route.fulfill({status:403,body:'Refused outside the setup boot'});
   if(p==='/wifi'){ actions.push('wifi');state.wifi_message='Wi-Fi enregistré. Débranchez puis rebranchez StreamBeWI pour écouter la radio.';state.wifi_status=2;return route.fulfill({status:202,body:'En cours'}); }
   if(p.startsWith('/api/stations/')){
    const v=Object.fromEntries(new URLSearchParams(route.request().postData()));actions.push([p,v]);
@@ -42,6 +43,11 @@ const root=path.resolve(__dirname,'../../app/src');
  assert(actions.includes('wifi'));
  await page.screenshot({path:'target/ui-check/wifi-mobile.png',fullPage:true});
  await page.getByRole('button',{name:'Fermer le Wi-Fi',exact:true}).click();
+ // Normal operation (not the setup boot): the Wi-Fi panel is read-only, the credentials form is gone.
+ state.setup=false;await page.getByRole('button',{name:/Wi-Fi connecté/}).click();
+ await page.waitForFunction(()=>document.querySelector('#wifi-form').hidden&&document.querySelector('#networks').hidden);
+ assert((await page.locator('#wifi-current').textContent()).includes('StreamBeWI-Setup'));
+ await page.getByRole('button',{name:'Fermer le Wi-Fi',exact:true}).click();
  await page.getByRole('button',{name:'Ouvrir les réglages'}).click();
  await page.locator('#query').fill('Radio test');await page.getByRole('button',{name:'Chercher',exact:true}).click();
  await page.getByRole('button',{name:'Ajouter',exact:true}).waitFor();
@@ -63,5 +69,5 @@ const root=path.resolve(__dirname,'../../app/src');
  await page.setViewportSize({width:1100,height:850});
  await page.screenshot({path:'target/ui-check/home-desktop.png',fullPage:true});
  assert.deepEqual(errors,[]);
- await browser.close();console.log('UI smoke PASS: home, responsive layout, Wi-Fi, catalogue filter/add, selection, safe text, logo fallback. APIs mocked.');
+ await browser.close();console.log('UI smoke PASS: home, responsive layout, Wi-Fi (setup boot) and read-only Wi-Fi panel (normal boot), catalogue filter/add, selection, safe text, logo fallback. APIs mocked.');
 })().catch(e=>{console.error(e);process.exit(1)});
