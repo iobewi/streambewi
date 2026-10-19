@@ -58,7 +58,7 @@ Limite : l'assainissement est lexical. Un secret placé dans le chemin d'une URL
 
 ## Hors périmètre
 
-La limitation de débit des lignes répétitives (dernier point de #15) n'est pas faite. `POST /wifi` est enregistré sans garde de mode dans `setup.rs` et le consommateur de `REQUESTS` tourne aussi en STA : un client du LAN pourrait y changer le Wi-Fi. Ce chantier ne le modifie pas ; à examiner séparément.
+La limitation de débit des lignes répétitives (dernier point de #15) n'est pas faite. `POST /wifi`, qui était accessible depuis le LAN, est réservé au boot de configuration depuis #23 : la politique « Wi-Fi seulement en AP » que ce modèle d'accès suppose est maintenant vraie.
 
 ## Validation
 
