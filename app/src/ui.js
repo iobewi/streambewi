@@ -147,5 +147,27 @@
     } catch(_) {if(seq===searchSequence)message('search-message','Le catalogue a besoin d’Internet sur votre téléphone. Vos favoris restent disponibles ; vous pouvez aussi saisir une adresse.');}
     finally {clearTimeout(timer);}
   });
+  async function diagLoad() {
+    try {
+      const [l, c] = await Promise.all(['/api/logs?n=32', '/api/logs/config'].map(u => fetch(u, {cache: 'no-store'}).then(r => r.json())));
+      $('diag-log').textContent = l.lines.map(x => x.l + ' ' + x.m).join('\n') || 'Aucune ligne.';
+      $('diag-meta').textContent = `${l.lines.length} lignes · ${l.overwritten} écrasées · ${l.withheld} masquées`;
+      $('diag-policy').textContent = c.yaml + (c.source === 'default' ? '(politique par défaut)' : '');
+      $('diag-form').hidden = !c.writable;
+      if (c.writable && !$('diag-yaml').value) $('diag-yaml').value = c.yaml;
+      message('diag-result', c.load_error ? 'La politique enregistrée est invalide : la politique par défaut s’applique.' : (c.writable ? '' : 'La politique se modifie seulement sur le réseau StreamBeWI-Setup.'), c.load_error);
+    } catch (_) { message('diag-result', 'Diagnostic indisponible.', true); }
+  }
+  $('diag').addEventListener('toggle', () => { if ($('diag').open) diagLoad(); });
+  $('diag-refresh').addEventListener('click', diagLoad);
+  $('diag-form').addEventListener('submit', async e => {
+    e.preventDefault();
+    try {
+      const r = await fetch('/api/logs/config', {method: 'PUT', headers: {'Content-Type': 'text/plain'}, body: $('diag-yaml').value});
+      const j = await r.json();
+      message('diag-result', j.ok ? 'Politique appliquée.' : j.error, !j.ok);
+      if (j.ok) diagLoad();
+    } catch (_) { message('diag-result', 'Envoi impossible.', true); }
+  });
   refresh();setInterval(refresh,2000);
 })();

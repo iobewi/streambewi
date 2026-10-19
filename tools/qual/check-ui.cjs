@@ -14,6 +14,11 @@ const root=path.resolve(__dirname,'../../app/src');
  await page.route('http://streambewi.test/**',async route=>{
   const u=new URL(route.request().url()),p=u.pathname;
   if(p==='/api/state')return route.fulfill({json:state});
+  if(p==='/api/logs')return route.fulfill({json:{lines:[{l:'I',m:'streambewi::stream: <b>net</b>: got IP 192.168.1.42/24'}],capacity:32,seen:3,overwritten:0,withheld:1}});
+  if(p==='/api/logs/config'){
+   if(route.request().method()==='PUT'){actions.push(['PUT',route.request().postData()]);return route.fulfill({json:{ok:true,generation:1}});}
+   return route.fulfill({json:{yaml:'log:\n  default_level: info\n',source:'default',load_error:false,writable:state.setup,max_bytes:1024}});
+  }
   if(p==='/api/scan')return route.fulfill({status:202,body:'Recherche en cours'});
   if(p==='/wifi'&&!state.setup)return route.fulfill({status:403,body:'Refused outside the setup boot'});
   if(p==='/wifi'){ actions.push('wifi');state.wifi_message='Wi-Fi enregistré. Débranchez puis rebranchez StreamBeWI pour écouter la radio.';state.wifi_status=2;return route.fulfill({status:202,body:'En cours'}); }
@@ -55,6 +60,18 @@ const root=path.resolve(__dirname,'../../app/src');
  await page.getByRole('button',{name:'Ajouter',exact:true}).click();
  await page.getByRole('button',{name:'Ajoutée ✓',exact:true}).waitFor();
  assert(actions.some(a=>Array.isArray(a)&&a[0].endsWith('/save')));
+ // Diagnostic: lines are text, the policy form exists only when the boot allows writing it.
+ await page.locator('#diag summary').click();
+ await page.waitForFunction(()=>document.querySelector('#diag-log').textContent.includes('got IP'));
+ assert(await page.locator('#diag-log').textContent().then(t=>t.includes('<b>net</b>')));
+ assert.equal(await page.locator('#diag-log b').count(),0);
+ assert(await page.locator('#diag-form').isHidden());
+ state.setup=true;await page.getByRole('button',{name:'Actualiser',exact:true}).click();
+ await page.locator('#diag-form').waitFor({state:'visible'});
+ await page.locator('#diag-yaml').fill('log:\n  default_level: warn\n');await page.getByRole('button',{name:'Appliquer',exact:true}).click();
+ await page.waitForFunction(()=>document.querySelector('#diag-result').textContent.includes('appliquée'));
+ assert(actions.some(a=>a[0]==='PUT'&&a[1].includes('warn')));
+ state.setup=false;
  await page.screenshot({path:'target/ui-check/settings-mobile.png',fullPage:true});
  await page.getByRole('button',{name:'Fermer les réglages',exact:true}).click();
  await page.getByRole('button',{name:'Choisir France Inter',exact:true}).click();
@@ -69,5 +86,5 @@ const root=path.resolve(__dirname,'../../app/src');
  await page.setViewportSize({width:1100,height:850});
  await page.screenshot({path:'target/ui-check/home-desktop.png',fullPage:true});
  assert.deepEqual(errors,[]);
- await browser.close();console.log('UI smoke PASS: home, responsive layout, Wi-Fi (setup boot) and read-only Wi-Fi panel (normal boot), catalogue filter/add, selection, safe text, logo fallback. APIs mocked.');
+ await browser.close();console.log('UI smoke PASS: home, responsive layout, Wi-Fi (setup boot) and read-only Wi-Fi panel (normal boot), catalogue filter/add, selection, safe text, logo fallback, diagnostic log/policy. APIs mocked.');
 })().catch(e=>{console.error(e);process.exit(1)});
