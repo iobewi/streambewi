@@ -24,10 +24,10 @@ static_cell = "2.1"
 esp-println = { version = "~0.18", default-features = false, features = ["esp32s3", "uart", "log-04"] }
 embassy-time = { version = "0.5", default-features = false, optional = true }
 log = "0.4"
-iobewi-config-space = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "a525c33a38f15f14e9863edf494cfb0afb406026" }
-iobewi-esp-config-space = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "a525c33a38f15f14e9863edf494cfb0afb406026", features = ["esp32s3"] }
-iobewi-esp-flash = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "a525c33a38f15f14e9863edf494cfb0afb406026", features = ["esp32s3"] }
-iobewi-esp-wifi = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "a525c33a38f15f14e9863edf494cfb0afb406026", features = ["esp32s3"] }
-iobewi-esp-usb = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "a525c33a38f15f14e9863edf494cfb0afb406026", features = ["esp32s3"] }
-iobewi-wifi-manager = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "a525c33a38f15f14e9863edf494cfb0afb406026" }
-iobewi-log = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "a525c33a38f15f14e9863edf494cfb0afb406026" }
+iobewi-config-space = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "174079effdb9380c90695be0d86b2b54a8e5fa44" }
+iobewi-esp-config-space = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "174079effdb9380c90695be0d86b2b54a8e5fa44", features = ["esp32s3"] }
+iobewi-esp-flash = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "174079effdb9380c90695be0d86b2b54a8e5fa44", features = ["esp32s3"] }
+iobewi-esp-wifi = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "174079effdb9380c90695be0d86b2b54a8e5fa44", features = ["esp32s3"] }
+iobewi-esp-usb = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "174079effdb9380c90695be0d86b2b54a8e5fa44", features = ["esp32s3"] }
+iobewi-wifi-manager = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "174079effdb9380c90695be0d86b2b54a8e5fa44" }
+iobewi-log = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "174079effdb9380c90695be0d86b2b54a8e5fa44" }

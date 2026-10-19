@@ -5,5 +5,5 @@ edition = "2024"
 publish = false
 
 [dependencies]
-iobewi-fat16 = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "a525c33a38f15f14e9863edf494cfb0afb406026" }
-iobewi-rolling-stream = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "a525c33a38f15f14e9863edf494cfb0afb406026" }
+iobewi-fat16 = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "174079effdb9380c90695be0d86b2b54a8e5fa44" }
+iobewi-rolling-stream = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "174079effdb9380c90695be0d86b2b54a8e5fa44" }
