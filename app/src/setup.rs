@@ -313,26 +313,21 @@ struct LogsQuery {
     #[serde(default)]
     n: Option<usize>,
 }
-/// Recent sanitized log lines, oldest first. Bounded by `HISTORY_LINES`; nothing is consumed.
+/// Recent sanitized log lines, oldest first. Bounded by `HISTORY_LINES` and by `diag::RESPONSE_MAX`; nothing
+/// is consumed. The answer is written once, into one exact allocation, while the history is borrowed
+/// (no await); it is sent after the borrow ended. If that allocation fails the answer is a 503, not a halt.
 fn logs<B: ConfigBackend>(
     diag: &crate::diag::Diag<B>,
     n: Option<usize>,
-) -> ([(&'static str, &'static str); 2], String) {
+) -> (StatusCode, [(&'static str, &'static str); 2], String) {
     use crate::diag::{DEFAULT_LINES, HISTORY_LINES};
     let n = n.unwrap_or(DEFAULT_LINES).clamp(1, HISTORY_LINES);
-    let (lines, (seen, overwritten, withheld)) = diag.recent(n);
-    let lines: Vec<_> = lines
-        .iter()
-        .map(|(level, text)| serde_json::json!({"l": level.to_string(), "m": text}))
-        .collect();
-    (
-        JSON_HEADERS,
-        serde_json::json!({
-            "lines": lines, "capacity": HISTORY_LINES,
-            "seen": seen, "overwritten": overwritten, "withheld": withheld,
-        })
-        .to_string(),
-    )
+    let mut body = String::new();
+    match diag.write_recent(n, &mut body) {
+        Ok(()) => (StatusCode::OK, JSON_HEADERS, body),
+        // An empty body: even a short message could fail to allocate when the heap is this short.
+        Err(_) => (StatusCode::SERVICE_UNAVAILABLE, JSON_HEADERS, String::new()),
+    }
 }
 /// The active policy as the restricted YAML of `iobewi-log-config`, and whether it may be changed here.
 fn log_config<B: ConfigBackend>(
@@ -505,6 +500,21 @@ mod tests {
         {
             Poll::Ready((status, _, _)) => assert_eq!(status, StatusCode::BAD_REQUEST),
             Poll::Pending => panic!("invalid input must not queue a Wi-Fi operation"),
+        }
+    }
+    #[test]
+    fn logs_query_accepts_a_line_count_and_rejects_the_rest_without_panicking() {
+        let parse = |q: &str| -> Result<Option<usize>, ()> {
+            picoserve::url_encoded::deserialize_form::<LogsQuery>(
+                picoserve::url_encoded::UrlEncodedString(q),
+            )
+            .map(|v| v.n)
+            .map_err(|_| ())
+        };
+        assert_eq!(parse("n=32"), Ok(Some(32)));
+        assert_eq!(parse(""), Ok(None));
+        for bad in ["n=", "n=abc", "n=-1", "n=99999999999999999999"] {
+            assert!(parse(bad).is_err(), "{bad}");
         }
     }
     #[test]

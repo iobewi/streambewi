@@ -30,6 +30,12 @@ pub const HISTORY_LINES: usize = 32;
 pub const LINE_BYTES: usize = 160;
 /// Lines returned when the request does not say.
 pub const DEFAULT_LINES: usize = 16;
+/// JSON around one line (`{"l":"I","m":""},`) and around the whole answer (counters, field names).
+const LINE_ENVELOPE: usize = 17;
+const ANSWER_ENVELOPE: usize = 128;
+/// Hard upper bound of one `GET /api/logs` answer, whatever the lines contain: control characters are
+/// replaced when a line enters the history, so a stored byte costs at most 2 bytes once escaped (`\"`, `\\`).
+pub const RESPONSE_MAX: usize = ANSWER_ENVELOPE + HISTORY_LINES * (LINE_ENVELOPE + 2 * LINE_BYTES);
 const DRAIN_PERIOD: Duration = Duration::from_millis(400);
 /// Longest path kept when a URL is logged.
 const PATH_KEPT: usize = 48;
@@ -172,6 +178,47 @@ fn level_code(level: Level) -> u8 {
     }
 }
 
+fn decimal_len(mut v: u64) -> usize {
+    let mut n = 1;
+    while v >= 10 {
+        v /= 10;
+        n += 1;
+    }
+    n
+}
+
+/// Bytes `push_escaped` adds for `text` (same rules as `serde_json`).
+fn escaped_len(text: &str) -> usize {
+    text.chars()
+        .map(|c| match c {
+            '"' | '\\' | '\n' | '\r' | '\t' | '\u{8}' | '\u{c}' => 2,
+            c if (c as u32) < 0x20 => 6,
+            c => c.len_utf8(),
+        })
+        .sum()
+}
+
+fn push_escaped(out: &mut String, text: &str) {
+    for c in text.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            '\u{8}' => out.push_str("\\b"),
+            '\u{c}' => out.push_str("\\f"),
+            c if (c as u32) < 0x20 => {
+                const HEX: &[u8; 16] = b"0123456789abcdef";
+                out.push_str("\\u00");
+                out.push(HEX[(c as usize) >> 4] as char);
+                out.push(HEX[(c as usize) & 15] as char);
+            }
+            c => out.push(c),
+        }
+    }
+}
+
 /// Fixed ring of sanitized lines: pushing never allocates, the oldest line is overwritten.
 pub struct History {
     entries: Box<[Entry]>,
@@ -207,6 +254,13 @@ impl History {
         entry.level = level_code(level);
         entry.len = end as u8;
         entry.text[..end].copy_from_slice(&text.as_bytes()[..end]);
+        // Control characters never enter the history (a log line is one line): the answer then never needs
+        // a `\uXXXX` escape and its size stays under `RESPONSE_MAX`.
+        for b in &mut entry.text[..end] {
+            if *b < 0x20 || *b == 0x7f {
+                *b = b' ';
+            }
+        }
         self.next = (self.next + 1) % HISTORY_LINES;
         if self.stored == HISTORY_LINES {
             self.overwritten = self.overwritten.wrapping_add(1);
@@ -228,6 +282,65 @@ impl History {
     }
     pub fn counters(&self) -> (u32, u32, u32) {
         (self.seen, self.overwritten, self.withheld)
+    }
+
+    fn line(&self, from_newest: usize) -> (char, &str) {
+        let at = (self.next + HISTORY_LINES - 1 - from_newest) % HISTORY_LINES;
+        let e = &self.entries[at];
+        (
+            e.level as char,
+            core::str::from_utf8(&e.text[..e.len as usize]).unwrap_or(""),
+        )
+    }
+
+    /// The JSON answer of `GET /api/logs` for the newest `n` lines, written into `out` with one exact
+    /// reservation: no tree, no copy of the lines, no growth. Lines that would take the answer over
+    /// `RESPONSE_MAX` are dropped, oldest first. Allocation failure is reported, never a panic.
+    /// Keys are in the alphabetical order `serde_json` used, so the bytes did not change.
+    pub fn write_json(
+        &self,
+        n: usize,
+        out: &mut String,
+    ) -> Result<(), alloc::collections::TryReserveError> {
+        use core::fmt::Write;
+        let mut count = n.min(self.stored);
+        // `{"capacity":32,"lines":[` + `],"overwritten":N,"seen":N,"withheld":N}`
+        let fixed = 24
+            + 37
+            + decimal_len(self.overwritten as u64)
+            + decimal_len(self.seen as u64)
+            + decimal_len(self.withheld as u64);
+        // `{"l":"I","m":"` + text + `"}`; sizes[i] is the i-th newest line.
+        let mut sizes = [0usize; HISTORY_LINES];
+        for (i, slot) in sizes.iter_mut().enumerate().take(count) {
+            *slot = 16 + escaped_len(self.line(i).1);
+        }
+        let total =
+            |count: usize| fixed + sizes[..count].iter().sum::<usize>() + count.saturating_sub(1);
+        // Drop the oldest lines while the answer is over the bound (cannot happen once control characters
+        // are replaced at ingestion; kept so that the bound does not depend on that invariant).
+        while count > 0 && total(count) > RESPONSE_MAX {
+            count -= 1;
+        }
+        let size = total(count);
+        out.clear();
+        out.try_reserve_exact(size)?;
+        write!(out, "{{\"capacity\":{HISTORY_LINES},\"lines\":[").ok();
+        for i in (0..count).rev() {
+            let (level, text) = self.line(i);
+            out.push_str("{\"l\":\"");
+            out.push(level);
+            out.push_str("\",\"m\":\"");
+            push_escaped(out, text);
+            out.push_str(if i == 0 { "\"}" } else { "\"}," });
+        }
+        write!(
+            out,
+            "],\"overwritten\":{},\"seen\":{},\"withheld\":{}}}",
+            self.overwritten, self.seen, self.withheld
+        )
+        .ok();
+        Ok(())
     }
 }
 
@@ -348,6 +461,16 @@ impl<B: ConfigBackend> Diag<B> {
             moved += 1;
         }
         moved
+    }
+
+    /// The answer of `GET /api/logs`, built under one short borrow of the history (no await, no I/O): the
+    /// borrow is released before the answer is sent.
+    pub fn write_recent(
+        &self,
+        n: usize,
+        out: &mut String,
+    ) -> Result<(), alloc::collections::TryReserveError> {
+        self.history.lock(|h| h.borrow().write_json(n, out))
     }
 
     /// Bounded copy of the newest lines plus the counters (seen, overwritten, withheld).
@@ -660,5 +783,232 @@ mod tests {
             );
             assert_eq!(diag.drain(), 0);
         });
+    }
+
+    // ---- GET /api/logs answer: contract, escaping, bound and allocations -------------------------------
+
+    mod probe {
+        use std::alloc::{GlobalAlloc, Layout, System};
+        use std::cell::Cell;
+        thread_local! {
+            static ON: Cell<bool> = const { Cell::new(false) };
+            static LIVE: Cell<isize> = const { Cell::new(0) };
+            static PEAK: Cell<isize> = const { Cell::new(0) };
+            static TOTAL: Cell<usize> = const { Cell::new(0) };
+            static COUNT: Cell<usize> = const { Cell::new(0) };
+        }
+        /// Counts the allocations of the measured thread only: the other tests run in parallel.
+        pub struct Counting;
+        // SAFETY: forwards to `System`; the counters are thread-local plain integers.
+        unsafe impl GlobalAlloc for Counting {
+            unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+                let p = unsafe { System.alloc(layout) };
+                let _ = ON.try_with(|on| {
+                    if on.get() {
+                        LIVE.with(|l| l.set(l.get() + layout.size() as isize));
+                        PEAK.with(|k| LIVE.with(|l| k.set(k.get().max(l.get()))));
+                        TOTAL.with(|t| t.set(t.get() + layout.size()));
+                        COUNT.with(|c| c.set(c.get() + 1));
+                    }
+                });
+                p
+            }
+            unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+                let _ = ON.try_with(|on| {
+                    if on.get() {
+                        LIVE.with(|l| l.set(l.get() - layout.size() as isize));
+                    }
+                });
+                unsafe { System.dealloc(ptr, layout) }
+            }
+            unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new: usize) -> *mut u8 {
+                let p = unsafe { System.realloc(ptr, layout, new) };
+                let _ = ON.try_with(|on| {
+                    if on.get() {
+                        LIVE.with(|l| l.set(l.get() + new as isize - layout.size() as isize));
+                        PEAK.with(|k| LIVE.with(|l| k.set(k.get().max(l.get()))));
+                        TOTAL.with(|t| t.set(t.get() + new));
+                        COUNT.with(|c| c.set(c.get() + 1));
+                    }
+                });
+                p
+            }
+        }
+        /// (peak live bytes above the start, bytes requested in total, allocation calls) of `f`.
+        pub fn measure<R>(f: impl FnOnce() -> R) -> (R, usize, usize, usize) {
+            LIVE.with(|l| l.set(0));
+            PEAK.with(|k| k.set(0));
+            TOTAL.with(|t| t.set(0));
+            COUNT.with(|c| c.set(0));
+            ON.with(|on| on.set(true));
+            let r = f();
+            ON.with(|on| on.set(false));
+            (
+                r,
+                PEAK.with(Cell::get) as usize,
+                TOTAL.with(Cell::get),
+                COUNT.with(Cell::get),
+            )
+        }
+    }
+    #[global_allocator]
+    static ALLOCATOR: probe::Counting = probe::Counting;
+
+    /// The answer as it was built before: copies, then a `serde_json::Value` tree, then the string.
+    fn old_value_tree<B: ConfigBackend>(diag: &Diag<B>, n: usize) -> String {
+        let (lines, (seen, overwritten, withheld)) = diag.recent(n);
+        let lines: Vec<_> = lines
+            .iter()
+            .map(|(level, text)| serde_json::json!({"l": level.to_string(), "m": text}))
+            .collect();
+        serde_json::json!({
+            "lines": lines, "capacity": HISTORY_LINES,
+            "seen": seen, "overwritten": overwritten, "withheld": withheld,
+        })
+        .to_string()
+    }
+    fn filled(lines: &[(&str, &str)]) -> Diag<Backend> {
+        let diag = block(diag(&Backend::default()));
+        for (target, message) in lines {
+            diag.history
+                .lock(|h| h.borrow_mut().push(Level::Info, target, message));
+        }
+        diag
+    }
+    fn answer(diag: &Diag<Backend>, n: usize) -> String {
+        let mut out = String::new();
+        diag.write_recent(n, &mut out).unwrap();
+        out
+    }
+
+    #[test]
+    fn answer_is_byte_identical_to_the_old_tree_for_every_size() {
+        let texts: Vec<String> = (0..40)
+            .map(|i| match i % 5 {
+                0 => alloc::format!("line {i} with \"quotes\" and a \\ backslash"),
+                1 => alloc::format!("utf-8 é à ü 日本語 🎵 {i}"),
+                2 => alloc::format!("tab\there\nnewline\r\u{1}\u{1f}\u{7f} {i}"),
+                3 => "x".repeat(300),
+                _ => alloc::format!("plain {i}"),
+            })
+            .collect();
+        for count in [0usize, 1, 2, 16, 31, 32, 33, 40] {
+            let input: Vec<(&str, &str)> = texts[..count]
+                .iter()
+                .map(|t| ("streambewi::t", t.as_str()))
+                .collect();
+            let diag = filled(&input);
+            for n in [1usize, 4, DEFAULT_LINES, HISTORY_LINES] {
+                assert_eq!(
+                    answer(&diag, n),
+                    old_value_tree(&diag, n),
+                    "count {count} n {n}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn answer_is_valid_json_with_the_documented_contract() {
+        let diag = filled(&[
+            ("t", "one"),
+            ("t", "two \"x\""),
+            ("iobewi_esp_wifi", "ssid leak"),
+        ]);
+        let value: serde_json::Value = serde_json::from_str(&answer(&diag, 16)).unwrap();
+        assert_eq!(value["capacity"], HISTORY_LINES);
+        assert_eq!(
+            (
+                value["seen"].as_u64(),
+                value["overwritten"].as_u64(),
+                value["withheld"].as_u64()
+            ),
+            (Some(3), Some(0), Some(1))
+        );
+        let lines = value["lines"].as_array().unwrap();
+        assert_eq!(lines.len(), 2);
+        assert_eq!(
+            (lines[0]["l"].as_str(), lines[0]["m"].as_str()),
+            (Some("I"), Some("t: one"))
+        );
+        assert_eq!(lines[1]["m"], "t: two \"x\"");
+        assert!(!answer(&diag, 16).contains("leak"));
+        let empty = filled(&[]);
+        assert_eq!(
+            answer(&empty, 16),
+            r#"{"capacity":32,"lines":[],"overwritten":0,"seen":0,"withheld":0}"#
+        );
+    }
+
+    #[test]
+    fn escaping_matches_serde_json_for_every_character_class() {
+        let mut all = String::new();
+        all.extend((0u32..0x80).filter_map(char::from_u32));
+        all.push_str("é日本語🎵\u{80}\u{ffff}");
+        let mut out = String::new();
+        push_escaped(&mut out, &all);
+        assert_eq!(out.len(), escaped_len(&all));
+        assert_eq!(
+            alloc::format!("\"{out}\""),
+            serde_json::to_string(&all).unwrap()
+        );
+        let parsed: String = serde_json::from_str(&alloc::format!("\"{out}\"")).unwrap();
+        assert_eq!(parsed, all);
+    }
+
+    #[test]
+    fn control_characters_never_enter_the_history() {
+        let diag = filled(&[("t", "a\u{0}b\u{1b}[31mc\nd\u{7f}e")]);
+        let (lines, _) = diag.recent(1);
+        assert_eq!(lines[0].1, "t: a b [31mc d e");
+    }
+
+    #[test]
+    fn worst_case_answer_stays_under_the_bound() {
+        // 32 lines of 160 bytes, every byte a character that doubles when escaped.
+        let heavy = "\"".repeat(LINE_BYTES);
+        let diag = filled(&vec![("", heavy.as_str()); HISTORY_LINES + 5]);
+        let out = answer(&diag, HISTORY_LINES);
+        assert!(out.len() <= RESPONSE_MAX, "{} > {RESPONSE_MAX}", out.len());
+        let value: serde_json::Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(value["lines"].as_array().unwrap().len(), HISTORY_LINES);
+        assert_eq!(value["overwritten"], 5);
+        // A stored line that could not fit is dropped oldest first, never truncated mid-escape.
+        const { assert!(RESPONSE_MAX < 12 * 1024) };
+    }
+
+    #[test]
+    fn the_policy_answer_stays_small() {
+        let diag = block(diag(&Backend::default()));
+        let (_, peak, total, calls) = probe::measure(|| {
+            let (yaml, source, load_error) = diag.policy_yaml();
+            serde_json::json!({"yaml": yaml, "source": if source == Source::Persisted { "persisted" } else { "default" }, "load_error": load_error, "writable": false, "max_bytes": POLICY_BYTES_MAX}).to_string()
+        });
+        std::println!("GET /api/logs/config: peak {peak} B, total {total} B, {calls} calls");
+        assert!(peak < 2048, "{peak}");
+    }
+
+    #[test]
+    fn the_new_path_allocates_once_and_exactly_where_the_old_one_peaked_high() {
+        let heavy = "a \"quoted\" log line with a path /x/y and 日本語 ".repeat(5);
+        let diag = filled(&vec![("streambewi::stream", heavy.as_str()); HISTORY_LINES]);
+        let (old, old_peak, old_total, old_calls) =
+            probe::measure(|| old_value_tree(&diag, HISTORY_LINES));
+        let (new, new_peak, new_total, new_calls) = probe::measure(|| answer(&diag, HISTORY_LINES));
+        assert_eq!(old, new);
+        std::println!(
+            "GET /api/logs?n=32, answer {} B: old path peak {old_peak} B, total {old_total} B, {old_calls} calls; new path peak {new_peak} B, total {new_total} B, {new_calls} calls",
+            new.len()
+        );
+        assert_eq!(
+            (new_calls, new_peak, new_total),
+            (1, new.len(), new.len()),
+            "one exact allocation"
+        );
+        assert!(
+            old_peak >= 3 * new_peak,
+            "the old path peaked at {old_peak} B, the new one at {new_peak} B"
+        );
+        assert!(old_calls > 20 * new_calls);
     }
 }
