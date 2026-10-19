@@ -14,7 +14,7 @@ use embassy_sync::{
 use iobewi_config_space::ConfigBackend;
 use iobewi_wifi_core::AccessPointConfig;
 use picoserve::{
-    extract::Form,
+    extract::{Form, Query},
     response::StatusCode,
     routing::{get, post},
 };
@@ -306,8 +306,93 @@ async fn state<B: ConfigBackend>(radio: &Radio<B>) -> ([(&'static str, &'static 
     )
 }
 
+/// The body is read into a fixed buffer: a longer request is rejected before anything is allocated.
+type LogPolicyBody = heapless::String<{ iobewi_log_config::POLICY_BYTES_MAX }>;
+#[derive(Deserialize)]
+struct LogsQuery {
+    #[serde(default)]
+    n: Option<usize>,
+}
+/// Recent sanitized log lines, oldest first. Bounded by `HISTORY_LINES`; nothing is consumed.
+fn logs<B: ConfigBackend>(
+    diag: &crate::diag::Diag<B>,
+    n: Option<usize>,
+) -> ([(&'static str, &'static str); 2], String) {
+    use crate::diag::{DEFAULT_LINES, HISTORY_LINES};
+    let n = n.unwrap_or(DEFAULT_LINES).clamp(1, HISTORY_LINES);
+    let (lines, (seen, overwritten, withheld)) = diag.recent(n);
+    let lines: Vec<_> = lines
+        .iter()
+        .map(|(level, text)| serde_json::json!({"l": level.to_string(), "m": text}))
+        .collect();
+    (
+        JSON_HEADERS,
+        serde_json::json!({
+            "lines": lines, "capacity": HISTORY_LINES,
+            "seen": seen, "overwritten": overwritten, "withheld": withheld,
+        })
+        .to_string(),
+    )
+}
+/// The active policy as the restricted YAML of `iobewi-log-config`, and whether it may be changed here.
+fn log_config<B: ConfigBackend>(
+    diag: &crate::diag::Diag<B>,
+) -> ([(&'static str, &'static str); 2], String) {
+    use crate::diag::Source;
+    let (yaml, source, load_error) = diag.policy_yaml();
+    (
+        JSON_HEADERS,
+        serde_json::json!({
+            "yaml": yaml, "source": if source == Source::Persisted { "persisted" } else { "default" },
+            "load_error": load_error, "writable": in_setup(),
+            "max_bytes": iobewi_log_config::POLICY_BYTES_MAX,
+        })
+        .to_string(),
+    )
+}
+/// Replaces the policy. Setup (AP) boot only: the LAN can read the diagnostic but never change it.
+async fn put_log_config<B: ConfigBackend>(
+    diag: &crate::diag::Diag<B>,
+    body: &str,
+) -> (StatusCode, [(&'static str, &'static str); 2], String) {
+    use crate::diag::PutError;
+    match diag.replace_yaml(body, in_setup()).await {
+        Ok(generation) => (
+            StatusCode::OK,
+            JSON_HEADERS,
+            serde_json::json!({"ok": true, "generation": generation}).to_string(),
+        ),
+        Err(error) => {
+            let (status, message) = match error {
+                PutError::NotAllowed => (
+                    StatusCode::FORBIDDEN,
+                    "La politique ne se modifie que depuis le réseau de configuration StreamBeWI-Setup.",
+                ),
+                PutError::TooLarge => (StatusCode::PAYLOAD_TOO_LARGE, "Politique trop longue."),
+                PutError::Invalid => (
+                    StatusCode::BAD_REQUEST,
+                    "Politique refusée : la politique active est conservée.",
+                ),
+                PutError::Storage => (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Écriture impossible : la politique active est conservée.",
+                ),
+            };
+            (
+                status,
+                JSON_HEADERS,
+                serde_json::json!({"ok": false, "error": message}).to_string(),
+            )
+        }
+    }
+}
+
 /// No listener is bound to STA; an AP client must open the explicit local address (no captive DNS).
-pub async fn serve<B: ConfigBackend>(stack: Stack<'static>, radio: &Radio<B>) -> ! {
+pub async fn serve<B: ConfigBackend>(
+    stack: Stack<'static>,
+    radio: &Radio<B>,
+    diag: &crate::diag::Diag<B>,
+) -> ! {
     let router =
         picoserve::Router::new()
             .route("/", get(page))
@@ -375,6 +460,16 @@ pub async fn serve<B: ConfigBackend>(stack: Stack<'static>, radio: &Radio<B>) ->
                 post(move |Form(value): Form<IdForm>| async move {
                     mutation(radio.delete(value.id).await)
                 }),
+            )
+            .route(
+                "/api/logs",
+                get(move |Query(query): Query<LogsQuery>| async move { logs(diag, query.n) }),
+            )
+            .route(
+                "/api/logs/config",
+                get(move || async move { log_config(diag) }).put(
+                    move |body: LogPolicyBody| async move { put_log_config(diag, &body).await },
+                ),
             );
     // A connection attempt + DHCP may take time. One bounded HTTP client, no keep-alive.
     let config = picoserve::Config::new(picoserve::Timeouts {

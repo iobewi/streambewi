@@ -64,14 +64,7 @@ const MIN_STACK_BYTES: usize = 36 * 1024;
 /// restarts each: 0 resumed after the bare RTC reset, 10 resumed with this detach (first read 0.8 to 1.1 s
 /// after the MSC came up).
 const DETACH_BEFORE_RESET_MS: u32 = 1_500;
-const SPACES: &[SpaceSpec] = &[
-    SpaceSpec::new(
-        streambewi::stations::SPACE,
-        streambewi::stations::CONFIG_BUDGET.max_bytes(),
-    ),
-    SpaceSpec::new("wifi", iobewi_wifi_manager::CONFIG_BUDGET.max_bytes()),
-    SpaceSpec::new(boot_policy::SPACE, boot_policy::CONFIG_BUDGET.max_bytes()),
-];
+const SPACES: &[SpaceSpec] = boot_policy::SPACES;
 
 // One concrete S3 composition; there is no portable Board / resource factory.
 struct Resources {
@@ -156,6 +149,12 @@ async fn product(p: Resources, spawner: Spawner) {
         &mut uart,
         "STREAMBEWI:STATIONS-LOAD",
     );
+    let log_space = boot_result(
+        BootPolicy::claim_log(store.backend()),
+        &mut uart,
+        "STREAMBEWI:LOG-CLAIM",
+    );
+    let diag = streambewi::diag::Diag::load(log_space, streambewi::logging::LOG_TARGET).await;
     let (rx, tx) = uart.into_async().split();
     let mut serial = vec![(serial::Rx::Uart(rx), serial::Tx::Uart(tx))];
     // Read durable mode first; construct exactly one native USB controller.
@@ -229,6 +228,7 @@ async fn product(p: Resources, spawner: Spawner) {
         info,
         setup_network,
         radio,
+        diag,
     )
     .await;
 }

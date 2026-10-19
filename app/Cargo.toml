@@ -23,12 +23,14 @@ log = "0.4"
 reqwless = { version = "0.14.0", default-features = false }
 static_cell = "2.1.1"
 serde_json = { version = "1", default-features = false, features = ["alloc"] }
+heapless = { version = "0.9", default-features = false }
 picoserve = { version = "0.20.0", default-features = false, features = ["embassy", "alloc"] }
 serde = { version = "1", default-features = false, features = ["derive", "alloc"] }
 
 improv-serial = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "174079effdb9380c90695be0d86b2b54a8e5fa44" }
 iobewi-config-space = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "174079effdb9380c90695be0d86b2b54a8e5fa44" }
 iobewi-log = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "174079effdb9380c90695be0d86b2b54a8e5fa44" }
+iobewi-log-config = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "174079effdb9380c90695be0d86b2b54a8e5fa44" }
 iobewi-fat16 = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "174079effdb9380c90695be0d86b2b54a8e5fa44" }
 iobewi-usb-msc = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "174079effdb9380c90695be0d86b2b54a8e5fa44" }
 iobewi-wifi-core = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "174079effdb9380c90695be0d86b2b54a8e5fa44" }
@@ -36,5 +38,6 @@ iobewi-wifi-manager = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "
 
 
 [dev-dependencies]
+ekv = { version = "=1.0.0", features = ["crc", "max-value-size-8192", "max-chunk-size-256"] }
 embassy-time = { version = "0.5.1", features = ["std", "generic-queue-8"] }
 critical-section = { version = "1.2", features = ["std"] }

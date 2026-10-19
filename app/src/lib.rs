@@ -16,6 +16,7 @@ macro_rules! mk_static {
 }
 
 pub mod boot_policy;
+pub mod diag;
 pub mod logging;
 pub mod provisioning;
 pub mod setup;
@@ -46,6 +47,7 @@ pub async fn run<T, B, Btn, R, W, D, F>(
     info: provisioning::DeviceInfo,
     setup_network: Option<Stack<'static>>,
     radio: stations::Radio<B>,
+    diag: diag::Diag<B>,
 ) where
     T: WifiTransport<NetworkHandle = Stack<'static>>,
     T::Address: Display,
@@ -95,7 +97,12 @@ pub async fn run<T, B, Btn, R, W, D, F>(
             )
             .await
         };
-        join(producer, setup::serve(web_stack, &radio)).await;
+        join3(
+            producer,
+            setup::serve(web_stack, &radio, &diag),
+            diag::drain_loop(&diag),
+        )
+        .await;
     };
     join(join3(provisioning_fut, recovery_fut, services), async {
         match usb {

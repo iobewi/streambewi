@@ -1680,6 +1680,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "iobewi-log-config"
+version = "0.1.0"
+source = "git+https://github.com/iobewi/rust-mcu-libs?rev=174079effdb9380c90695be0d86b2b54a8e5fa44#174079effdb9380c90695be0d86b2b54a8e5fa44"
+dependencies = [
+ "heapless 0.9.3",
+ "iobewi-config-space",
+ "iobewi-log",
+]
+
+[[package]]
 name = "iobewi-rolling-stream"
 version = "0.1.0"
 source = "git+https://github.com/iobewi/rust-mcu-libs?rev=174079effdb9380c90695be0d86b2b54a8e5fa44#174079effdb9380c90695be0d86b2b54a8e5fa44"
@@ -2435,6 +2445,7 @@ name = "streambewi"
 version = "0.1.0"
 dependencies = [
  "critical-section",
+ "ekv",
  "embassy-futures",
  "embassy-net",
  "embassy-sync 0.8.0",
@@ -2442,10 +2453,12 @@ dependencies = [
  "embassy-usb",
  "embedded-hal-async",
  "embedded-io-async 0.7.0",
+ "heapless 0.9.3",
  "improv-serial",
  "iobewi-config-space",
  "iobewi-fat16",
  "iobewi-log",
+ "iobewi-log-config",
  "iobewi-usb-msc",
  "iobewi-wifi-core",
  "iobewi-wifi-manager",
