@@ -66,6 +66,27 @@ Sur la carte, la première requête `GET /api/logs?n=32` a figé tout le firmwar
 - **Hypothèses examinées** : le décodage de `?n=` ne panique pas (test hôte, valeurs valides et invalides) ; l'historique n'utilise ni section critique ni verrou tenu à travers un `await` (`NoopRawMutex`, accès synchrones dans une seule tâche) ; les cadres de pile du nouveau chemin sont petits (un tableau de 32 `usize`). Un dépassement de pile ne peut pas être exclu par ces seuls éléments (marge mesurée 11,8 Ko avant la requête).
 - **Ressources attendues** : `GET /api/logs` demande au plus 10,9 Ko de tas transitoires (typiquement 6 Ko) au lieu de ≈ 35 à 65 Ko ; `GET /api/logs/config` ≈ 1,1 Ko. La marge de pile n'est pas modifiée. À confirmer sur carte avec la sonde `qual` après nouvelle autorisation.
 
+## Profondeur de pile des routes (qualification du 19 octobre 2026)
+
+La qualification sur carte (H5, 10 mutations de favoris) a mesuré une marge de pile de 7 188 o (seuil 8 Kio), contre 15 988 o sur `main`, sans aucune requête `/api/logs` : la hausse vient de la forme du routeur, pas de la consultation des journaux. picoserve imbrique chaque `route` autour des précédentes, et le `poll` d'un groupe de routes imbriquées porte un cadre de plusieurs Ko : deux routes de plus sous les routes de stations ajoutaient un niveau de 6 288 o à tout chemin de mutation.
+
+- **Correctif** : les trois routes de stations sont dans un sous-routeur (`Router::nest("/api/stations", …)`, déclaré en dernier) ; picoserve appelle le sous-routeur seul une fois le préfixe reconnu (frontière de segment et reste non vide exigés). Les routes de diagnostic restent à plat. Un simple réordonnancement ne suffisait pas : il déplaçait le coût vers `GET /api/logs` (+5,9 Ko) ou vers `PUT /api/logs/config`.
+- **Contrat inchangé** : les tests `routing_tests` font tourner le vrai serveur picoserve sur un socket en mémoire, avec les routes de production et, en référence, l'ancienne liste plate, et comparent statut, en-têtes et corps de 33 requêtes (mutations valides et invalides, actions inconnues, `/api/stations`, `/api/stationsXYZ`, méthodes erronées, diagnostic, `/wifi`). Statuts attendus : 404 pour les chemins inconnus, 405 pour les méthodes erronées, 403 pour `PUT /api/logs/config` et `POST /wifi` hors configuration.
+- **Profondeurs statiques** (somme des cadres Xtensa depuis la tâche produit, graphe d'appels du binaire ; identiques pour les images nominale, `qual` et `usb-debug`) :
+
+| Chemin | `main` | PR avant | PR après |
+|---|---|---|---|
+| mutation de station → `commit` | 21 840 | 29 888 | 17 520 |
+| `PUT /api/logs/config` → `replace_yaml` | n/a | 23 840 | 23 872 |
+| `GET /api/logs` (extraction `Query`) | n/a | 25 968 | 26 000 |
+| `GET /api/logs/config` → `encode` | n/a | 27 104 | 27 136 |
+| `POST /wifi` → handler | 24 816 | 32 864 | 27 024 |
+| maximum jusqu'à l'écriture flash | 26 960 | 35 008 | 28 928 |
+
+  Ces profondeurs sont des sommes de cadres, pas des consommations mesurées : elles ignorent les appels indirects, les interruptions et la pile du pilote Wi-Fi. Sur la PR avant correctif, la somme statique (chaîne de mutation) et le filigrane mesuré concordent à 16 o près, une fois retranché le cadre de `main` (−576 o).
+- **Marges attendues** (pile réservée 44 776 o en `qual`, 45 008 en nominal) : mutations de favoris ≈ 19 Ko, `PUT /api/logs/config` valide (boot AP) ≈ 12,7 Ko, `GET /api/logs` inchangé (12 164 o mesurés en H2). Pire marge estimée ≈ 12 Ko. À confirmer par le filigrane de la sonde `qual` après les 10 mutations.
+- **Règle** : toute nouvelle route qui aboutit à un commit flash doit être mesurée de la même façon avant fusion ; ne pas en ajouter à plat au routeur principal sans contrôler la profondeur du chemin des mutations.
+
 ## Hors périmètre
 
 La limitation de débit des lignes répétitives (dernier point de #15) n'est pas faite. `POST /wifi`, qui était accessible depuis le LAN, est réservé au boot de configuration depuis #23 : la politique « Wi-Fi seulement en AP » que ce modèle d'accès suppose est maintenant vraie.
