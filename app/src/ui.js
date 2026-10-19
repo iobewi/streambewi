@@ -17,7 +17,7 @@
   function open(id) { const el = $(id); if (!el.open) el.showModal(); }
   document.querySelectorAll('[data-close]').forEach(b => b.addEventListener('click', () => b.closest('dialog').close()));
   document.querySelectorAll('dialog').forEach(d => d.addEventListener('click', e => { if (e.target === d) { const r=d.getBoundingClientRect(); if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)d.close(); } }));
-  $('open-wifi').onclick = () => { open('wifi-panel'); scan(); };
+  $('open-wifi').onclick = () => { open('wifi-panel'); if (state && state.setup) scan(); };
   $('open-settings').onclick = () => open('settings-panel');
   $('add-shortcut').onclick = () => { open('settings-panel'); $('query').focus(); };
   $('show-password').onclick = () => { const p=$('password'), show=p.type==='password'; p.type=show?'text':'password'; $('show-password').textContent=show?'Masquer':'Voir'; $('show-password').setAttribute('aria-label',show?'Masquer le mot de passe':'Afficher le mot de passe'); };
@@ -75,6 +75,9 @@
     $('wifi-current').textContent=s.online ? (s.ssid ? 'Connecté à '+s.ssid : 'Votre Wi-Fi est connecté.') : 'Choisissez le Wi-Fi de la maison.';
     $('play-state').classList.toggle('reading',s.reading&&s.online&&!rebooting);
     $('play-label').textContent=rebooting?'Changement de station…':!s.online?'Wi-Fi déconnecté':!s.ready?'La radio se prépare…':s.reading?'En lecture':'À l’arrêt';
+    // Credentials are only accepted in the setup boot: in normal operation the panel is read-only.
+    ['wifi-form','scan','networks'].forEach(id=>{$(id).hidden=!s.setup;});
+    if(!s.setup)$('wifi-current').textContent+=' Pour changer de réseau : réseau StreamBeWI-Setup (bouton BOOT) ou Improv.';
     $('scan').disabled=s.scanning; $('scan').textContent=s.scanning?'Recherche…':'Rechercher les réseaux';
     $('connect').disabled=s.wifi_status===1;
     message('wifi-result',s.wifi_message,s.wifi_status===3||s.wifi_status===4);

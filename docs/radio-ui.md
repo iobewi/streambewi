@@ -11,7 +11,7 @@ Le style reprend la maquette validée ; aucun nouvel asset généré n'est néce
   par le routeur et apparaît dans les journaux au démarrage. Pas de mDNS ajouté dans ce chantier.
 - Un serveur HTTP par boot, sur AP **ou** STA. Après provisioning, le serveur reste sur AP
   jusqu'au reboot ; l'AP n'est pas rendu permanent en usage normal.
-- Le panneau Wi-Fi recherche les réseaux sur demande et permet la saisie manuelle. Le
+- Le panneau Wi-Fi recherche les réseaux sur demande et permet la saisie manuelle **dans le boot de configuration (AP)** ; en usage normal sur le LAN il est en lecture seule (le serveur n'a pas d'authentification). Le
   gestionnaire Wi-Fi reste propriétaire unique, avec Improv en parallèle. Le résultat Web
   est consultable après reconnexion du téléphone, comme dans #1.
 - L'engrenage donne accès à l'ajout, la modification, la suppression et la recherche de radios.
@@ -74,7 +74,7 @@ aux serveurs de logos et omet les credentials lors de la recherche externe.
 | POST `/api/stations/select` | Sélection par id |
 | POST `/api/stations/delete` | Suppression ; sélection de remplacement si nécessaire |
 | POST `/api/scan` | Demande de scan au propriétaire Wi-Fi |
-| POST `/wifi`, GET `/status` | Compatibilité avec le provisioning #1 ; POST répond 202 puis statut partagé |
+| POST `/wifi`, GET `/status` | Compatibilité avec le provisioning #1 ; POST répond 202 puis statut partagé. **Refusé (403) hors du boot de configuration (AP)** : sur le LAN, le panneau Wi-Fi est en lecture seule ; on change de réseau par `StreamBeWI-Setup` (BOOT) ou Improv. |
 
 Les handlers radio empruntent le même objet `Radio` protégé par mutex. Le formulaire Wi-Fi
 répond après mise en file ; il ne monopolise plus le serveur pendant l'association radio.

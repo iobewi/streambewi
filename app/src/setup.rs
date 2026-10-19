@@ -185,9 +185,26 @@ impl Credentials {
 
 const PAGE: &str = include_str!("setup.html");
 
-async fn provision(
-    Form(credentials): Form<Credentials>,
-) -> (StatusCode, (&'static str, &'static str), &'static str) {
+type HtmlReply = (StatusCode, (&'static str, &'static str), &'static str);
+
+/// Credentials are only accepted in the setup (AP) boot, where the client had to join the WPA2 access
+/// point. In normal operation the server is on the LAN and has no authentication.
+fn outside_setup(setup: bool) -> Option<HtmlReply> {
+    (!setup).then_some((
+        StatusCode::FORBIDDEN,
+        ("Content-Type", "text/html; charset=utf-8"),
+        "<html lang=fr><meta charset=utf-8><p>Le Wi-Fi se configure depuis le réseau StreamBeWI-Setup (bouton BOOT) ou par USB avec Improv.</p><a href=/>Retour</a></html>",
+    ))
+}
+
+async fn provision(Form(credentials): Form<Credentials>) -> HtmlReply {
+    match outside_setup(in_setup()) {
+        Some(refusal) => refusal,
+        None => accept(credentials).await,
+    }
+}
+
+async fn accept(credentials: Credentials) -> HtmlReply {
     if !credentials.valid() {
         return (
             StatusCode::BAD_REQUEST,
@@ -384,7 +401,7 @@ mod tests {
 
     #[test]
     fn invalid_credentials_do_not_reach_the_wifi_owner() {
-        let mut request = std::pin::pin!(provision(Form(credentials("", "password"))));
+        let mut request = std::pin::pin!(accept(credentials("", "password")));
         match request
             .as_mut()
             .poll(&mut Context::from_waker(Waker::noop()))
@@ -392,6 +409,12 @@ mod tests {
             Poll::Ready((status, _, _)) => assert_eq!(status, StatusCode::BAD_REQUEST),
             Poll::Pending => panic!("invalid input must not queue a Wi-Fi operation"),
         }
+    }
+    #[test]
+    fn wifi_credentials_are_refused_outside_the_setup_boot() {
+        let refusal = outside_setup(false).expect("normal boot must refuse");
+        assert_eq!(refusal.0, StatusCode::FORBIDDEN);
+        assert!(outside_setup(true).is_none());
     }
     fn credentials(ssid: &str, password: &str) -> Credentials {
         Credentials {
