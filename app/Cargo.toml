@@ -8,6 +8,9 @@ description = "StreamBeWI product logic: provisioning, live stream and USB MSC r
 [features]
 default = []
 usb-debug = ["embassy-usb/log", "iobewi-usb-msc/usb-debug"]
+# Bench qualification only: ends the stream connection on a schedule (`QUAL_DROP_LIVES`, build-time
+# environment, seconds), alternately closed cleanly and dropped without a close. Not a network outage.
+qual = []
 
 [dependencies]
 streambewi-core = { path = "../core" }

@@ -324,6 +324,9 @@ fn main() -> ! {
 
 #[panic_handler]
 fn panic(_info: &core::panic::PanicInfo) -> ! {
+    // Bench qualification build: the console is a plain UART0 write, no acquisition.
+    #[cfg(feature = "qual")]
+    esp_println::println!("PANIC: {_info}");
     // No USB/JTAG/UART acquisition from panic: these are owned by Improv/MSC.
     loop {
         core::hint::spin_loop();

@@ -9,7 +9,7 @@ default = []
 usb-debug = ["streambewi/usb-debug"]
 # Debug build: driver traces, stack/heap high-water probe. The operating log (Info/Warn on UART0) is
 # always on; this adds the debug detail. Off by default; CI compiles both.
-qual = ["usb-debug", "esp-alloc/internal-heap-stats"]
+qual = ["usb-debug", "esp-alloc/internal-heap-stats", "streambewi/qual"]
 
 [dependencies]
 streambewi = { path = "../../app" }

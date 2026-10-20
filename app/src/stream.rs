@@ -484,6 +484,11 @@ where
         let mut body = Body::new(body_type, &mut head_buf[..], read_len, &mut conn);
         pump(stream, &mut body).await;
     }
+    #[cfg(feature = "qual")]
+    if QUAL_ABRUPT.swap(false, Ordering::Relaxed) {
+        log::info!("qual-drop: session dropped without a close");
+        return Exchange::Streamed;
+    }
     let closing = Instant::now();
     let closed = conn.close().await;
     log::info!(
@@ -555,6 +560,49 @@ where
     }
 }
 
+/// Bench qualification only: whether the connection that just ended must be dropped without a close.
+#[cfg(feature = "qual")]
+static QUAL_ABRUPT: AtomicBool = AtomicBool::new(false);
+
+/// Bench qualification only: end the connection on a schedule of lifetimes (`QUAL_DROP_LIVES`, seconds, one
+/// per successive connection, cycling), alternately closed cleanly and dropped without a close. The schedule is
+/// the build's: no fixed period, and it is a way to exercise the reconnection, not a network outage.
+#[cfg(feature = "qual")]
+fn qual_drop_due(stream: &SharedStream, started: Instant) -> bool {
+    let Some(list) = option_env!("QUAL_DROP_LIVES") else {
+        return false;
+    };
+    let n = stream.reconnects.load(Ordering::Relaxed).max(1) as usize - 1;
+    let Some(secs) = list
+        .split(',')
+        .filter_map(|s| s.parse::<u64>().ok())
+        .cycle()
+        .nth(n)
+    else {
+        return false;
+    };
+    if started.elapsed() < Duration::from_secs(secs) {
+        return false;
+    }
+    let abrupt = n % 2 == 1;
+    QUAL_ABRUPT.store(abrupt, Ordering::Relaxed);
+    let (live, consumed) = stream.progress();
+    log::info!(
+        "qual-drop: ending connection #{} after {} s, {} live={} consumed={} lead={}",
+        n + 1,
+        secs,
+        if abrupt {
+            "ABRUPT (no close)"
+        } else {
+            "graceful close"
+        },
+        live,
+        consumed,
+        live.saturating_sub(consumed)
+    );
+    true
+}
+
 /// Move the body of a response into the window until the server closes, the path goes silent or
 /// the read fails.
 async fn pump<R: embedded_io_async::Read>(stream: &'static SharedStream, body: &mut R)
@@ -563,8 +611,14 @@ where
 {
     let mut buf = [0u8; CHUNK_BYTES];
     let mut last_progress_log = Instant::now();
+    #[cfg(feature = "qual")]
+    let started = Instant::now();
 
     loop {
+        #[cfg(feature = "qual")]
+        if qual_drop_due(stream, started) {
+            break;
+        }
         stream.wait_for_room().await;
 
         let want = core::cmp::min(stream.writable(), buf.len());
