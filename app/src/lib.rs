@@ -17,6 +17,7 @@ macro_rules! mk_static {
 
 pub mod boot_policy;
 pub mod diag;
+pub mod fetch;
 pub mod logging;
 pub mod provisioning;
 pub mod setup;
@@ -37,7 +38,7 @@ use iobewi_wifi_manager::WifiManager;
 /// Run the product with boot-selected transports. The target prepares configuration
 /// and selects JTAG or OTG before calling this function; there is no live handover.
 #[allow(clippy::too_many_arguments)] // Concrete product resources composed by the target.
-pub async fn run<T, B, Btn, R, W, D, F>(
+pub async fn run<T, B, Btn, R, W, D, F, C, S>(
     boot: boot_policy::BootPolicy<B>,
     manager: WifiManager<T, B>,
     serial: impl IntoIterator<Item = (R, W)>,
@@ -48,7 +49,11 @@ pub async fn run<T, B, Btn, R, W, D, F>(
     setup_network: Option<Stack<'static>>,
     radio: stations::Radio<B>,
     diag: alloc::boxed::Box<diag::Diag<B>>,
+    secure: S,
 ) where
+    S: FnOnce(Stack<'static>) -> C,
+    C: iobewi_net_io::Connector,
+    for<'a> <C::Connection<'a> as iobewi_net_io::ErrorType>::Error: Display,
     T: WifiTransport<NetworkHandle = Stack<'static>>,
     T::Address: Display,
     B: ConfigBackend,
@@ -88,9 +93,13 @@ pub async fn run<T, B, Btn, R, W, D, F>(
                 Some(sta) => sta,
                 None => network.wait().await,
             };
+            // The target builds the connector for `https` stations (and starts the clock it needs) once
+            // the station network exists; `http` stations never wait for it.
+            let secure = secure(sta);
             stream::run(
                 sta,
                 &stream::STREAM,
+                &secure,
                 link,
                 async || radio.active_url().await,
                 async || radio.persist().await.map_err(|_| ()),

@@ -773,15 +773,17 @@ mod tests {
             log::info!(target: "streambewi::stream", "stream: connecting url=http://h/live.mp3?key=abc");
             log::warn!(target: "iobewi_esp_wifi", "Wi-Fi: connection to MyNet failed");
             diag.drain();
-            let (lines, (seen, _, withheld)) = diag.recent(8);
-            assert_eq!(seen, 2);
-            assert_eq!(withheld, 1);
-            assert_eq!(lines.len(), 1);
-            assert_eq!(
-                lines[0].1,
-                "streambewi::stream: stream: connecting url=http://h/live.mp3?…"
-            );
-            assert_eq!(diag.drain(), 0);
+            // Other tests log through the same ring while this one runs: what is asserted is what this test
+            // added (kept once and redacted, withheld never shown), not the exact totals.
+            let ours = "streambewi::stream: stream: connecting url=http://h/live.mp3?…";
+            let (lines, (seen, _, withheld)) = diag.recent(64);
+            assert!(seen >= 2);
+            assert!(withheld >= 1);
+            assert_eq!(lines.iter().filter(|l| l.1 == ours).count(), 1);
+            assert!(lines.iter().all(|l| !l.1.contains("MyNet")));
+            diag.drain();
+            let (lines, _) = diag.recent(64);
+            assert_eq!(lines.iter().filter(|l| l.1 == ours).count(), 1);
         });
     }
 

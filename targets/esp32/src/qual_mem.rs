@@ -54,6 +54,15 @@ pub fn probe(target: &'static str, label: &str) {
         ""
     };
     let h = esp_alloc::HEAP.stats();
+    for (i, region) in h.region_stats.iter().flatten().enumerate() {
+        log::info!(
+            target: target,
+            "qual-mem {label}: region{i} size {} used {} free {}",
+            region.size,
+            region.used,
+            region.free
+        );
+    }
     log::info!(
         target: target,
         "qual-mem {label}: heap size {} used {} free {} max_used {} min_free {}; \
