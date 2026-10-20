@@ -41,9 +41,11 @@ impl Default for Catalog {
     }
 }
 
-/// The producer currently supports direct MP3 streams over HTTP, not TLS or playlists.
+/// The producer supports direct MP3 streams over `http://` and `https://`, not playlists. Whether a
+/// station can actually be reached (a port, an IPv6 literal, a certificate) is the producer's to say:
+/// a catalog already stored must keep loading.
 pub fn stream_url_valid(url: &str) -> bool {
-    valid_url(url, false)
+    valid_url(url, true)
 }
 fn valid_url(url: &str, https: bool) -> bool {
     if url.len() > 256
@@ -254,7 +256,7 @@ impl Error {
     pub fn message(self) -> &'static str {
         match self {
             Self::Invalid => {
-                "Vérifiez le nom et l’adresse du flux MP3 direct HTTP (256 caractères maximum)."
+                "Vérifiez le nom et l’adresse du flux MP3 direct HTTP ou HTTPS (256 caractères maximum)."
             }
             Self::Full => "La liste est pleine ou trop volumineuse (8 stations maximum).",
             Self::Missing => "Cette station n’existe plus. Rechargez la page.",
@@ -433,8 +435,12 @@ mod tests {
             let backend = Backend::default();
             let radio = load(backend.clone()).await.unwrap();
             for url in [
-                "https://example.org/live",
+                "ftp://example.org/live",
                 "javascript:alert(1)",
+                "https://",
+                "https://a/\r\nx",
+                "https://user:pass@host/a",
+                "https://host/a#frag",
                 "http://",
                 "http://a/\r\nx",
                 "http://user:pass@host/a",
@@ -455,6 +461,102 @@ mod tests {
                 Some(b"{\"version\":99}".as_slice())
             );
         });
+    }
+    #[test]
+    fn http_and_https_urls_are_both_valid_stream_urls() {
+        for url in [
+            "http://example.org/live",
+            "https://example.org/live",
+            "https://example.org:8443/live.mp3?token=a",
+            "http://192.168.1.2:8000/",
+        ] {
+            assert!(stream_url_valid(url), "{url}");
+        }
+        for url in [
+            "",
+            "example.org/live",
+            "ws://example.org/",
+            "HTTPS://example.org/",
+        ] {
+            assert!(!stream_url_valid(url), "{url}");
+        }
+    }
+    #[test]
+    fn an_https_station_is_added_edited_selected_and_reloaded_across_protocols() {
+        embassy_futures::block_on(async {
+            let backend = Backend::default();
+            let radio = load(backend.clone()).await.unwrap();
+            // Add an https station next to the default http one.
+            radio
+                .save(
+                    None,
+                    "Secure".into(),
+                    "https://example.org/a".into(),
+                    "".into(),
+                )
+                .await
+                .unwrap();
+            let snap = radio.snapshot().await;
+            let secure_id = snap.stations.last().unwrap().id;
+            assert!(snap.stations.last().unwrap().url.starts_with("https://"));
+            // http -> https, then https -> https, then https -> http: each is a plain selection.
+            let plain_id = snap.stations.first().unwrap().id;
+            radio
+                .save(
+                    None,
+                    "Secure 2".into(),
+                    "https://example.net/b".into(),
+                    "".into(),
+                )
+                .await
+                .unwrap();
+            let other_id = radio.snapshot().await.stations.last().unwrap().id;
+            for (id, url) in [
+                (secure_id, "https://example.org/a"),
+                (other_id, "https://example.net/b"),
+                (plain_id, crate::stream::STREAM_URL),
+            ] {
+                assert_eq!(radio.apply_selection(id, true).await, Ok(true));
+                assert_eq!(radio.active_url().await, url);
+                // Reloaded from storage, the selection and the URL survive.
+                let again = load(backend.clone()).await.unwrap();
+                assert_eq!(again.active_url().await, url);
+            }
+            // An edit may change the protocol of an existing station, and keeps it valid.
+            radio
+                .save(
+                    Some(secure_id),
+                    "Secure".into(),
+                    "http://example.org/a".into(),
+                    "".into(),
+                )
+                .await
+                .unwrap();
+            let edited = radio.snapshot().await;
+            assert_eq!(
+                edited
+                    .stations
+                    .iter()
+                    .find(|s| s.id == secure_id)
+                    .unwrap()
+                    .url,
+                "http://example.org/a"
+            );
+        });
+    }
+    #[test]
+    fn a_stored_catalog_with_an_https_station_is_valid_and_unchanged() {
+        let mut catalog = Catalog::default();
+        catalog.stations.push(Station {
+            id: 2,
+            name: "Secure".into(),
+            url: "https://example.org/live".into(),
+            logo: "".into(),
+        });
+        assert!(catalog.valid());
+        let bytes = serde_json::to_vec(&catalog).unwrap();
+        let back: Catalog = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(back, catalog);
     }
     #[test]
     fn station_limit_is_enforced_without_losing_existing_favorites() {
