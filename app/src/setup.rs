@@ -591,6 +591,11 @@ mod tests {
         .unwrap();
         assert_eq!(edit.id, Some(2));
         assert_eq!(edit.logo, "");
+        let secure: StationForm = deserialize_form(UrlEncodedString(
+            "name=Jazz&url=https%3A%2F%2Fexample.org%3A8443%2Flive.mp3%3Fk%3Dv&logo=",
+        ))
+        .unwrap();
+        assert_eq!(secure.url, "https://example.org:8443/live.mp3?k=v");
         assert!(deserialize_form::<IdForm>(UrlEncodedString("id=2&extra=1")).is_err());
     }
     #[test]
@@ -848,6 +853,11 @@ mod routing_tests {
                 "POST",
                 "/api/stations/save",
                 "name=B&url=http%3A%2F%2Fexample.org%2Fb.mp3",
+            ),
+            (
+                "POST",
+                "/api/stations/save",
+                "name=C&url=https%3A%2F%2Fexample.org%2Fc.mp3",
             ),
             ("POST", "/api/stations/save", "name=&url="),
             ("POST", "/api/stations/save", "bogus=1"),

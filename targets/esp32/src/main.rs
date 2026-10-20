@@ -55,7 +55,9 @@ static USB_LINK: S3UsbLink = S3UsbLink;
 pub static STREAMBEWI_CHIP: [u8; 8] = *b"ESP32-S3";
 
 const AP_SOCKETS: usize = 3; // embassy-net's internal DNS socket, DHCP and one setup HTTP connection.
-const SOCKETS: usize = 4; // DHCP, internal DNS, live HTTP stream, local UI.
+// DHCP, internal DNS, live stream (HTTP or HTTPS), local UI, SNTP. SNTP only runs in the station network; the
+// AP network (`AP_SOCKETS`) never starts it. A fifth socket in a set sized for four makes smoltcp panic.
+const SOCKETS: usize = 5;
 // Measured on the S3 (qual image): heap peak ~60 KiB with the local UI; each HTTP request costs ~10 KiB of
 // stack (peak ~31 KiB). 96 KiB of heap left a 26.6 KiB stack and every request overflowed it.
 const HEAP_BYTES: usize = 80 * 1024;
@@ -220,6 +222,31 @@ async fn product(p: Resources, spawner: Spawner) {
         // The package version is what `esp_app_desc!` records in the image descriptor.
         version: env!("CARGO_PKG_VERSION").as_bytes(),
     };
+    // Time source for the certificate checks, started once the station network exists (SNTP); the trust
+    // anchors are the public roots in flash. `init` runs once, before any TLS session. An `http://` station
+    // never waits for the clock: only the TLS connector refuses to dial before it is set.
+    let tls = iobewi_esp_tls::init(iobewi_time::now);
+    let secure = move |sta: embassy_net::Stack<'static>| {
+        spawner.spawn(
+            iobewi_ntp::sync_task(
+                sta,
+                iobewi_ntp::SyncOptions {
+                    server: "pool.ntp.org",
+                    resync_period: embassy_time::Duration::from_secs(3600),
+                    retry_period: embassy_time::Duration::from_secs(10),
+                    exchange_timeout: embassy_time::Duration::from_secs(5),
+                    // 2026-01-01T00:00:00Z: an answer below it is not a clock.
+                    plausible_epoch_floor: 1_767_225_600,
+                },
+            )
+            .unwrap(),
+        );
+        iobewi_tls_service::client::StaticTrustConnector {
+            dialer: iobewi_esp_tls::embassy::EspTlsDialer { tls, stack: sta },
+            ca_pem: iobewi_tls_roots::BUNDLE,
+            clock_is_set: iobewi_time::is_set,
+        }
+    };
     streambewi::run(
         boot,
         manager,
@@ -231,6 +258,7 @@ async fn product(p: Resources, spawner: Spawner) {
         setup_network,
         radio,
         diag,
+        secure,
     )
     .await;
 }
@@ -254,6 +282,12 @@ fn main() -> ! {
         iobewi_log::apply_policy(policy);
     }
     esp_alloc::heap_allocator!(size: HEAP_BYTES);
+    // The DRAM the 2nd stage bootloader frees (`dram2_seg`, 73 744 bytes), as a second region of its own: the
+    // TLS session (16 KiB record buffer, MbedTLS state, certificate chain) needs more than the main heap
+    // leaves, and the audio ring, the stack and the main heap are unchanged. esp-alloc tries the regions in
+    // the order they were added. The address and size come from the linker script (`dram2_seg`), not from
+    // arithmetic on the main heap.
+    esp_alloc::heap_allocator!(#[esp_hal::ram(reclaimed)] size: 73_744);
     unsafe extern "C" {
         static _stack_start: u8;
         static _stack_end: u8;
@@ -290,6 +324,9 @@ fn main() -> ! {
 
 #[panic_handler]
 fn panic(_info: &core::panic::PanicInfo) -> ! {
+    // Bench qualification build: the console is a plain UART0 write, no acquisition.
+    #[cfg(feature = "qual")]
+    esp_println::println!("PANIC: {_info}");
     // No USB/JTAG/UART acquisition from panic: these are owned by Improv/MSC.
     loop {
         core::hint::spin_loop();

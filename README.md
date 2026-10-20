@@ -26,7 +26,7 @@ stream.
 - `targets/esp32`: explicit esp-hal / esp-rtos startup, one flash owner, one EKV
   Store, UART0 and boot-selected USB-JTAG or OTG, concrete S3 Wi-Fi transport,
   recovery reset and resource reservations. No Board/entry framework dependency.
-- `app`: product provisioning/recovery policy, reqwless HTTP producer, bounded
+- `app`: product provisioning/recovery policy, HTTP/HTTPS producer, bounded
   shared stream and USB radio composition. Its APIs accept prepared resources.
 - `core`: pure product policy, including 1 GiB RADIO.MP3, 96 KiB window,
   64 KiB prebuffer, 80 KiB maximum lead and far-ahead zero probes.
@@ -41,7 +41,7 @@ Saving credentials does not switch USB in the current boot. BOOT held for three
 seconds saves provisioning mode, clears credentials, then requests a broad RTC
 system reset. The logger captures to RAM without writing on Improv transports.
 
-The target reserves an 80 KiB heap, four network sockets (STA) and a minimum 36 KiB
+The target reserves an 80 KiB heap plus a 72 KiB second region in the DRAM the bootloader frees (see [HTTPS streaming](docs/https-streaming.md)), five network sockets (STA; SNTP needs the fifth) and a minimum 36 KiB
 linker stack (boot assertion; a local UI request peaks around 31 KiB on the S3). The ELF inspection gate reports actual product TaskPool storage and
 linker stack reservation; these are not runtime stack high-water measurements.
 

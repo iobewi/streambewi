@@ -52,10 +52,10 @@ préparation et changement de station sont distingués sans exposer les détails
 ## Catalogue et logos
 
 Le navigateur interroge Radio Browser en HTTPS (miroirs de1 puis nl1 en repli), filtre les MP3
-non-HLS dont le flux résolu est en HTTP, et permet d'ajouter le résultat aux favoris.
-Le producteur embarqué ne sait toujours pas ouvrir HTTPS audio, AAC/HLS ni des playlists.
-Une URL manuelle doit être un flux MP3 HTTP direct ; ce format n'est pas prouvé par le validateur
-syntaxique. Le catalogue peut aussi contenir des entrées périmées ou mal décrites.
+non-HLS dont le flux résolu est en HTTP ou HTTPS, et permet d'ajouter le résultat aux favoris.
+Le producteur embarqué ouvre HTTP et HTTPS (voir [streaming HTTPS](https-streaming.md)) ; il ne sait
+pas ouvrir AAC/HLS ni des playlists. Une URL manuelle doit être un flux MP3 direct en HTTP ou HTTPS ;
+ce format n'est pas prouvé par le validateur syntaxique. Le catalogue peut aussi contenir des entrées périmées ou mal décrites.
 
 Catalogue et logos sont téléchargés par le téléphone/PC ; pas par la clé. Sans Internet sur ce
 navigateur, recherche indisponible mais favoris, interface et radio de remplacement restent
@@ -79,7 +79,7 @@ aux serveurs de logos et omet les credentials lors de la recherche externe.
 Les handlers radio empruntent le même objet `Radio` protégé par mutex. Le formulaire Wi-Fi
 répond après mise en file ; il ne monopolise plus le serveur pendant l'association radio.
 Les textes externes sont insérés avec `textContent`, pas avec `innerHTML`. Les URLs de logos
-sont limitées à HTTP/HTTPS ; les flux à HTTP. Pas d'authentification ajoutée : usage local,
+sont limitées à HTTP/HTTPS, comme les flux. Pas d'authentification ajoutée : usage local,
 AP protégé par WPA2, comme #1. Les endpoints ne doivent pas être publiés sur Internet.
 
 ## Compatibilité du stockage

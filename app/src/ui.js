@@ -134,7 +134,7 @@
       }
       if(!found)throw new Error('catalogue');if(seq!==searchSequence)return;
       const seen=new Set(), compatible=found.filter(s=>{
-        if(s.codec!=='MP3'||s.hls!==0||!/^http:\/\//.test(s.url_resolved)||s.url_resolved.length>256||seen.has(s.url_resolved))return false;
+        if(s.codec!=='MP3'||s.hls!==0||!/^https?:\/\//.test(s.url_resolved)||s.url_resolved.length>256||seen.has(s.url_resolved))return false;
         seen.add(s.url_resolved);return true;
       }).slice(0,12);
       message('search-message',compatible.length?'Ajoutez vos coups de cœur à vos favoris.':'Aucun flux compatible trouvé. Essayez un autre nom ou une adresse manuelle.');
