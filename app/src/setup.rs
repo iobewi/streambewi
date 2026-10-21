@@ -148,19 +148,13 @@ pub(crate) fn status_message() -> &'static str {
     }
 }
 
-async fn page() -> ([(&'static str, &'static str); 2], String) {
+async fn page() -> ([(&'static str, &'static str); 1], Typed<String>) {
     let (head, tail) = PAGE.split_once("<!--S-->").unwrap_or((PAGE, ""));
     let mut body = String::with_capacity(PAGE.len() + 160);
     body.push_str(head);
     body.push_str(status_message());
     body.push_str(tail);
-    (
-        [
-            ("Content-Type", "text/html; charset=utf-8"),
-            ("Cache-Control", "no-store"),
-        ],
-        body,
-    )
+    (NO_STORE, Typed(HTML, body))
 }
 
 #[derive(Deserialize)]
@@ -185,16 +179,33 @@ impl Credentials {
 
 const PAGE: &str = include_str!("setup.html");
 
-type HtmlReply = (StatusCode, (&'static str, &'static str), &'static str);
+/// A body with its own `Content-Type`. picoserve adds `text/plain` for a `&str` or a `String`, so a
+/// `("Content-Type", …)` header next to such a body made two contradictory headers on the wire, and a browser
+/// may pick the first. The type travels with the body instead, and the headers tuple never names it.
+struct Typed<C>(&'static str, C);
+impl<C: picoserve::response::Content> picoserve::response::Content for Typed<C> {
+    fn content_type(&self) -> &'static str {
+        self.0
+    }
+    fn content_length(&self) -> usize {
+        self.1.content_length()
+    }
+    async fn write_content<W: picoserve::io::Write>(self, writer: W) -> Result<(), W::Error> {
+        self.1.write_content(writer).await
+    }
+}
+const HTML: &str = "text/html; charset=utf-8";
+const NO_STORE: [(&str, &str); 1] = [("Cache-Control", "no-store")];
+fn json(body: String) -> Typed<String> {
+    Typed("application/json; charset=utf-8", body)
+}
+
+type HtmlReply = (StatusCode, Typed<&'static str>);
 
 /// Credentials are only accepted in the setup (AP) boot, where the client had to join the WPA2 access
 /// point. In normal operation the server is on the LAN and has no authentication.
 fn outside_setup(setup: bool) -> Option<HtmlReply> {
-    (!setup).then_some((
-        StatusCode::FORBIDDEN,
-        ("Content-Type", "text/html; charset=utf-8"),
-        "<html lang=fr><meta charset=utf-8><p>Le Wi-Fi se configure depuis le réseau StreamBeWI-Setup (bouton BOOT) ou par USB avec Improv.</p><a href=/>Retour</a></html>",
-    ))
+    (!setup).then_some((StatusCode::FORBIDDEN, Typed(HTML, "<html lang=fr><meta charset=utf-8><p>Le Wi-Fi se configure depuis le réseau StreamBeWI-Setup (bouton BOOT) ou par USB avec Improv.</p><a href=/>Retour</a></html>")))
 }
 
 async fn provision(Form(credentials): Form<Credentials>) -> HtmlReply {
@@ -208,8 +219,10 @@ async fn accept(credentials: Credentials) -> HtmlReply {
     if !credentials.valid() {
         return (
             StatusCode::BAD_REQUEST,
-            ("Content-Type", "text/html; charset=utf-8"),
-            "<html lang=fr><meta charset=utf-8><p>SSID : 1 à 32 octets. Mot de passe : vide pour un réseau ouvert, 8 à 63 octets ou 64 chiffres hexadécimaux.</p><a href=/>Réessayer</a></html>",
+            Typed(
+                HTML,
+                "<html lang=fr><meta charset=utf-8><p>SSID : 1 à 32 octets. Mot de passe : vide pour un réseau ouvert, 8 à 63 octets ou 64 chiffres hexadécimaux.</p><a href=/>Réessayer</a></html>",
+            ),
         );
     }
     // Publish pending before returning 202, including when Improv currently owns the radio.
@@ -222,8 +235,10 @@ async fn accept(credentials: Credentials) -> HtmlReply {
     {
         return (
             StatusCode::CONFLICT,
-            ("Content-Type", "text/html; charset=utf-8"),
-            "Une configuration Wi-Fi est déjà en cours. Patientez puis rechargez la page.",
+            Typed(
+                HTML,
+                "Une configuration Wi-Fi est déjà en cours. Patientez puis rechargez la page.",
+            ),
         );
     }
     let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
@@ -236,8 +251,10 @@ async fn accept(credentials: Credentials) -> HtmlReply {
         .await;
     (
         StatusCode::ACCEPTED,
-        ("Content-Type", "text/html; charset=utf-8"),
-        "<html lang=fr><meta charset=utf-8><p>Vérification en cours. Si votre connexion change, rejoignez le réseau puis rechargez la page.</p><a href=/>Retour</a></html>",
+        Typed(
+            HTML,
+            "<html lang=fr><meta charset=utf-8><p>Vérification en cours. Si votre connexion change, rejoignez le réseau puis rechargez la page.</p><a href=/>Retour</a></html>",
+        ),
     )
 }
 
@@ -256,13 +273,9 @@ struct StationForm {
 struct IdForm {
     id: u32,
 }
-const JSON_HEADERS: [(&str, &str); 2] = [
-    ("Content-Type", "application/json; charset=utf-8"),
-    ("Cache-Control", "no-store"),
-];
 fn mutation(
     result: Result<bool, crate::stations::Error>,
-) -> (StatusCode, [(&'static str, &'static str); 2], String) {
+) -> (StatusCode, [(&'static str, &'static str); 1], Typed<String>) {
     match result {
         Ok(restart) => {
             if restart {
@@ -275,34 +288,35 @@ fn mutation(
             }
             (
                 StatusCode::OK,
-                JSON_HEADERS,
-                serde_json::json!({"ok":true,"restart":restart}).to_string(),
+                NO_STORE,
+                json(serde_json::json!({"ok":true,"restart":restart}).to_string()),
             )
         }
         Err(error) => (
             StatusCode::BAD_REQUEST,
-            JSON_HEADERS,
-            serde_json::json!({"ok":false,"error":error.message()}).to_string(),
+            NO_STORE,
+            json(serde_json::json!({"ok":false,"error":error.message()}).to_string()),
         ),
     }
 }
-async fn state<B: ConfigBackend>(radio: &Radio<B>) -> ([(&'static str, &'static str); 2], String) {
+async fn state<B: ConfigBackend>(
+    radio: &Radio<B>,
+) -> ([(&'static str, &'static str); 1], Typed<String>) {
     let catalog = radio.snapshot().await;
     let (online, ssid, ip, networks) = WIFI.lock(|v| {
         let v = v.borrow();
         (v.online, v.ssid.clone(), v.ip.clone(), v.networks.clone())
     });
     (
-        JSON_HEADERS,
-        serde_json::json!({
+        NO_STORE,
+        json(serde_json::json!({
             "catalog":catalog, "online":online, "ssid":ssid, "ip":ip,
             "networks":networks, "scanning":SCANNING.load(Ordering::Relaxed) != 0,
             "setup":MODE_SETUP.load(Ordering::Relaxed) != 0,
             "reading":crate::stream::STREAM.is_reading(), "ready":crate::stream::STREAM.is_ready(),
             "restarting":RESTARTING.load(Ordering::Relaxed) != 0, "persisted":!radio.is_unsaved(),
             "wifi_message":status_message(), "wifi_status":STATUS.load(Ordering::Relaxed),
-        })
-        .to_string(),
+        }).to_string()),
     )
 }
 
@@ -319,45 +333,48 @@ struct LogsQuery {
 fn logs<B: ConfigBackend>(
     diag: &crate::diag::Diag<B>,
     n: Option<usize>,
-) -> (StatusCode, [(&'static str, &'static str); 2], String) {
+) -> (StatusCode, [(&'static str, &'static str); 1], Typed<String>) {
     use crate::diag::{DEFAULT_LINES, HISTORY_LINES};
     let n = n.unwrap_or(DEFAULT_LINES).clamp(1, HISTORY_LINES);
     let mut body = String::new();
     match diag.write_recent(n, &mut body) {
-        Ok(()) => (StatusCode::OK, JSON_HEADERS, body),
+        Ok(()) => (StatusCode::OK, NO_STORE, json(body)),
         // An empty body: even a short message could fail to allocate when the heap is this short.
-        Err(_) => (StatusCode::SERVICE_UNAVAILABLE, JSON_HEADERS, String::new()),
+        Err(_) => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            NO_STORE,
+            json(String::new()),
+        ),
     }
 }
 /// The active policy as the restricted YAML of `iobewi-log-config`, and whether it may be changed here.
 fn log_config<B: ConfigBackend>(
     diag: &crate::diag::Diag<B>,
-) -> ([(&'static str, &'static str); 2], String) {
+) -> ([(&'static str, &'static str); 1], Typed<String>) {
     use crate::diag::Source;
     let (yaml, source, load_error) = diag.policy_yaml();
     (
-        JSON_HEADERS,
-        serde_json::json!({
+        NO_STORE,
+        json(serde_json::json!({
             "yaml": yaml, "source": if source == Source::Persisted { "persisted" } else { "default" },
             "load_error": load_error, "writable": in_setup(),
             "max_bytes": iobewi_log_config::POLICY_BYTES_MAX,
-        })
-        .to_string(),
+        }).to_string()),
     )
 }
 /// Replaces the policy. Setup (AP) boot only: the LAN can read the diagnostic but never change it.
 async fn put_log_config<B: ConfigBackend>(
     diag: &crate::diag::Diag<B>,
     body: &str,
-) -> (StatusCode, [(&'static str, &'static str); 2], String) {
+) -> (StatusCode, [(&'static str, &'static str); 1], Typed<String>) {
     use crate::diag::PutError;
     // Boxed: the persistence future (policy copies, YAML buffer) lives on the heap for the one AP request
     // instead of inflating the task future of the whole web server.
     match alloc::boxed::Box::pin(diag.replace_yaml(body, in_setup())).await {
         Ok(generation) => (
             StatusCode::OK,
-            JSON_HEADERS,
-            serde_json::json!({"ok": true, "generation": generation}).to_string(),
+            NO_STORE,
+            json(serde_json::json!({"ok": true, "generation": generation}).to_string()),
         ),
         Err(error) => {
             let (status, message) = match error {
@@ -377,8 +394,8 @@ async fn put_log_config<B: ConfigBackend>(
             };
             (
                 status,
-                JSON_HEADERS,
-                serde_json::json!({"ok": false, "error": message}).to_string(),
+                NO_STORE,
+                json(serde_json::json!({"ok": false, "error": message}).to_string()),
             )
         }
     }
@@ -400,11 +417,8 @@ fn app<'a, B: ConfigBackend>(
             "/status",
             get(|| async {
                 (
-                    [
-                        ("Content-Type", "text/plain; charset=utf-8"),
-                        ("Cache-Control", "no-store"),
-                    ],
-                    status_message(),
+                    NO_STORE,
+                    Typed("text/plain; charset=utf-8", status_message()),
                 )
             }),
         )
@@ -413,10 +427,9 @@ fn app<'a, B: ConfigBackend>(
             "/ui.css",
             get(|| async {
                 (
-                    ("Content-Type", "text/css; charset=utf-8"),
                     // A page and its scripts come from the same firmware: never a script from the previous one.
-                    ("Cache-Control", "no-store"),
-                    include_str!("ui.css"),
+                    NO_STORE,
+                    Typed("text/css; charset=utf-8", include_str!("ui.css")),
                 )
             }),
         )
@@ -424,10 +437,12 @@ fn app<'a, B: ConfigBackend>(
             "/catalog.js",
             get(|| async {
                 (
-                    ("Content-Type", "application/javascript; charset=utf-8"),
                     // A page and its scripts come from the same firmware: never a script from the previous one.
-                    ("Cache-Control", "no-store"),
-                    include_str!("catalog.js"),
+                    NO_STORE,
+                    Typed(
+                        "application/javascript; charset=utf-8",
+                        include_str!("catalog.js"),
+                    ),
                 )
             }),
         )
@@ -435,10 +450,12 @@ fn app<'a, B: ConfigBackend>(
             "/ui.js",
             get(|| async {
                 (
-                    ("Content-Type", "application/javascript; charset=utf-8"),
                     // A page and its scripts come from the same firmware: never a script from the previous one.
-                    ("Cache-Control", "no-store"),
-                    include_str!("ui.js"),
+                    NO_STORE,
+                    Typed(
+                        "application/javascript; charset=utf-8",
+                        include_str!("ui.js"),
+                    ),
                 )
             }),
         )
@@ -489,25 +506,63 @@ fn app<'a, B: ConfigBackend>(
         )
 }
 
+/// How many HTTP connections are served at once. picoserve serves one connection per `listen_and_serve`, and a
+/// connection arriving while none is listening is refused (RST), not queued. A browser opens several at once
+/// for a page and its stylesheet and scripts, and a refused stylesheet is not retried: the page stays unstyled.
+/// Each worker is one socket of the network stack (the targets size it with this) and 4 KiB of buffers.
+pub const WEB_WORKERS: usize = 3;
+
+struct Buffers {
+    http: [u8; 2048],
+    rx: [u8; 1024],
+    tx: [u8; 1024],
+}
+
+async fn worker<P: picoserve::routing::PathRouter>(
+    id: usize,
+    router: &picoserve::Router<P>,
+    config: &picoserve::Config,
+    stack: Stack<'static>,
+    buffers: &mut Buffers,
+) -> ! {
+    let Buffers { http, rx, tx } = buffers;
+    match picoserve::Server::new(router, config, http)
+        .listen_and_serve(id, stack, 80, rx, tx)
+        .await {}
+}
+
 pub async fn serve<B: ConfigBackend>(
     stack: Stack<'static>,
     radio: &Radio<B>,
     diag: &crate::diag::Diag<B>,
 ) -> ! {
     let router = app(radio, diag);
-    // A connection attempt + DHCP may take time. One bounded HTTP client, no keep-alive.
+    // A connection attempt + DHCP may take time. Bounded HTTP clients, no keep-alive.
     let config = picoserve::Config::new(picoserve::Timeouts {
         start_read_request: embassy_time::Duration::from_secs(10),
         read_request: embassy_time::Duration::from_secs(90),
         write: embassy_time::Duration::from_secs(5),
         ..picoserve::Timeouts::const_default()
     });
-    let mut http = [0; 2048];
-    let mut rx = [0; 1024];
-    let mut tx = [0; 1024];
-    match picoserve::Server::new(&router, &config, &mut http)
-        .listen_and_serve(0, stack, 80, &mut rx, &mut tx)
-        .await {}
+    let mut buffers = [const {
+        Buffers {
+            http: [0; 2048],
+            rx: [0; 1024],
+            tx: [0; 1024],
+        }
+    }; WEB_WORKERS];
+    let mut spare = buffers.iter_mut();
+    let workers: [_; WEB_WORKERS] = core::array::from_fn(|id| {
+        worker(
+            id,
+            &router,
+            &config,
+            stack,
+            spare.next().expect("one buffer set per worker"),
+        )
+    });
+    embassy_futures::join::join_array(workers).await;
+    unreachable!("a worker never returns")
 }
 
 #[cfg(test)]
@@ -525,7 +580,7 @@ mod tests {
             .as_mut()
             .poll(&mut Context::from_waker(Waker::noop()))
         {
-            Poll::Ready((status, _, _)) => assert_eq!(status, StatusCode::BAD_REQUEST),
+            Poll::Ready((status, _)) => assert_eq!(status, StatusCode::BAD_REQUEST),
             Poll::Pending => panic!("invalid input must not queue a Wi-Fi operation"),
         }
     }
@@ -799,11 +854,8 @@ mod routing_tests {
                 "/status",
                 get(|| async {
                     (
-                        [
-                            ("Content-Type", "text/plain; charset=utf-8"),
-                            ("Cache-Control", "no-store"),
-                        ],
-                        status_message(),
+                        NO_STORE,
+                        Typed("text/plain; charset=utf-8", status_message()),
                     )
                 }),
             )
@@ -979,6 +1031,104 @@ mod routing_tests {
                 status("POST", "/wifi", "ssid=home&password=correct-horse"),
                 403
             );
+        });
+    }
+
+    /// What the browser receives, not what the handlers meant to send: one `Content-Type` per answer, the
+    /// right one, and the exact bytes of the embedded file. picoserve adds `text/plain` to a `&str` or a
+    /// `String` body, so naming the type in the headers as well made two contradictory headers.
+    #[test]
+    fn every_answer_carries_exactly_one_correct_content_type() {
+        fn split(raw: &str) -> (Vec<(String, String)>, &str) {
+            let (head, body) = raw.split_once("\r\n\r\n").expect("a complete answer");
+            let headers = head
+                .lines()
+                .skip(1)
+                .filter_map(|l| l.split_once(':'))
+                .map(|(n, v)| (n.trim().to_ascii_lowercase(), v.trim().to_string()))
+                .collect();
+            (headers, body)
+        }
+        let expected: &[(&str, &str, &str)] = &[
+            ("GET", "/", "text/html; charset=utf-8"),
+            ("GET", "/ui.css", "text/css; charset=utf-8"),
+            ("GET", "/ui.js", "application/javascript; charset=utf-8"),
+            (
+                "GET",
+                "/catalog.js",
+                "application/javascript; charset=utf-8",
+            ),
+            ("GET", "/status", "text/plain; charset=utf-8"),
+            ("GET", "/api/state", "application/json; charset=utf-8"),
+            ("GET", "/api/logs", "application/json; charset=utf-8"),
+            ("GET", "/api/logs/config", "application/json; charset=utf-8"),
+            (
+                "POST",
+                "/api/stations/save",
+                "application/json; charset=utf-8",
+            ),
+            (
+                "POST",
+                "/api/stations/save",
+                "application/json; charset=utf-8",
+            ),
+            (
+                "POST",
+                "/api/stations/select",
+                "application/json; charset=utf-8",
+            ),
+            ("POST", "/wifi", "text/html; charset=utf-8"),
+            ("PUT", "/api/logs/config", "application/json; charset=utf-8"),
+        ];
+        embassy_futures::block_on(async {
+            let (radio, diag) = fixtures().await;
+            let router = app(&radio, &diag);
+            for (method, path, kind) in expected {
+                let body = match *path {
+                    "/api/stations/save" => FORM,
+                    "/api/stations/select" => "id=1",
+                    "/wifi" => "ssid=home&password=correct-horse",
+                    "/api/logs/config" if *method == "PUT" => "log:\n  default_level: warn\n",
+                    _ => "",
+                };
+                let (_, raw) = call(&router, method, path, body);
+                let (headers, payload) = split(&raw);
+                let types: Vec<&String> = headers
+                    .iter()
+                    .filter(|(n, _)| n == "content-type")
+                    .map(|(_, v)| v)
+                    .collect();
+                assert_eq!(types, [&kind.to_string()], "{method} {path}: {raw:?}");
+                let length: usize = headers
+                    .iter()
+                    .find(|(n, _)| n == "content-length")
+                    .map(|(_, v)| v.parse().unwrap())
+                    .unwrap_or_else(|| panic!("{method} {path}: no Content-Length"));
+                assert_eq!(length, payload.len(), "{method} {path}: length");
+            }
+            // The embedded files go out byte for byte.
+            for (path, file) in [
+                ("/ui.css", include_str!("ui.css")),
+                ("/ui.js", include_str!("ui.js")),
+                ("/catalog.js", include_str!("catalog.js")),
+            ] {
+                let (_, raw) = call(&router, "GET", path, "");
+                assert_eq!(split(&raw).1, file, "{path}");
+                assert!(
+                    raw.contains("cache-control: no-store")
+                        || raw.contains("Cache-Control: no-store")
+                );
+            }
+            // Whatever the route, a refusal or an unknown path never carries two types either.
+            for (method, path) in [("GET", "/nothing"), ("GET", "/wifi"), ("DELETE", "/ui.css")] {
+                let (_, raw) = call(&router, method, path, "");
+                let n = split(&raw)
+                    .0
+                    .iter()
+                    .filter(|(n, _)| n == "content-type")
+                    .count();
+                assert!(n <= 1, "{method} {path}: {n} content types");
+            }
         });
     }
 }

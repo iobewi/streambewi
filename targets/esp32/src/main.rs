@@ -1,5 +1,7 @@
 #![no_std]
 #![no_main]
+// The server future (three picoserve workers over the nested router) is deeper than the default limit.
+#![recursion_limit = "256"]
 
 extern crate alloc;
 #[cfg(feature = "qual")]
@@ -54,10 +56,12 @@ static USB_LINK: S3UsbLink = S3UsbLink;
 #[unsafe(no_mangle)]
 pub static STREAMBEWI_CHIP: [u8; 8] = *b"ESP32-S3";
 
-const AP_SOCKETS: usize = 3; // embassy-net's internal DNS socket, DHCP and one setup HTTP connection.
-// DHCP, internal DNS, live stream (HTTP or HTTPS), local UI, SNTP. SNTP only runs in the station network; the
-// AP network (`AP_SOCKETS`) never starts it. A fifth socket in a set sized for four makes smoltcp panic.
-const SOCKETS: usize = 5;
+// embassy-net's internal DNS socket and DHCP, plus one socket per HTTP worker of the setup page.
+const AP_SOCKETS: usize = 2 + streambewi::setup::WEB_WORKERS;
+// DHCP, internal DNS, live stream (HTTP or HTTPS), SNTP, plus one per HTTP worker of the local UI. SNTP only
+// runs in the station network; the AP network (`AP_SOCKETS`) never starts it. A socket more than the set
+// holds makes smoltcp panic.
+const SOCKETS: usize = 4 + streambewi::setup::WEB_WORKERS;
 // Measured on the S3 (qual image): heap peak ~60 KiB with the local UI; each HTTP request costs ~10 KiB of
 // stack (peak ~31 KiB). 96 KiB of heap left a 26.6 KiB stack and every request overflowed it.
 const HEAP_BYTES: usize = 80 * 1024;
