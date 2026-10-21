@@ -32,8 +32,8 @@ ou illisible. Un `#fragment` n'est jamais envoyé. `http` peut passer à `https`
 
 200 avec `Content-Length`, sans longueur, ou `Transfer-Encoding: chunked` (décodé par `edge-http` : la
 fenêtre ne reçoit que des octets audio). Les octets du corps arrivés avec l'en-tête sont conservés. Un en-tête
-de réponse de plus de 2 048 octets, un `Transfer-Encoding` autre qu'un seul `chunked`, ou plus de 24 en-têtes
-sont refusés (la tentative échoue et est retentie). Les erreurs sont journalisées par nature : DNS, TCP, TLS
+de réponse de plus de 2 048 octets, un `Transfer-Encoding` autre qu'un seul `chunked`, ou plus de 48 en-têtes
+(`TooManyHeaders`, refus explicite, jamais de troncature) sont refusés (la tentative échoue et est retentie). Les erreurs sont journalisées par nature : DNS, TCP, TLS
 (`connect … failed`), requête, en-tête de réponse, statut HTTP.
 
 ## Mémoire et réseau (ESP32-S3)

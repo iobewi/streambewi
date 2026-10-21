@@ -436,6 +436,10 @@ where
                 HeadError::TooLarge => {
                     log::warn!("stream: response head over {} bytes, refused", HEAD_BYTES)
                 }
+                HeadError::TooManyHeaders => log::warn!(
+                    "stream: response head with more than {} headers, refused",
+                    iobewi_http_client::MAX_HEADERS
+                ),
                 HeadError::Malformed => log::warn!("stream: response head refused (malformed)"),
             }
             let _ = conn.close().await;
@@ -987,6 +991,59 @@ mod tests {
             "{request}"
         );
         assert_eq!(tls.connections(), 0);
+    }
+
+    /// A response head with `n` filler headers, then chunked audio.
+    fn many_headers(n: usize, audio: &[u8]) -> alloc::vec::Vec<u8> {
+        let mut r = b"HTTP/1.1 200 OK\r\n".to_vec();
+        for i in 0..n {
+            r.extend(alloc::format!("icy-x{i}: value\r\n").into_bytes());
+        }
+        r.extend(b"Transfer-Encoding: chunked\r\n\r\n");
+        r.extend(chunked(audio, &[1000, 7, 1, audio.len() - 1008]));
+        r
+    }
+
+    #[test]
+    fn a_response_with_26_headers_streams_and_more_than_48_is_refused() {
+        // The shape of a real Icecast over HTTPS on :8443 (26 headers), which a
+        // 24-header parser refused as malformed.
+        let audio = payload(3000);
+        let tls = Script::serving(&[&many_headers(25, &audio)]);
+        let stream = fresh();
+        let (delay, _) = run(attempt(
+            &Script::refusing(),
+            &tls,
+            stream,
+            "https://a.example:8443/j",
+        ));
+        assert_eq!(delay, secs(1));
+        assert_eq!(stream.progress().0, 3000);
+        let got = window_bytes(stream);
+        assert_eq!(got[..], audio[..got.len()]);
+        // 48 headers in all (47 + Transfer-Encoding) still stream.
+        let tls = Script::serving(&[&many_headers(47, &audio)]);
+        let stream = fresh();
+        run(attempt(
+            &Script::refusing(),
+            &tls,
+            stream,
+            "https://a.example:8443/j",
+        ));
+        assert_eq!(stream.progress().0, 3000);
+        let got = window_bytes(stream);
+        assert_eq!(got[..], audio[..got.len()]);
+        // 49: refused explicitly, no audio, retried.
+        let tls = Script::serving(&[&many_headers(48, &audio)]);
+        let stream = fresh();
+        let (delay, _) = run(attempt(
+            &Script::refusing(),
+            &tls,
+            stream,
+            "https://a.example:8443/j",
+        ));
+        assert_eq!(delay, secs(2));
+        assert_eq!(stream.progress().0, 0);
     }
 
     #[test]
