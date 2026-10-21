@@ -24,16 +24,16 @@ static_cell = "2.1"
 esp-println = { version = "~0.18", default-features = false, features = ["esp32s3", "uart", "log-04"] }
 embassy-time = { version = "0.5", default-features = false }
 log = "0.4"
-iobewi-config-space = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "f85b0b71e93e72585c67ccc3c6f534f32b03cb98" }
-iobewi-esp-config-space = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "f85b0b71e93e72585c67ccc3c6f534f32b03cb98", features = ["esp32s3"] }
-iobewi-esp-flash = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "f85b0b71e93e72585c67ccc3c6f534f32b03cb98", features = ["esp32s3"] }
-iobewi-esp-wifi = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "f85b0b71e93e72585c67ccc3c6f534f32b03cb98", features = ["esp32s3"] }
-iobewi-esp-usb = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "f85b0b71e93e72585c67ccc3c6f534f32b03cb98", features = ["esp32s3"] }
-iobewi-wifi-manager = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "f85b0b71e93e72585c67ccc3c6f534f32b03cb98" }
-iobewi-log = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "f85b0b71e93e72585c67ccc3c6f534f32b03cb98" }
+iobewi-config-space = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "abd8b33f52f147ffa1db2996da1f62df9f488070" }
+iobewi-esp-config-space = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "abd8b33f52f147ffa1db2996da1f62df9f488070", features = ["esp32s3"] }
+iobewi-esp-flash = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "abd8b33f52f147ffa1db2996da1f62df9f488070", features = ["esp32s3"] }
+iobewi-esp-wifi = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "abd8b33f52f147ffa1db2996da1f62df9f488070", features = ["esp32s3"] }
+iobewi-esp-usb = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "abd8b33f52f147ffa1db2996da1f62df9f488070", features = ["esp32s3"] }
+iobewi-wifi-manager = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "abd8b33f52f147ffa1db2996da1f62df9f488070" }
+iobewi-log = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "abd8b33f52f147ffa1db2996da1f62df9f488070" }
 # HTTPS stations: the TLS client, the public trust anchors in flash and the clock the certificate dates need.
-iobewi-esp-tls = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "f85b0b71e93e72585c67ccc3c6f534f32b03cb98", default-features = false, features = ["esp32s3", "public-pki"] }
-iobewi-tls-service = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "f85b0b71e93e72585c67ccc3c6f534f32b03cb98" }
-iobewi-tls-roots = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "f85b0b71e93e72585c67ccc3c6f534f32b03cb98" }
-iobewi-ntp = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "f85b0b71e93e72585c67ccc3c6f534f32b03cb98" }
-iobewi-time = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "f85b0b71e93e72585c67ccc3c6f534f32b03cb98" }
+iobewi-esp-tls = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "abd8b33f52f147ffa1db2996da1f62df9f488070", default-features = false, features = ["esp32s3", "public-pki"] }
+iobewi-tls-service = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "abd8b33f52f147ffa1db2996da1f62df9f488070" }
+iobewi-tls-roots = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "abd8b33f52f147ffa1db2996da1f62df9f488070" }
+iobewi-ntp = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "abd8b33f52f147ffa1db2996da1f62df9f488070" }
+iobewi-time = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "abd8b33f52f147ffa1db2996da1f62df9f488070" }
