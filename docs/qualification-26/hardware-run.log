@@ -1,0 +1,200 @@
+09:44:52.988 [uart] INFO - streambewi::usb: provisioning: CONFIGURED
+09:44:53.139 [uart] [esptool] esptool.js
+09:44:53.139 [uart] [esptool] Serial port WebSerial VendorID 0x1a86 ProductID 0x55d3
+09:44:53.139 [uart] [esptool] Connecting...
+09:44:53.292 [uart] [esptool] Detecting chip type... 
+09:44:53.292 [uart] [esptool] ESP32-S3
+09:44:53.449 [uart] [esptool] Chip Revision: 0
+09:44:53.449 [uart] [esptool] Chip is ESP32-S3 (QFN56) (revision v0.2)
+09:44:53.449 [uart] [esptool] Features: Wi-Fi,BLE,Embedded PSRAM 8MB (AP_3v3)
+09:44:53.449 [uart] [esptool] Crystal is 40MHz
+09:44:53.449 [uart] [esptool] MAC: <mac>
+09:44:53.449 [uart] [esptool] Uploading stub...
+09:44:54.172 [uart] [esptool] Running stub...
+09:44:54.330 [uart] [esptool] Stub running...
+09:44:54.330 [uart] [esptool] Changing baudrate to 460800
+09:44:54.330 [uart] [esptool] Changed
+09:44:54.330 [uart] [esptool] If the chip does not respond to any further commands, consider using a lower baud rate.
+09:44:54.486 [uart] [esptool] Flash ID: 184068
+09:44:54.647 [uart] [bench] loader connected: ESP32-S3 (QFN56) (revision v0.2)
+09:44:54.647 [uart] [bench] read factory-0x50000 @0x50000 (1572864 bytes)
+09:45:33.311 [uart] [bench] dump factory-0x50000 @0x50000 1572864 bytes sha256 a3a27000b11467d7e611abcbb2cc3930189378055b90fbd62d0c2a682a74670c archived dumps/archive/factory-0x50000-20261021-094533.bin
+09:45:34.877 [uart] [bench] console open (boot after port open is captured)
+09:45:34.877 [uart] ESP-ROM:esp32s3-20210327
+09:45:34.877 [uart] Build:Mar 27 2021
+09:45:34.877 [uart] rst:0x1 (POWERON),boot:0x8 (SPI_FAST_FLASH_BOOT)
+09:45:34.877 [uart] SPIWP:0xee
+09:45:34.877 [uart] mode:DIO, clock div:2
+09:45:34.877 [uart] load:0x3fce2820,len:0x14d0
+09:45:34.877 [uart] load:0x403c8700,len:0xdcc
+09:45:34.877 [uart] load:0x403cb700,len:0x2f54
+09:45:34.877 [uart] entry 0x403c8900
+09:45:34.877 [uart] INFO - streambewi::usb: provisioning: CONFIGURED
+09:45:37.461 [uart] INFO - streambewi::provisioning: wifi: ready
+09:45:39.735 [uart] INFO - streambewi::stream: net: got IP 192.168.1.17/24
+09:45:39.735 [uart] INFO - streambewi::stream: stream: connecting attempt=1 url=http://direct.franceinter.fr/live/franceinter-midfi.mp3
+09:45:39.735 [uart] INFO - streambewi::stream: stream: tcp up in 65 ms
+09:45:39.735 [uart] INFO - streambewi::stream: stream: HTTP status=301 content_length=Some(162) chunked=false
+09:45:39.735 [uart] INFO - streambewi::stream: stream: redirect 301 to http://icecast.radiofrance.fr
+09:45:39.735 [uart] INFO - streambewi::stream: stream: tcp up in 89 ms
+09:45:39.735 [uart] INFO - streambewi::stream: stream: HTTP status=200 content_length=None chunked=true
+09:45:39.735 [uart] INFO - streambewi::stream: stream: live=65536 consumed=0 lead=65536
+09:45:39.934 [uart] [bench] MARK Q27-run
+09:45:39.934 [uart] INFO - streambewi::usb: stream: prebuffer bytes=94208
+09:45:39.934 [uart] INFO - streambewi::usb: usb: enabling MSC for Metronic
+09:45:39.934 [uart] INFO - streambewi::stream: stream: session start live=94208
+09:45:43.218 [uart] INFO - streambewi::stream: stream: session end consumed=0 live=112128
+09:45:44.276 [uart] INFO - streambewi::stream: stream: session start live=118272
+09:45:44.430 [uart] INFO - streambewi::stream: stream: session end consumed=0 live=134656
+09:45:44.430 [uart] INFO - streambewi::stream: stream: session start live=142848
+09:45:45.403 [uart] INFO - streambewi::stream: stream: session end consumed=0 live=159232
+09:46:08.883 [uart] INFO - streambewi::stream: stream: session start live=560640
+09:46:39.373 [uart] INFO - streambewi::stream: stream: live=1033728 consumed=951808 lead=81920
+09:47:39.512 [uart] INFO - streambewi::stream: stream: live=1994752 consumed=1912832 lead=81920
+09:48:22.395 [uart] [bench] MARK Q27-add
+09:48:22.885 [uart] [bench] http POST /api/stations/save sent, answered in 139 ms
+09:48:26.442 [uart] [bench] http POST /api/stations/save sent, answered in 200 ms
+09:48:31.004 [uart] [bench] http POST /api/stations/save sent, answered in 90 ms
+09:48:34.430 [uart] [esptool] esptool.js
+09:48:34.592 [uart] [esptool] Serial port WebSerial VendorID 0x1a86 ProductID 0x55d3
+09:48:34.592 [uart] [esptool] Connecting...
+09:48:34.767 [uart] [esptool] Detecting chip type... 
+09:48:34.767 [uart] [esptool] ESP32-S3
+09:48:34.767 [uart] [esptool] Chip Revision: 0
+09:48:34.767 [uart] [esptool] Chip is ESP32-S3 (QFN56) (revision v0.2)
+09:48:34.943 [uart] [esptool] Features: Wi-Fi,BLE,Embedded PSRAM 8MB (AP_3v3)
+09:48:34.943 [uart] [esptool] Crystal is 40MHz
+09:48:34.943 [uart] [esptool] MAC: <mac>
+09:48:34.943 [uart] [esptool] Uploading stub...
+09:48:35.637 [uart] [esptool] Running stub...
+09:48:35.814 [uart] [esptool] Stub running...
+09:48:35.814 [uart] [esptool] Changing baudrate to 460800
+09:48:35.814 [uart] [esptool] Changed
+09:48:35.814 [uart] [esptool] If the chip does not respond to any further commands, consider using a lower baud rate.
+09:48:36.968 [uart] [esptool] Flash ID: 184068
+09:48:36.968 [uart] [bench] loader connected: ESP32-S3 (QFN56) (revision v0.2)
+09:48:36.968 [uart] [bench] read config-0x9000 @0x9000 (262144 bytes)
+09:48:42.695 [uart] [bench] dump config-0x9000 @0x9000 262144 bytes sha256 65973a441f0bdb09cb5a70bbb0329c3bea774767fc1f12a1eaf00f822cb7acb4 archived dumps/archive/config-0x9000-20261021-094842.bin
+09:48:44.100 [uart] [bench] console open (boot after port open is captured)
+09:48:44.100 [uart] ESP-ROM:esp32s3-20210327
+09:48:44.100 [uart] Build:Mar 27 2021
+09:48:44.100 [uart] rst:0x1 (POWERON),boot:0x8 (SPI_FAST_FLASH_BOOT)
+09:48:44.100 [uart] SPIWP:0xee
+09:48:44.100 [uart] mode:DIO, clock div:2
+09:48:44.100 [uart] load:0x3fce2820,len:0x14d0
+09:48:44.100 [uart] load:0x403c8700,len:0xdcc
+09:48:44.100 [uart] load:0x403cb700,len:0x2f54
+09:48:44.100 [uart] entry 0x403c8900
+09:48:44.100 [uart] INFO - streambewi::usb: provisioning: CONFIGURED
+09:48:49.428 [uart] WARN - iobewi_esp_wifi: Wi-Fi: connection to <ssid> failed: DisassociatedDueToInactivity
+09:48:49.602 [uart] WARN - iobewi_wifi_manager: wifi: connect failed, backoff 1000 ms
+09:48:52.099 [uart] INFO - streambewi::provisioning: wifi: ready
+09:48:52.263 [uart] INFO - streambewi::stream: net: got IP 192.168.1.17/24
+09:48:52.263 [uart] INFO - streambewi::stream: stream: connecting attempt=1 url=http://direct.franceinter.fr/live/franceinter-midfi.mp3
+09:48:52.263 [uart] INFO - streambewi::stream: stream: tcp up in 65 ms
+09:48:52.263 [uart] INFO - streambewi::stream: stream: HTTP status=301 content_length=Some(162) chunked=false
+09:48:52.263 [uart] INFO - streambewi::stream: stream: redirect 301 to http://icecast.radiofrance.fr
+09:48:52.263 [uart] INFO - streambewi::stream: stream: tcp up in 65 ms
+09:48:54.449 [uart] INFO - streambewi::stream: stream: HTTP status=200 content_length=None chunked=true
+09:48:54.880 [uart] INFO - streambewi::stream: stream: live=65536 consumed=0 lead=65536
+09:48:55.342 [uart] INFO - streambewi::usb: stream: prebuffer bytes=94208
+09:48:55.506 [uart] INFO - streambewi::usb: usb: enabling MSC for Metronic
+09:48:56.667 [uart] INFO - streambewi::stream: stream: session start live=114688
+09:49:00.826 [uart] [bench] auto reset off /Wi-Fi: connection to .* failed/
+09:49:14.405 [uart] [bench] MARK Q27-sel12
+09:49:14.543 [uart] INFO - streambewi::stream: station: switching, disk off the bus (live=386048)
+09:49:14.839 [uart] [bench] http POST /api/stations/select sent, answered in 90 ms
+09:49:15.861 [uart] INFO - streambewi::stream: station: selection persisted=true in 69 ms
+09:49:15.861 [uart] INFO - streambewi::stream: stream: connecting attempt=2 url=https://icecast.radiofrance.fr/franceinterlamusiqueinter-midfi.mp3
+09:49:15.861 [uart] INFO - streambewi::stream: stream: tls up in 563 ms
+09:49:16.004 [uart] INFO - streambewi::stream: stream: HTTP status=200 content_length=None chunked=true
+09:49:16.568 [uart] INFO - streambewi::stream: station: disk back after 2081 ms (live=461824)
+09:49:16.733 [uart] INFO - streambewi::stream: stream: session end consumed=0 live=461824
+09:49:16.733 [uart] INFO - streambewi::stream: stream: session start live=478208
+09:50:10.826 [uart] [bench] MARK Q27-msc
+09:50:16.044 [uart] INFO - streambewi::stream: stream: live=1412608 consumed=1330688 lead=81920
+09:51:16.262 [uart] INFO - streambewi::stream: stream: live=2376192 consumed=2294784 lead=81408
+09:52:16.358 [uart] INFO - streambewi::stream: stream: live=3339264 consumed=3257344 lead=81920
+09:53:16.525 [uart] INFO - streambewi::stream: stream: live=4301312 consumed=4219392 lead=81920
+09:53:41.116 [uart] [bench] MARK Q27-sel4
+09:53:41.540 [uart] INFO - streambewi::stream: station: switching, disk off the bus (live=4697088)
+09:53:41.715 [uart] [bench] http POST /api/stations/select sent, answered in 83 ms
+09:53:41.887 [uart] INFO - streambewi::stream: station: selection persisted=true in 145 ms
+09:53:41.887 [uart] INFO - streambewi::stream: stream: connecting attempt=3 url=http://icecast.radiofrance.fr/fip-midfi.mp3
+09:53:42.126 [uart] INFO - streambewi::stream: stream: tcp up in 50 ms
+09:53:42.138 [uart] INFO - streambewi::stream: stream: HTTP status=200 content_length=None chunked=true
+09:53:42.826 [uart] INFO - streambewi::stream: station: disk back after 1502 ms (live=4789248)
+09:53:43.633 [uart] INFO - streambewi::stream: stream: session end consumed=0 live=4791296
+09:53:43.633 [uart] INFO - streambewi::stream: stream: session start live=4791296
+09:54:21.473 [uart] [bench] MARK Q27-sel14
+09:54:21.932 [uart] [bench] http POST /api/stations/select sent, answered in 86 ms
+09:54:42.248 [uart] INFO - streambewi::stream: stream: live=5725696 consumed=5643776 lead=81920
+09:55:02.031 [uart] [bench] MARK Q27-sel13
+09:55:02.456 [uart] INFO - streambewi::stream: station: switching, disk off the bus (live=6048768)
+09:55:02.631 [uart] [bench] http POST /api/stations/select sent, answered in 88 ms
+09:55:02.806 [uart] INFO - streambewi::stream: station: selection persisted=true in 56 ms
+09:55:02.806 [uart] INFO - streambewi::stream: stream: connecting attempt=4 url=https://icecast.walmradio.com:8443/jazz
+09:55:04.175 [uart] INFO - streambewi::stream: stream: tls up in 1417 ms
+09:55:04.654 [uart] WARN - streambewi::stream: stream: response head refused (malformed)
+09:55:06.378 [uart] INFO - streambewi::stream: stream: connecting attempt=5 url=https://icecast.walmradio.com:8443/jazz
+09:55:07.800 [uart] INFO - streambewi::stream: stream: tls up in 1377 ms
+09:55:08.392 [uart] WARN - streambewi::stream: stream: response head refused (malformed)
+09:55:10.492 [uart] INFO - streambewi::stream: stream: connecting attempt=6 url=https://icecast.walmradio.com:8443/jazz
+09:55:11.622 [uart] INFO - streambewi::stream: stream: tls up in 1347 ms
+09:55:11.803 [uart] WARN - streambewi::stream: stream: response head refused (malformed)
+09:55:13.712 [uart] INFO - streambewi::stream: stream: connecting attempt=7 url=https://icecast.walmradio.com:8443/jazz
+09:55:15.130 [uart] INFO - streambewi::stream: stream: tls up in 1338 ms
+09:55:15.284 [uart] WARN - streambewi::stream: stream: response head refused (malformed)
+09:55:17.165 [uart] INFO - streambewi::stream: stream: connecting attempt=8 url=https://icecast.walmradio.com:8443/jazz
+09:55:18.546 [uart] INFO - streambewi::stream: stream: tls up in 1376 ms
+09:55:18.720 [uart] WARN - streambewi::stream: stream: response head refused (malformed)
+09:55:20.711 [uart] INFO - streambewi::stream: stream: connecting attempt=9 url=https://icecast.walmradio.com:8443/jazz
+09:55:22.058 [uart] INFO - streambewi::stream: stream: tls up in 1340 ms
+09:55:22.229 [uart] WARN - streambewi::stream: stream: response head refused (malformed)
+09:55:24.214 [uart] INFO - streambewi::stream: stream: connecting attempt=10 url=https://icecast.walmradio.com:8443/jazz
+09:55:25.562 [uart] INFO - streambewi::stream: stream: tls up in 1338 ms
+09:55:26.345 [uart] WARN - streambewi::stream: stream: response head refused (malformed)
+09:55:27.769 [uart] INFO - streambewi::stream: stream: connecting attempt=11 url=https://icecast.walmradio.com:8443/jazz
+09:55:29.164 [uart] INFO - streambewi::stream: stream: tls up in 1381 ms
+09:55:29.721 [uart] WARN - streambewi::stream: stream: response head refused (malformed)
+09:55:31.387 [uart] INFO - streambewi::stream: stream: connecting attempt=12 url=https://icecast.walmradio.com:8443/jazz
+09:55:32.739 [uart] INFO - streambewi::stream: stream: tls up in 1343 ms
+09:55:33.555 [uart] WARN - streambewi::stream: stream: response head refused (malformed)
+09:55:34.917 [uart] INFO - streambewi::stream: stream: connecting attempt=13 url=https://icecast.walmradio.com:8443/jazz
+09:55:36.292 [uart] INFO - streambewi::stream: stream: tls up in 1338 ms
+09:55:37.047 [uart] WARN - streambewi::stream: stream: response head refused (malformed)
+09:55:39.001 [uart] INFO - streambewi::stream: stream: connecting attempt=14 url=https://icecast.walmradio.com:8443/jazz
+09:55:40.991 [uart] INFO - streambewi::stream: stream: tls up in 1340 ms
+09:55:40.991 [uart] WARN - streambewi::stream: stream: response head refused (malformed)
+09:55:42.295 [uart] INFO - streambewi::stream: stream: connecting attempt=15 url=https://icecast.walmradio.com:8443/jazz
+09:55:45.414 [uart] INFO - streambewi::stream: stream: tls up in 1375 ms
+09:55:45.414 [uart] WARN - streambewi::stream: stream: response head refused (malformed)
+09:55:46.821 [uart] INFO - streambewi::stream: stream: connecting attempt=16 url=https://icecast.walmradio.com:8443/jazz
+09:55:47.116 [uart] INFO - streambewi::stream: stream: tls up in 1345 ms
+09:55:47.270 [uart] WARN - streambewi::stream: stream: response head refused (malformed)
+09:55:49.273 [uart] INFO - streambewi::stream: stream: connecting attempt=17 url=https://icecast.walmradio.com:8443/jazz
+09:55:50.597 [uart] INFO - streambewi::stream: stream: tls up in 1340 ms
+09:55:50.759 [uart] WARN - streambewi::stream: stream: response head refused (malformed)
+09:55:52.783 [uart] INFO - streambewi::stream: stream: connecting attempt=18 url=https://icecast.walmradio.com:8443/jazz
+09:55:54.303 [uart] INFO - streambewi::stream: stream: tls up in 1486 ms
+09:55:55.134 [uart] WARN - streambewi::stream: stream: response head refused (malformed)
+09:55:56.496 [uart] INFO - streambewi::stream: stream: connecting attempt=19 url=https://icecast.walmradio.com:8443/jazz
+09:55:57.851 [uart] INFO - streambewi::stream: stream: tls up in 1339 ms
+09:55:58.240 [uart] WARN - streambewi::stream: stream: response head refused (malformed)
+09:56:00.061 [uart] INFO - streambewi::stream: stream: connecting attempt=20 url=https://icecast.walmradio.com:8443/jazz
+09:56:01.437 [uart] INFO - streambewi::stream: stream: tls up in 1356 ms
+09:56:01.605 [uart] WARN - streambewi::stream: stream: response head refused (malformed)
+09:56:03.631 [uart] INFO - streambewi::stream: stream: connecting attempt=21 url=https://icecast.walmradio.com:8443/jazz
+09:56:04.385 [uart] [bench] MARK Q27-back-to-http
+09:56:05.032 [uart] INFO - streambewi::stream: stream: tls up in 1382 ms
+09:56:05.182 [uart] WARN - streambewi::stream: stream: response head refused (malformed)
+09:56:05.827 [uart] INFO - streambewi::stream: station: switching, disk off the bus (live=6048768)
+09:56:05.993 [uart] INFO - streambewi::stream: station: selection persisted=true in 93 ms
+09:56:05.993 [uart] INFO - streambewi::stream: stream: connecting attempt=22 url=http://icecast.radiofrance.fr/fip-midfi.mp3
+09:56:05.993 [uart] [bench] http POST /api/stations/select sent, answered in 1143 ms
+09:56:06.173 [uart] INFO - streambewi::stream: stream: tcp up in 75 ms
+09:56:06.419 [uart] INFO - streambewi::stream: stream: HTTP status=200 content_length=None chunked=true
+09:56:07.373 [uart] INFO - streambewi::stream: station: disk back after 1500 ms (live=6140928)
+09:56:07.523 [uart] INFO - streambewi::stream: stream: session end consumed=0 live=6145024
+09:56:07.523 [uart] INFO - streambewi::stream: stream: session start live=6145024
+09:56:44.429 [uart] [bench] MARK Q27-restore
