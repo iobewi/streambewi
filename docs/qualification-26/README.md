@@ -36,6 +36,9 @@ appareil ; les requêtes d'ajout envoyées à la carte sont **exactement celles 
    refusée à la lecture. La carte retente alors toutes les ~3,5 s, avec une poignée de main de 1,3 s à chaque
    fois. Correction possible, dans une PR du socle : une capacité d'en-têtes plus grande, ou ignorer le surplus.
    Je n'ai pas élargi le périmètre de cette PR.
+   **Corrigé depuis** : rust-mcu-libs #82 (`abd8b33`, 48 en-têtes, refus explicite au-delà) et StreamBeWI #29.
+   La même station, relue sur la carte avec ce correctif : TLS 1 395 ms, statut 200, MP3 reçu et consommé par le
+   Metronic ; son écoute a des sauts attribués, sans preuve, au débit de 320 kbit/s (investigation séparée).
 3. Le catalogue public ne garantit pas la lisibilité : le tri est syntaxique (codec, HLS, URL), il ne prouve pas
    que le flux se lit.
 
