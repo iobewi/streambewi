@@ -414,7 +414,20 @@ fn app<'a, B: ConfigBackend>(
             get(|| async {
                 (
                     ("Content-Type", "text/css; charset=utf-8"),
+                    // A page and its scripts come from the same firmware: never a script from the previous one.
+                    ("Cache-Control", "no-store"),
                     include_str!("ui.css"),
+                )
+            }),
+        )
+        .route(
+            "/catalog.js",
+            get(|| async {
+                (
+                    ("Content-Type", "application/javascript; charset=utf-8"),
+                    // A page and its scripts come from the same firmware: never a script from the previous one.
+                    ("Cache-Control", "no-store"),
+                    include_str!("catalog.js"),
                 )
             }),
         )
@@ -423,6 +436,8 @@ fn app<'a, B: ConfigBackend>(
             get(|| async {
                 (
                     ("Content-Type", "application/javascript; charset=utf-8"),
+                    // A page and its scripts come from the same firmware: never a script from the previous one.
+                    ("Cache-Control", "no-store"),
                     include_str!("ui.js"),
                 )
             }),
@@ -597,6 +612,13 @@ mod tests {
         .unwrap();
         assert_eq!(secure.url, "https://example.org:8443/live.mp3?k=v");
         assert!(deserialize_form::<IdForm>(UrlEncodedString("id=2&extra=1")).is_err());
+    }
+    #[test]
+    fn the_page_loads_the_catalog_filter_before_the_ui() {
+        let catalog = PAGE.find("/catalog.js").expect("catalog.js is in the page");
+        let ui = PAGE.find("/ui.js").expect("ui.js is in the page");
+        assert!(catalog < ui, "ui.js uses StreamCatalog");
+        assert!(include_str!("ui.js").contains("StreamCatalog.sort"));
     }
     #[test]
     fn ap_configuration_matches_the_page_contract() {

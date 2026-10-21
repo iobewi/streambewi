@@ -120,8 +120,8 @@
   });
   let searchSequence=0;
   async function catalogFetch(server,query,signal) {
-    const r=await fetch('https://'+server+'/json/stations/search?'+new URLSearchParams({name:query,codec:'MP3',codecExact:'true',hidebroken:'true',limit:'60',order:'clickcount',reverse:'true'}),{signal,credentials:'omit',referrerPolicy:'no-referrer'});
-    if(!r.ok)throw new Error('catalogue');return r.json();
+    const r=await fetch('https://'+server+'/json/stations/search?'+new URLSearchParams({name:query,hidebroken:'true',limit:'200',order:'clickcount',reverse:'true'}),{signal,credentials:'omit',referrerPolicy:'no-referrer'});
+    if(!r.ok)throw new Error('catalogue');const list=await r.json();if(!Array.isArray(list))throw new Error('catalogue');return list;
   }
   $('search-form').addEventListener('submit',async e=>{
     e.preventDefault();const seq=++searchSequence,query=$('query').value.trim();if(!query)return;
@@ -133,11 +133,8 @@
         try{found=await catalogFetch(server,query,abort.signal);break;}catch(e){if(abort.signal.aborted)throw e;}
       }
       if(!found)throw new Error('catalogue');if(seq!==searchSequence)return;
-      const seen=new Set(), compatible=found.filter(s=>{
-        if(s.codec!=='MP3'||s.hls!==0||!/^https?:\/\//.test(s.url_resolved)||s.url_resolved.length>256||seen.has(s.url_resolved))return false;
-        seen.add(s.url_resolved);return true;
-      }).slice(0,12);
-      message('search-message',compatible.length?'Ajoutez vos coups de cœur à vos favoris.':'Aucun flux compatible trouvé. Essayez un autre nom ou une adresse manuelle.');
+      const sorted=StreamCatalog.sort(found,12),compatible=sorted.compatible;
+      message('search-message',StreamCatalog.summary(sorted));
       compatible.forEach(s=>{
         const row=document.createElement('div');row.className='result-row';const name=document.createElement('span');name.className='row-name';name.textContent=s.name;
         const add=document.createElement('button');add.className='small-button';add.textContent='Ajouter';

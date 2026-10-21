@@ -51,11 +51,27 @@ préparation et changement de station sont distingués sans exposer les détails
 
 ## Catalogue et logos
 
-Le navigateur interroge Radio Browser en HTTPS (miroirs de1 puis nl1 en repli), filtre les MP3
-non-HLS dont le flux résolu est en HTTP ou HTTPS, et permet d'ajouter le résultat aux favoris.
-Le producteur embarqué ouvre HTTP et HTTPS (voir [streaming HTTPS](https-streaming.md)) ; il ne sait
-pas ouvrir AAC/HLS ni des playlists. Une URL manuelle doit être un flux MP3 direct en HTTP ou HTTPS ;
-ce format n'est pas prouvé par le validateur syntaxique. Le catalogue peut aussi contenir des entrées périmées ou mal décrites.
+Le navigateur interroge Radio Browser en HTTPS (miroirs de1 puis nl1 en repli, aussi quand la réponse n'est
+pas une liste) **par nom seulement** (`hidebroken=true`, 200 résultats, tri par popularité) : le serveur ne
+filtre plus le codec, car une fiche dont le codec est « UNKNOWN » ou HLS disparaissait sans explication (#26).
+Le tri se fait dans le navigateur (`app/src/catalog.js`, testé par `tools/qual/check-catalog.cjs`) :
+
+- proposée : codec MP3 (casse et espaces ignorés), `hls` à 0, URL `http://` ou `https://` que le firmware
+  accepterait d'enregistrer (≤ 256 caractères, sans espace, sans `@` ni `#`), hors liste de lecture
+  (`.m3u`, `.m3u8`, `.pls`, `.asx`, `.xspf`), une fois par URL, 12 au plus ;
+- non proposée mais comptée : HLS, AAC ou autre codec, liste de lecture, URL refusée. L'interface le dit :
+  « Aucune station trouvée », « Station trouvée, mais son format n'est pas pris en charge » ou, à côté de
+  résultats lisibles, « N autres stations trouvées dans un format non pris en charge ».
+
+Le producteur embarqué ouvre HTTP et HTTPS (voir [streaming HTTPS](https-streaming.md)) ; il ne sait pas
+ouvrir AAC/HLS ni des playlists. Une URL manuelle doit être un flux MP3 direct en HTTP ou HTTPS ; ce format
+n'est pas prouvé par le validateur syntaxique. Le catalogue peut aussi contenir des entrées périmées ou mal
+décrites. Exemple : « Mon Petit France Inter » n'est dans l'annuaire qu'en HLS (`stream.radiofrance.fr/…m3u8`) ;
+son flux MP3 `https://icecast.radiofrance.fr/monpetitfranceinter-midfi.mp3` y est absent : il s'ajoute par
+l'adresse manuelle.
+
+La page, `ui.js`, `catalog.js` et `ui.css` sont servis `Cache-Control: no-store` : un navigateur ne garde
+pas un script du firmware précédent.
 
 Catalogue et logos sont téléchargés par le téléphone/PC ; pas par la clé. Sans Internet sur ce
 navigateur, recherche indisponible mais favoris, interface et radio de remplacement restent

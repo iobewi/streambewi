@@ -32,7 +32,7 @@ const root=path.resolve(__dirname,'../../app/src');
   if(fs.existsSync(file))return route.fulfill({body:fs.readFileSync(file,'utf8').replace('<!--S-->',''),contentType:file.endsWith('.js')?'application/javascript':file.endsWith('.css')?'text/css':'text/html'});
   return route.fulfill({status:404,body:'Not found'});
  });
- await page.route('https://*.api.radio-browser.info/**',route=>route.fulfill({json:[{name:'Radio test',url_resolved:'http://example.org/radio',favicon:'',codec:'MP3',hls:0},{name:'Unsupported',url_resolved:'https://example.org/tls',favicon:'',codec:'MP3',hls:0}]}));
+ await page.route('https://*.api.radio-browser.info/**',route=>route.fulfill({json:[{name:'Radio test',url_resolved:'http://example.org/radio',favicon:'',codec:'MP3',hls:0},{name:'Radio TLS',url_resolved:'https://example.org/tls',favicon:'',codec:'MP3',hls:0},{name:'Radio AAC',url_resolved:'https://example.org/aac',favicon:'',codec:'AAC',hls:0},{name:'Radio HLS',url_resolved:'https://example.org/live.m3u8',favicon:'',codec:'UNKNOWN',hls:1}]}));
  await page.goto('http://streambewi.test/');
  await page.getByRole('button',{name:'Choisir FIP',exact:true}).waitFor();
  assert.equal(await page.locator('.station').count(),4);
@@ -55,11 +55,13 @@ const root=path.resolve(__dirname,'../../app/src');
  await page.getByRole('button',{name:'Fermer le Wi-Fi',exact:true}).click();
  await page.getByRole('button',{name:'Ouvrir les réglages'}).click();
  await page.locator('#query').fill('Radio test');await page.getByRole('button',{name:'Chercher',exact:true}).click();
- await page.getByRole('button',{name:'Ajouter',exact:true}).waitFor();
- assert.equal(await page.locator('.result-row').count(),1);
- await page.getByRole('button',{name:'Ajouter',exact:true}).click();
+ await page.getByRole('button',{name:'Ajouter',exact:true}).first().waitFor();
+ // http and https MP3 are offered; AAC and HLS are counted, not offered as playable.
+ assert.equal(await page.locator('.result-row').count(),2);
+ assert((await page.locator('#search-message').textContent()).includes('2 autres stations trouvées dans un format non pris en charge'));
+ await page.getByRole('button',{name:'Ajouter',exact:true}).nth(1).click();
  await page.getByRole('button',{name:'Ajoutée ✓',exact:true}).waitFor();
- assert(actions.some(a=>Array.isArray(a)&&a[0].endsWith('/save')));
+ assert(actions.some(a=>Array.isArray(a)&&a[0].endsWith('/save')&&a[1].url==='https://example.org/tls'));
  // Diagnostic: lines are text, the policy form exists only when the boot allows writing it.
  await page.locator('#diag summary').click();
  await page.waitForFunction(()=>document.querySelector('#diag-log').textContent.includes('got IP'));

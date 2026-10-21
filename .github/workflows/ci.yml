@@ -14,6 +14,8 @@ jobs:
         with:
           components: rustfmt, clippy
       - run: cargo fmt --all -- --check
+      - name: Radio Browser result filter (JS, no dependencies)
+        run: node tools/qual/check-catalog.cjs && node --check app/src/ui.js
       - run: cargo +stable clippy -p streambewi-core -p streambewi --locked --target x86_64-unknown-linux-gnu --all-targets -- -D warnings
       - run: cargo +stable test -p streambewi-core -p streambewi --locked --target x86_64-unknown-linux-gnu
 
