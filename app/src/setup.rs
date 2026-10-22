@@ -148,13 +148,52 @@ pub(crate) fn status_message() -> &'static str {
     }
 }
 
-async fn page() -> ([(&'static str, &'static str); 1], Typed<String>) {
-    let (head, tail) = PAGE.split_once("<!--S-->").unwrap_or((PAGE, ""));
-    let mut body = String::with_capacity(PAGE.len() + 160);
-    body.push_str(head);
-    body.push_str(status_message());
-    body.push_str(tail);
-    (NO_STORE, Typed(HTML, body))
+async fn page() -> ([(&'static str, &'static str); 1], Typed<Page>) {
+    (NO_STORE, Typed(HTML, Page(status_message())))
+}
+
+/// The page is one answer: the stylesheet and the two scripts are part of it. A browser that opened its
+/// connections in a burst used to lose one of them to a worker that was still busy (a refused connection, no
+/// listener left), and a page without `ui.js` stays on its first text. The sources stay separate files
+/// (`ui.css`, `catalog.js`, `ui.js`, tested on their own); they are spliced in where `setup.html` marks them,
+/// and written piece by piece from flash, so a request allocates nothing for the page.
+struct Page(&'static str);
+
+impl Page {
+    /// `setup.html` cut at its markers, with what goes between the pieces. The scripts sit at the end of the
+    /// body: an inline script is not deferred, and `ui.js` needs the whole document, then `StreamCatalog`.
+    fn parts(&self) -> [&'static str; 9] {
+        let (head, rest) = PAGE.split_once("<!--CSS-->").unwrap_or((PAGE, ""));
+        let (body, rest) = rest.split_once("<!--S-->").unwrap_or((rest, ""));
+        let (middle, rest) = rest.split_once("<!--CATALOG-->").unwrap_or((rest, ""));
+        let (between, tail) = rest.split_once("<!--UI-->").unwrap_or((rest, ""));
+        [
+            head,
+            include_str!("ui.css"),
+            body,
+            self.0,
+            middle,
+            include_str!("catalog.js"),
+            between,
+            include_str!("ui.js"),
+            tail,
+        ]
+    }
+}
+
+impl picoserve::response::Content for Page {
+    fn content_type(&self) -> &'static str {
+        HTML
+    }
+    fn content_length(&self) -> usize {
+        self.parts().iter().map(|part| part.len()).sum()
+    }
+    async fn write_content<W: picoserve::io::Write>(self, mut writer: W) -> Result<(), W::Error> {
+        for part in self.parts() {
+            writer.write_all(part.as_bytes()).await?;
+        }
+        Ok(())
+    }
 }
 
 #[derive(Deserialize)]
@@ -423,42 +462,6 @@ fn app<'a, B: ConfigBackend>(
             }),
         )
         .route("/wifi", post(provision))
-        .route(
-            "/ui.css",
-            get(|| async {
-                (
-                    // A page and its scripts come from the same firmware: never a script from the previous one.
-                    NO_STORE,
-                    Typed("text/css; charset=utf-8", include_str!("ui.css")),
-                )
-            }),
-        )
-        .route(
-            "/catalog.js",
-            get(|| async {
-                (
-                    // A page and its scripts come from the same firmware: never a script from the previous one.
-                    NO_STORE,
-                    Typed(
-                        "application/javascript; charset=utf-8",
-                        include_str!("catalog.js"),
-                    ),
-                )
-            }),
-        )
-        .route(
-            "/ui.js",
-            get(|| async {
-                (
-                    // A page and its scripts come from the same firmware: never a script from the previous one.
-                    NO_STORE,
-                    Typed(
-                        "application/javascript; charset=utf-8",
-                        include_str!("ui.js"),
-                    ),
-                )
-            }),
-        )
         .route("/api/state", get(move || async move { state(radio).await }))
         .route(
             "/api/scan",
@@ -680,11 +683,49 @@ mod tests {
         assert!(deserialize_form::<IdForm>(UrlEncodedString("id=2&extra=1")).is_err());
     }
     #[test]
-    fn the_page_loads_the_catalog_filter_before_the_ui() {
-        let catalog = PAGE.find("/catalog.js").expect("catalog.js is in the page");
-        let ui = PAGE.find("/ui.js").expect("ui.js is in the page");
+    fn the_page_runs_the_catalog_filter_before_the_ui_once_the_document_is_there() {
+        let parts = Page("").parts();
+        let page: String = parts.concat();
+        let body_end = page.rfind("</body>").expect("a closed body");
+        let catalog = page
+            .find(include_str!("catalog.js"))
+            .expect("catalog.js is in the page");
+        let ui = page
+            .find(include_str!("ui.js"))
+            .expect("ui.js is in the page");
         assert!(catalog < ui, "ui.js uses StreamCatalog");
         assert!(include_str!("ui.js").contains("StreamCatalog.sort"));
+        // An inline script is not deferred: both come after the markup `ui.js` looks up, not in the head.
+        let markup = page
+            .find("id=\"stations\"")
+            .expect("the favourites section");
+        assert!(markup < catalog && ui < body_end);
+        assert!(page.find("<style>").unwrap() < page.find("<main>").unwrap());
+    }
+    #[test]
+    fn the_page_needs_no_other_download_and_leaves_no_marker() {
+        let page: String = Page("ok").parts().concat();
+        for marker in ["<!--CSS-->", "<!--S-->", "<!--CATALOG-->", "<!--UI-->"] {
+            assert!(!page.contains(marker), "{marker} was not replaced");
+        }
+        for external in [
+            "<link",
+            "src=\"/",
+            "src='/",
+            "href=\"/ui",
+            "href=\"/catalog",
+        ] {
+            assert!(
+                !page.contains(external),
+                "the page still fetches {external}"
+            );
+        }
+        // The sources are inert text in their element: nothing in them can end it early.
+        assert!(!include_str!("ui.css").contains("</style"));
+        for script in [include_str!("ui.js"), include_str!("catalog.js")] {
+            assert!(!script.contains("</script") && !script.contains("<!--"));
+        }
+        assert!(page.contains(">ok</p>"));
     }
     #[test]
     fn ap_configuration_matches_the_page_contract() {
@@ -1062,13 +1103,6 @@ mod routing_tests {
         }
         let expected: &[(&str, &str, &str)] = &[
             ("GET", "/", "text/html; charset=utf-8"),
-            ("GET", "/ui.css", "text/css; charset=utf-8"),
-            ("GET", "/ui.js", "application/javascript; charset=utf-8"),
-            (
-                "GET",
-                "/catalog.js",
-                "application/javascript; charset=utf-8",
-            ),
             ("GET", "/status", "text/plain; charset=utf-8"),
             ("GET", "/api/state", "application/json; charset=utf-8"),
             ("GET", "/api/logs", "application/json; charset=utf-8"),
@@ -1117,18 +1151,22 @@ mod routing_tests {
                     .unwrap_or_else(|| panic!("{method} {path}: no Content-Length"));
                 assert_eq!(length, payload.len(), "{method} {path}: length");
             }
-            // The embedded files go out byte for byte.
-            for (path, file) in [
-                ("/ui.css", include_str!("ui.css")),
-                ("/ui.js", include_str!("ui.js")),
-                ("/catalog.js", include_str!("catalog.js")),
+            // The page goes out as one answer, the three sources in it byte for byte, nothing cached.
+            let (_, raw) = call(&router, "GET", "/", "");
+            let (_, page) = split(&raw);
+            for file in [
+                include_str!("ui.css"),
+                include_str!("catalog.js"),
+                include_str!("ui.js"),
             ] {
-                let (_, raw) = call(&router, "GET", path, "");
-                assert_eq!(split(&raw).1, file, "{path}");
-                assert!(
-                    raw.contains("cache-control: no-store")
-                        || raw.contains("Cache-Control: no-store")
-                );
+                assert!(page.contains(file));
+            }
+            assert!(
+                raw.contains("cache-control: no-store") || raw.contains("Cache-Control: no-store")
+            );
+            // The files it used to link are not routes any more.
+            for path in ["/ui.css", "/ui.js", "/catalog.js"] {
+                assert_eq!(call(&router, "GET", path, "").0, 404, "{path}");
             }
             // Whatever the route, a refusal or an unknown path never carries two types either.
             for (method, path) in [("GET", "/nothing"), ("GET", "/wifi"), ("DELETE", "/ui.css")] {
