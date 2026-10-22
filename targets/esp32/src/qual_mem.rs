@@ -9,6 +9,20 @@ unsafe extern "C" {
     static _stack_start_cpu0: u32;
 }
 
+/// Lowest free bytes seen per heap region (index 0: main heap, 1: DRAM2), since boot and since the last probe.
+const REGIONS: usize = 2;
+static MIN_FREE: [AtomicUsize; REGIONS] = [const { AtomicUsize::new(usize::MAX) }; REGIONS];
+static WINDOW_MIN_FREE: [AtomicUsize; REGIONS] = [const { AtomicUsize::new(usize::MAX) }; REGIONS];
+
+/// Read-only sample of the per-region free bytes; called often so a short peak (a TLS handshake) is seen.
+pub fn sample() {
+    let h = esp_alloc::HEAP.stats();
+    for (i, region) in h.region_stats.iter().flatten().take(REGIONS).enumerate() {
+        MIN_FREE[i].fetch_min(region.free, Ordering::Relaxed);
+        WINDOW_MIN_FREE[i].fetch_min(region.free, Ordering::Relaxed);
+    }
+}
+
 const PATTERN: u32 = 0xA5A5_A5A5;
 /// Leave the bottom alone: __stack_chk_guard sits at _stack_end + 60.
 const SKIP: usize = 256;
@@ -57,10 +71,14 @@ pub fn probe(target: &'static str, label: &str) {
     for (i, region) in h.region_stats.iter().flatten().enumerate() {
         log::info!(
             target: target,
-            "qual-mem {label}: region{i} size {} used {} free {}",
+            "qual-mem {label}: region{i} size {} used {} free {} min_free {} window_min_free {}",
             region.size,
             region.used,
-            region.free
+            region.free,
+            MIN_FREE.get(i).map_or(0, |m| m.load(Ordering::Relaxed)),
+            WINDOW_MIN_FREE
+                .get(i)
+                .map_or(0, |m| m.swap(usize::MAX, Ordering::Relaxed)),
         );
     }
     log::info!(

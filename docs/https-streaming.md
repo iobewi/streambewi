@@ -41,8 +41,13 @@ de réponse de plus de 2 048 octets, un `Transfer-Encoding` autre qu'un seul `ch
 - Le tas principal reste à 80 KiB ; la DRAM libérée par le bootloader de 2ᵉ étage (`dram2_seg`, 73 744 octets)
   devient une **seconde région** `esp-alloc` (`#[esp_hal::ram(reclaimed)]`, bornes données par l'éditeur de
   liens), sans PSRAM. L'anneau audio (96 KiB statique) et la pile ne changent pas.
-- Cinq sockets réseau en STA : DHCP, DNS, flux, interface locale, SNTP. Le mode AP de configuration garde ses
-  trois sockets et ne démarre pas SNTP.
+- Sept sockets réseau en STA : DHCP, DNS, flux, SNTP et les trois travailleurs HTTP de l'interface locale. Le mode
+  AP de configuration garde DHCP, DNS et ses trois travailleurs, et ne démarre pas SNTP.
+- Les trois travailleurs HTTP (future et 4 KiB de buffers chacun, ≈ 26 Ko en tout) sont alloués **une fois** sur le
+  tas au démarrage du serveur, jamais libérés : en statique ils réduiraient la pile (réservation du lien
+  `_stack_start − _stack_end`, gardée à 36 864 octets) sous la garde. Pile réservée 57 640 octets. La région
+  principale est alors presque pleine au repos ; le TLS tient dans la DRAM2, dont le minimum libre mesuré à la
+  poignée de main est de ≈ 8,7 Ko (≈ 36 Ko avec un seul travailleur statique).
 - Une poignée de main TLS occupe l'executor environ 270 ms (RSA, 240 MHz) ; il n'y a ni second executor ni
   second cœur. P-384 est plus long et n'a pas été qualifié dans le produit.
 

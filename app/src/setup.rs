@@ -509,7 +509,9 @@ fn app<'a, B: ConfigBackend>(
 /// How many HTTP connections are served at once. picoserve serves one connection per `listen_and_serve`, and a
 /// connection arriving while none is listening is refused (RST), not queued. A browser opens several at once
 /// for a page and its stylesheet and scripts, and a refused stylesheet is not retried: the page stays unstyled.
-/// Each worker is one socket of the network stack (the targets size it with this) and 4 KiB of buffers.
+/// Each worker is one socket of the network stack (the targets size it with this). Its future and its 4 KiB of
+/// buffers are allocated once, when the server starts, and never freed: they stay out of the static RAM, whose
+/// remainder is the main stack, and nothing is allocated per connection.
 pub const WEB_WORKERS: usize = 3;
 
 struct Buffers {
@@ -523,9 +525,9 @@ async fn worker<P: picoserve::routing::PathRouter>(
     router: &picoserve::Router<P>,
     config: &picoserve::Config,
     stack: Stack<'static>,
-    buffers: &mut Buffers,
+    mut buffers: alloc::boxed::Box<Buffers>,
 ) -> ! {
-    let Buffers { http, rx, tx } = buffers;
+    let Buffers { http, rx, tx } = &mut *buffers;
     match picoserve::Server::new(router, config, http)
         .listen_and_serve(id, stack, 80, rx, tx)
         .await {}
@@ -544,22 +546,18 @@ pub async fn serve<B: ConfigBackend>(
         write: embassy_time::Duration::from_secs(5),
         ..picoserve::Timeouts::const_default()
     });
-    let mut buffers = [const {
-        Buffers {
-            http: [0; 2048],
-            rx: [0; 1024],
-            tx: [0; 1024],
-        }
-    }; WEB_WORKERS];
-    let mut spare = buffers.iter_mut();
     let workers: [_; WEB_WORKERS] = core::array::from_fn(|id| {
-        worker(
+        alloc::boxed::Box::pin(worker(
             id,
             &router,
             &config,
             stack,
-            spare.next().expect("one buffer set per worker"),
-        )
+            alloc::boxed::Box::new(Buffers {
+                http: [0; 2048],
+                rx: [0; 1024],
+                tx: [0; 1024],
+            }),
+        ))
     });
     embassy_futures::join::join_array(workers).await;
     unreachable!("a worker never returns")

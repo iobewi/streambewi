@@ -15,9 +15,16 @@ fn console(r: &log::Record<'_>) {
 #[cfg(feature = "qual")]
 #[embassy_executor::task]
 async fn qual_probe() {
+    // Sample the per-region free heap every 50 ms, probe (stack paint included) every 30 s.
+    let mut ticks = 0u32;
+    qual_mem::probe("streambewi::qual", "boot");
     loop {
-        embassy_time::Timer::after_secs(30).await;
-        qual_mem::probe("streambewi::qual", "periodic");
+        embassy_time::Timer::after_millis(50).await;
+        qual_mem::sample();
+        ticks += 1;
+        if ticks % 600 == 0 {
+            qual_mem::probe("streambewi::qual", "periodic");
+        }
     }
 }
 
