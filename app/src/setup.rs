@@ -533,19 +533,32 @@ async fn worker<P: picoserve::routing::PathRouter>(
         .await {}
 }
 
+/// How long a silent connection (no request byte) may hold a worker before the server closes it.
+const START_READ_REQUEST: embassy_time::Duration = embassy_time::Duration::from_secs(10);
+/// Bound on reading a request once it has started, **and on the closing handshake**: picoserve ends a connection
+/// by sending its FIN and then waits, for at most this long, for the client to close its own side before the
+/// worker listens again. A client that keeps its socket open (a browser's idle or lingering connection) holds the
+/// worker for the whole time; with three workers that refused every other connection for 90 s (#28).
+const READ_REQUEST: embassy_time::Duration = embassy_time::Duration::from_secs(5);
+const WRITE: embassy_time::Duration = embassy_time::Duration::from_secs(5);
+
+/// Bounded HTTP clients, no keep-alive.
+fn config() -> picoserve::Config {
+    picoserve::Config::new(picoserve::Timeouts {
+        start_read_request: START_READ_REQUEST,
+        read_request: READ_REQUEST,
+        write: WRITE,
+        ..picoserve::Timeouts::const_default()
+    })
+}
+
 pub async fn serve<B: ConfigBackend>(
     stack: Stack<'static>,
     radio: &Radio<B>,
     diag: &crate::diag::Diag<B>,
 ) -> ! {
     let router = app(radio, diag);
-    // A connection attempt + DHCP may take time. Bounded HTTP clients, no keep-alive.
-    let config = picoserve::Config::new(picoserve::Timeouts {
-        start_read_request: embassy_time::Duration::from_secs(10),
-        read_request: embassy_time::Duration::from_secs(90),
-        write: embassy_time::Duration::from_secs(5),
-        ..picoserve::Timeouts::const_default()
-    });
+    let config = config();
     let workers: [_; WEB_WORKERS] = core::array::from_fn(|id| {
         alloc::boxed::Box::pin(worker(
             id,
@@ -1128,5 +1141,146 @@ mod routing_tests {
                 assert!(n <= 1, "{method} {path}: {n} content types");
             }
         });
+    }
+}
+
+/// How long a worker stays unavailable after a client that does not behave: picoserve runs on a tokio socket here
+/// (the firmware uses the embassy one; the connection logic is the same), with the firmware's own timeouts.
+/// Three workers as on the board, one connection at a time each; a probe request measures when one is free again.
+#[cfg(test)]
+mod worker_release_tests {
+    use super::*;
+    use std::time::{Duration, Instant};
+    use tokio::{
+        io::{AsyncReadExt, AsyncWriteExt},
+        net::{TcpListener, TcpStream},
+        task::LocalSet,
+    };
+
+    const GET: &[u8] = b"GET /api/state HTTP/1.1\r\nHost: t\r\nConnection: close\r\n\r\n";
+
+    async fn workers(listener: TcpListener) {
+        let listener = std::rc::Rc::new(listener);
+        for _ in 0..WEB_WORKERS {
+            let listener = listener.clone();
+            tokio::task::spawn_local(async move {
+                let router = picoserve::Router::new()
+                    .route("/api/state", picoserve::routing::get(|| async { "{}" }));
+                let config = config();
+                let mut buffer = [0; 2048];
+                loop {
+                    let (socket, _) = listener.accept().await.unwrap();
+                    let _ = picoserve::Server::new_tokio(&router, &config, &mut buffer)
+                        .serve(socket)
+                        .await;
+                }
+            });
+        }
+    }
+
+    /// A well-behaved client: one request, read the answer to the end, close. Returns the wait until the answer.
+    async fn probe(addr: std::net::SocketAddr) -> Duration {
+        let started = Instant::now();
+        let mut socket = TcpStream::connect(addr).await.unwrap();
+        socket.write_all(GET).await.unwrap();
+        let mut answer = Vec::new();
+        socket.read_to_end(&mut answer).await.unwrap();
+        assert!(answer.starts_with(b"HTTP/1.1 200"), "{answer:?}");
+        started.elapsed()
+    }
+
+    async fn run<F: std::future::Future<Output = ()>>(
+        scenario: impl FnOnce(std::net::SocketAddr) -> F,
+    ) {
+        LocalSet::new()
+            .run_until(async {
+                let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+                let addr = listener.local_addr().unwrap();
+                workers(listener).await;
+                scenario(addr).await;
+            })
+            .await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn a_normal_request_is_answered_at_once() {
+        run(|addr| async move {
+            assert!(probe(addr).await < Duration::from_secs(1));
+        })
+        .await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn clients_that_keep_their_socket_open_after_the_answer_free_the_workers_within_read_request()
+     {
+        run(|addr| async move {
+            let mut held = Vec::new();
+            for _ in 0..WEB_WORKERS {
+                let mut socket = TcpStream::connect(addr).await.unwrap();
+                socket.write_all(GET).await.unwrap();
+                let mut answer = Vec::new();
+                socket.read_to_end(&mut answer).await.unwrap(); // the server's FIN is in; ours is not sent
+                held.push(socket);
+            }
+            let waited = probe(addr).await;
+            eprintln!("answer-then-hold: next request served after {waited:?}");
+            assert!(
+                waited >= Duration::from_secs(4),
+                "{waited:?}: they were not held at all"
+            );
+            assert!(waited < Duration::from_secs(8), "{waited:?}");
+        })
+        .await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn partially_sent_requests_free_the_workers_within_read_request() {
+        run(|addr| async move {
+            let mut held = Vec::new();
+            for _ in 0..WEB_WORKERS {
+                let mut socket = TcpStream::connect(addr).await.unwrap();
+                socket
+                    .write_all(b"GET /api/state HTTP/1.1\r\nHost: t\r\n")
+                    .await
+                    .unwrap();
+                held.push(socket);
+            }
+            let waited = probe(addr).await;
+            eprintln!("partial request: next request served after {waited:?}");
+            assert!(waited < Duration::from_secs(8), "{waited:?}");
+        })
+        .await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn silent_connections_free_the_workers_within_start_and_read_request() {
+        run(|addr| async move {
+            let mut held = Vec::new();
+            for _ in 0..WEB_WORKERS {
+                held.push(TcpStream::connect(addr).await.unwrap());
+            }
+            let waited = probe(addr).await;
+            eprintln!("silent connections: next request served after {waited:?}");
+            assert!(
+                waited >= Duration::from_secs(9),
+                "{waited:?}: not held for the start timeout"
+            );
+            assert!(waited < Duration::from_secs(17), "{waited:?}");
+        })
+        .await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn a_slow_request_within_the_limit_is_still_served() {
+        run(|addr| async move {
+            let mut socket = TcpStream::connect(addr).await.unwrap();
+            socket.write_all(&GET[..20]).await.unwrap();
+            tokio::time::sleep(Duration::from_secs(2)).await;
+            socket.write_all(&GET[20..]).await.unwrap();
+            let mut answer = Vec::new();
+            socket.read_to_end(&mut answer).await.unwrap();
+            assert!(answer.starts_with(b"HTTP/1.1 200"), "{answer:?}");
+        })
+        .await;
     }
 }

@@ -290,6 +290,10 @@ fn main() -> ! {
         policy
             .add_target("embassy_usb", log::LevelFilter::Trace)
             .unwrap();
+        // One line per HTTP connection: listening, accepted (peer), requests handled, close errors.
+        policy
+            .add_target("picoserve", log::LevelFilter::Info)
+            .unwrap();
         iobewi_log::apply_policy(policy);
     }
     esp_alloc::heap_allocator!(size: HEAP_BYTES);
