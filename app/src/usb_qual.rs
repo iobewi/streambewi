@@ -29,8 +29,17 @@ pub enum Ev {
 }
 
 const NAMES: [&str; 11] = [
-    "enabled", "reset", "addressed", "configured", "unconfigured", "suspend", "resume", "read10",
-    "unavail", "detach", "attach",
+    "enabled",
+    "reset",
+    "addressed",
+    "configured",
+    "unconfigured",
+    "suspend",
+    "resume",
+    "read10",
+    "unavail",
+    "detach",
+    "attach",
 ];
 const N: usize = NAMES.len();
 static COUNT: [AtomicU32; N] = [const { AtomicU32::new(0) }; N];
@@ -64,10 +73,10 @@ use embassy_sync::blocking_mutex::{Mutex, raw::CriticalSectionRawMutex};
 use iobewi_fat16::{ReadOnlyBlockDevice, ReadStatus, SECTOR_SIZE};
 
 /// READ(10) commands detailed per session.
-const COMMANDS: u32 = 16;
+const COMMANDS: u32 = 40;
 /// First LBA of the file's data: boot sector, two FATs, root directory (`Geometry::data_start_lba`).
 const DATA_START: u32 = 1 + 2 * 129 + 2;
-const RECORDS: usize = 48;
+const RECORDS: usize = 64;
 /// Sessions whose first four file sectors are kept.
 const SECTOR_SESSIONS: usize = 2;
 /// Bytes of a sector per printed line, and the age a record must have before it is printed.
@@ -89,6 +98,10 @@ struct Rec {
     pending: u32,
     other: u32,
     crc: u32,
+    /// MPEG frame syncs (0xFF then 0xE0 or more) in the sectors served: audio has many, zeroes none.
+    syncs: u32,
+    /// The first 16 bytes of the first sector served by the command.
+    head: [u8; 16],
     live: u64,
     consumed: u64,
     base: u64,
@@ -107,6 +120,8 @@ const EMPTY: Rec = Rec {
     pending: 0,
     other: 0,
     crc: 0,
+    syncs: 0,
+    head: [0; 16],
     live: 0,
     consumed: 0,
     base: u64::MAX,
@@ -240,10 +255,15 @@ pub fn sector(lba: u32, status: ReadStatus, data: &[u8; SECTOR_SIZE]) {
     }
     // The checksum is computed outside the critical section.
     let open = QUAL.lock(|c| c.borrow().open);
-    let crc = if open && status == ReadStatus::Ready {
-        Some(crc32(0, data))
+    let (crc, syncs) = if open && status == ReadStatus::Ready {
+        (
+            Some(crc32(0, data)),
+            data.windows(2)
+                .filter(|w| w[0] == 0xFF && w[1] & 0xE0 == 0xE0)
+                .count() as u32,
+        )
     } else {
-        None
+        (None, 0)
     };
     QUAL.lock(|c| {
         let mut q = c.borrow_mut();
@@ -251,6 +271,9 @@ pub fn sector(lba: u32, status: ReadStatus, data: &[u8; SECTOR_SIZE]) {
             let r = &mut q.cur;
             r.first_lba = r.first_lba.min(lba);
             r.last_lba = r.last_lba.max(lba);
+            if r.sectors == 0 {
+                r.head.copy_from_slice(&data[..16]);
+            }
             r.sectors += 1;
             r.end = t;
             match status {
@@ -258,6 +281,7 @@ pub fn sector(lba: u32, status: ReadStatus, data: &[u8; SECTOR_SIZE]) {
                     r.ready += 1;
                     // Combined by xor: the same sectors give the same value whatever their order of arrival.
                     r.crc ^= crc.unwrap_or(0);
+                    r.syncs += syncs;
                 }
                 ReadStatus::Pending => r.pending += 1,
                 _ => r.other += 1,
@@ -268,11 +292,11 @@ pub fn sector(lba: u32, status: ReadStatus, data: &[u8; SECTOR_SIZE]) {
             && idx < 4
         {
             let session = q.session;
-            if let Some(slot) = q.sec_session.iter().position(|s| *s == session) {
-                if q.sec_seen[slot] & (1 << idx) == 0 {
-                    q.sec_seen[slot] |= 1 << idx;
-                    q.sectors[slot][idx as usize] = *data;
-                }
+            if let Some(slot) = q.sec_session.iter().position(|s| *s == session)
+                && q.sec_seen[slot] & (1 << idx) == 0
+            {
+                q.sec_seen[slot] |= 1 << idx;
+                q.sectors[slot][idx as usize] = *data;
             }
         }
     });
@@ -296,7 +320,7 @@ pub fn drain() {
     });
     if let Some(r) = rec {
         log::info!(
-            "usb-qual rd: s={} c={} start={} end={} dur={} lba={}..{} fidx={:?} n={} ready={} pend={} other={} xor={:08x} live={} consumed={} base={:?}",
+            "usb-qual rd: s={} c={} start={} end={} dur={} lba={}..{} fidx={:?} n={} ready={} pend={} other={} xor={:08x} syncs={} head={} live={} consumed={} base={:?}",
             r.session,
             r.command,
             r.start,
@@ -310,9 +334,15 @@ pub fn drain() {
             r.pending,
             r.other,
             r.crc,
+            r.syncs,
+            Hex(&r.head),
             r.live,
             r.consumed,
-            if r.base == u64::MAX { None } else { Some(r.base) }
+            if r.base == u64::MAX {
+                None
+            } else {
+                Some(r.base)
+            }
         );
         return;
     }
@@ -326,7 +356,9 @@ pub fn drain() {
             }
             // Only the current or an earlier session: its start is not stored per slot, so use the age of the
             // last read as the quiet signal.
-            if t.wrapping_sub(LAST_SECTOR_MS.load(Relaxed)) < 400 && q.sec_session[slot] == q.session {
+            if t.wrapping_sub(LAST_SECTOR_MS.load(Relaxed)) < 400
+                && q.sec_session[slot] == q.session
+            {
                 continue;
             }
             let n = q.sec_next[slot] as usize;
@@ -373,14 +405,25 @@ pub fn report(tag: &str) {
     for i in 0..N {
         let n = COUNT[i].load(Relaxed);
         if n > 0 {
-            line.push(NAMES[i], n, FIRST[i].load(Relaxed) - 1, LAST[i].load(Relaxed) - 1);
+            line.push(
+                NAMES[i],
+                n,
+                FIRST[i].load(Relaxed) - 1,
+                LAST[i].load(Relaxed) - 1,
+            );
         }
     }
     let (written, consumed) = crate::stream::STREAM.progress();
+    let resume = crate::stream::STREAM.resume_stats();
     log::info!(
-        "usb-qual {tag}: t={}{} written={written} consumed={consumed} maxidx={} lastsector={} sessions={} dropped={}",
+        "usb-qual {tag}: t={}{} written={written} consumed={consumed} resume={}/{}/{}/{}/{} maxidx={} lastsector={} sessions={} dropped={}",
         now() - 1,
         line.as_str(),
+        resume.0 as u8,
+        resume.1,
+        resume.2,
+        resume.3,
+        resume.4,
         MAX_INDEX.load(Relaxed),
         LAST_SECTOR_MS.load(Relaxed),
         SESSIONS.load(Relaxed),
@@ -397,7 +440,10 @@ mod heapless_line {
     }
     impl Line {
         pub const fn new() -> Self {
-            Self { buf: [0; 480], len: 0 }
+            Self {
+                buf: [0; 480],
+                len: 0,
+            }
         }
         pub fn push(&mut self, name: &str, n: u32, first: u32, last: u32) {
             let _ = write!(self, " {name}={n}@{first}/{last}");

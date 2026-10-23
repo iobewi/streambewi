@@ -9,6 +9,7 @@ default = []
 usb-debug = ["streambewi/usb-debug"]
 # Debug build: driver traces, stack/heap high-water probe. The operating log (Info/Warn on UART0) is
 # always on; this adds the debug detail. Off by default; CI compiles both.
+resume-rebase = ["streambewi/resume-rebase"]
 qual = ["usb-debug", "esp-alloc/internal-heap-stats", "streambewi/qual", "dep:embassy-usb-synopsys-otg"]
 
 [dependencies]

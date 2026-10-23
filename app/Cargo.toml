@@ -11,6 +11,9 @@ usb-debug = ["embassy-usb/log", "iobewi-usb-msc/usb-debug"]
 # Bench qualification only: ends the stream connection on a schedule (`QUAL_DROP_LIVES`, build-time
 # environment, seconds), alternately closed cleanly and dropped without a close. Not a network outage.
 qual = []
+# Experimental (#31): bind a resume offset the host asks for, as its first audio read of a session, to the live edge.
+# Off by default; the product keeps its own policy without it.
+resume-rebase = []
 
 [dependencies]
 streambewi-core = { path = "../core" }
