@@ -9,7 +9,7 @@ default = []
 usb-debug = ["streambewi/usb-debug"]
 # Debug build: driver traces, stack/heap high-water probe. The operating log (Info/Warn on UART0) is
 # always on; this adds the debug detail. Off by default; CI compiles both.
-qual = ["usb-debug", "esp-alloc/internal-heap-stats", "streambewi/qual"]
+qual = ["usb-debug", "esp-alloc/internal-heap-stats", "streambewi/qual", "dep:embassy-usb-synopsys-otg"]
 
 [dependencies]
 streambewi = { path = "../../app" }
@@ -24,6 +24,8 @@ static_cell = "2.1"
 esp-println = { version = "~0.18", default-features = false, features = ["esp32s3", "uart", "log-04"] }
 embassy-time = { version = "0.5", default-features = false }
 log = "0.4"
+# Read-only register snapshots of the OTG core in the qual build (qual_usb.rs); same version as the driver.
+embassy-usb-synopsys-otg = { version = "0.4", default-features = false, optional = true }
 iobewi-config-space = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "abd8b33f52f147ffa1db2996da1f62df9f488070" }
 iobewi-esp-config-space = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "abd8b33f52f147ffa1db2996da1f62df9f488070", features = ["esp32s3"] }
 iobewi-esp-flash = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "abd8b33f52f147ffa1db2996da1f62df9f488070", features = ["esp32s3"] }

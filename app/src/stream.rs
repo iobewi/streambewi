@@ -231,6 +231,17 @@ impl FileSource for SharedStreamSource {
             .inner
             .lock(|c| c.borrow().session().map(|s| s.base));
         let status = self.with_file(|file| file.read_file_sector(index, out));
+        #[cfg(feature = "qual")]
+        crate::usb_qual::data_read(
+            index,
+            status == ReadStatus::Pending,
+            self.stream.progress().0,
+            before,
+        );
+        #[cfg(feature = "qual")]
+        if index == 0 && status == ReadStatus::Ready {
+            crate::usb_qual::head(out);
+        }
         if status == ReadStatus::Ready {
             self.stream
                 .last_read

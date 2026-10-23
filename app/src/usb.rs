@@ -93,10 +93,14 @@ impl StreamReadPolicy {
 
 impl ReadPolicy for StreamReadPolicy {
     fn command_started(&mut self) {
+        #[cfg(feature = "qual")]
+        crate::usb_qual::note(crate::usb_qual::Ev::Read10);
         self.command_start = Instant::now();
     }
 
     fn unavailable(&mut self, status: ReadStatus, _sector_elapsed: Duration) -> ReadAction {
+        #[cfg(feature = "qual")]
+        crate::usb_qual::note(crate::usb_qual::Ev::Unavailable);
         if is_stall(status, self.stream.producer_idle()) {
             self.stall.signal(());
         }
@@ -167,15 +171,31 @@ impl Handler for BusLog {
         log::info!("usb: enabled={}", enabled);
     }
     fn reset(&mut self) {
+        #[cfg(feature = "qual")]
+        crate::usb_qual::note(crate::usb_qual::Ev::BusReset);
         log::info!("usb: bus reset");
     }
     fn addressed(&mut self, addr: u8) {
+        #[cfg(feature = "qual")]
+        crate::usb_qual::note(crate::usb_qual::Ev::Addressed);
         log::info!("usb: addressed={}", addr);
     }
     fn configured(&mut self, configured: bool) {
+        #[cfg(feature = "qual")]
+        crate::usb_qual::note(if configured {
+            crate::usb_qual::Ev::Configured
+        } else {
+            crate::usb_qual::Ev::Unconfigured
+        });
         log::info!("usb: configured={}", configured);
     }
     fn suspended(&mut self, suspended: bool) {
+        #[cfg(feature = "qual")]
+        crate::usb_qual::note(if suspended {
+            crate::usb_qual::Ev::Suspend
+        } else {
+            crate::usb_qual::Ev::Resume
+        });
         log::info!("usb: suspended={}", suspended);
     }
 }
@@ -214,6 +234,8 @@ where
     let (written, _) = STREAM.progress();
     log::info!("stream: prebuffer bytes={}", written);
     log::info!("usb: enabling MSC for Metronic");
+    #[cfg(feature = "qual")]
+    crate::usb_qual::note(crate::usb_qual::Ev::Enabled);
 
     let mut usb_config = embassy_usb::Config::new(0x303A, 0x4001);
     usb_config.manufacturer = Some("IOBEWI");

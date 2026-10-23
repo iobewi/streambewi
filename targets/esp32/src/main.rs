@@ -4,6 +4,8 @@
 extern crate alloc;
 #[cfg(feature = "qual")]
 mod qual_mem;
+#[cfg(feature = "qual")]
+mod qual_usb;
 mod serial;
 
 fn console(r: &log::Record<'_>) {
@@ -45,6 +47,12 @@ struct S3UsbLink;
 
 impl streambewi::usb::UsbLink for S3UsbLink {
     fn set_connected(&self, connected: bool) {
+        #[cfg(feature = "qual")]
+        streambewi::usb_qual::note(if connected {
+            streambewi::usb_qual::Ev::Attach
+        } else {
+            streambewi::usb_qual::Ev::Detach
+        });
         iobewi_esp_usb::set_connected(connected);
     }
 }
@@ -200,6 +208,10 @@ async fn product(p: Resources, spawner: Spawner) {
     let button = Input::new(p.button, InputConfig::default().with_pull(Pull::Up));
     let mut rtc = Rtc::new(p.rtc);
     let otg_active = usb.is_some();
+    #[cfg(feature = "qual")]
+    if otg_active {
+        spawner.spawn(qual_usb::probe().unwrap());
+    }
     let reset = move || {
         if otg_active {
             // Only when the disk is presented over USB-OTG (never in the provisioning boot, where the
