@@ -94,7 +94,10 @@ impl StreamReadPolicy {
 impl ReadPolicy for StreamReadPolicy {
     fn command_started(&mut self) {
         #[cfg(feature = "qual")]
-        crate::usb_qual::note(crate::usb_qual::Ev::Read10);
+        {
+            crate::usb_qual::note(crate::usb_qual::Ev::Read10);
+            crate::usb_qual::command_started();
+        }
         self.command_start = Instant::now();
     }
 
@@ -270,9 +273,12 @@ where
 
     let mut msc = MscClass::new(&mut builder, msc_state, MSC_IDENTITY);
     let mut usb_device = builder.build();
+    #[cfg_attr(feature = "qual", allow(unused_mut))]
     let mut disk = VirtualFat16::new(SharedStreamSource::new(&STREAM), FAT16_CONFIG)
         .expect("valid FAT16 config");
 
+    #[cfg(feature = "qual")]
+    let mut disk = crate::usb_qual::TrackedDisk(disk);
     let device_fut = usb_device.run();
     let msc_fut = async {
         if let Err(err) = msc

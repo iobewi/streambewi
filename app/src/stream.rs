@@ -205,6 +205,14 @@ impl SharedStreamSource {
     }
 }
 
+#[cfg(feature = "qual")]
+impl SharedStream {
+    /// Where the current MSC session's file offset 0 sits in the stream (qual diagnostics only).
+    pub fn session_base(&self) -> Option<u64> {
+        self.inner.lock(|c| c.borrow().session().map(|s| s.base))
+    }
+}
+
 impl FileSource for SharedStreamSource {
     fn begin_session(&mut self) {
         if self.stream.hold.swap(false, Ordering::AcqRel) {
