@@ -148,19 +148,52 @@ pub(crate) fn status_message() -> &'static str {
     }
 }
 
-async fn page() -> ([(&'static str, &'static str); 2], String) {
-    let (head, tail) = PAGE.split_once("<!--S-->").unwrap_or((PAGE, ""));
-    let mut body = String::with_capacity(PAGE.len() + 160);
-    body.push_str(head);
-    body.push_str(status_message());
-    body.push_str(tail);
-    (
+async fn page() -> ([(&'static str, &'static str); 1], Typed<Page>) {
+    (NO_STORE, Typed(HTML, Page(status_message())))
+}
+
+/// The page is one answer: the stylesheet and the two scripts are part of it. A browser that opened its
+/// connections in a burst used to lose one of them to a worker that was still busy (a refused connection, no
+/// listener left), and a page without `ui.js` stays on its first text. The sources stay separate files
+/// (`ui.css`, `catalog.js`, `ui.js`, tested on their own); they are spliced in where `setup.html` marks them,
+/// and written piece by piece from flash, so a request allocates nothing for the page.
+struct Page(&'static str);
+
+impl Page {
+    /// `setup.html` cut at its markers, with what goes between the pieces. The scripts sit at the end of the
+    /// body: an inline script is not deferred, and `ui.js` needs the whole document, then `StreamCatalog`.
+    fn parts(&self) -> [&'static str; 9] {
+        let (head, rest) = PAGE.split_once("<!--CSS-->").unwrap_or((PAGE, ""));
+        let (body, rest) = rest.split_once("<!--S-->").unwrap_or((rest, ""));
+        let (middle, rest) = rest.split_once("<!--CATALOG-->").unwrap_or((rest, ""));
+        let (between, tail) = rest.split_once("<!--UI-->").unwrap_or((rest, ""));
         [
-            ("Content-Type", "text/html; charset=utf-8"),
-            ("Cache-Control", "no-store"),
-        ],
-        body,
-    )
+            head,
+            include_str!("ui.css"),
+            body,
+            self.0,
+            middle,
+            include_str!("catalog.js"),
+            between,
+            include_str!("ui.js"),
+            tail,
+        ]
+    }
+}
+
+impl picoserve::response::Content for Page {
+    fn content_type(&self) -> &'static str {
+        HTML
+    }
+    fn content_length(&self) -> usize {
+        self.parts().iter().map(|part| part.len()).sum()
+    }
+    async fn write_content<W: picoserve::io::Write>(self, mut writer: W) -> Result<(), W::Error> {
+        for part in self.parts() {
+            writer.write_all(part.as_bytes()).await?;
+        }
+        Ok(())
+    }
 }
 
 #[derive(Deserialize)]
@@ -185,16 +218,33 @@ impl Credentials {
 
 const PAGE: &str = include_str!("setup.html");
 
-type HtmlReply = (StatusCode, (&'static str, &'static str), &'static str);
+/// A body with its own `Content-Type`. picoserve adds `text/plain` for a `&str` or a `String`, so a
+/// `("Content-Type", …)` header next to such a body made two contradictory headers on the wire, and a browser
+/// may pick the first. The type travels with the body instead, and the headers tuple never names it.
+struct Typed<C>(&'static str, C);
+impl<C: picoserve::response::Content> picoserve::response::Content for Typed<C> {
+    fn content_type(&self) -> &'static str {
+        self.0
+    }
+    fn content_length(&self) -> usize {
+        self.1.content_length()
+    }
+    async fn write_content<W: picoserve::io::Write>(self, writer: W) -> Result<(), W::Error> {
+        self.1.write_content(writer).await
+    }
+}
+const HTML: &str = "text/html; charset=utf-8";
+const NO_STORE: [(&str, &str); 1] = [("Cache-Control", "no-store")];
+fn json(body: String) -> Typed<String> {
+    Typed("application/json; charset=utf-8", body)
+}
+
+type HtmlReply = (StatusCode, Typed<&'static str>);
 
 /// Credentials are only accepted in the setup (AP) boot, where the client had to join the WPA2 access
 /// point. In normal operation the server is on the LAN and has no authentication.
 fn outside_setup(setup: bool) -> Option<HtmlReply> {
-    (!setup).then_some((
-        StatusCode::FORBIDDEN,
-        ("Content-Type", "text/html; charset=utf-8"),
-        "<html lang=fr><meta charset=utf-8><p>Le Wi-Fi se configure depuis le réseau StreamBeWI-Setup (bouton BOOT) ou par USB avec Improv.</p><a href=/>Retour</a></html>",
-    ))
+    (!setup).then_some((StatusCode::FORBIDDEN, Typed(HTML, "<html lang=fr><meta charset=utf-8><p>Le Wi-Fi se configure depuis le réseau StreamBeWI-Setup (bouton BOOT) ou par USB avec Improv.</p><a href=/>Retour</a></html>")))
 }
 
 async fn provision(Form(credentials): Form<Credentials>) -> HtmlReply {
@@ -208,8 +258,10 @@ async fn accept(credentials: Credentials) -> HtmlReply {
     if !credentials.valid() {
         return (
             StatusCode::BAD_REQUEST,
-            ("Content-Type", "text/html; charset=utf-8"),
-            "<html lang=fr><meta charset=utf-8><p>SSID : 1 à 32 octets. Mot de passe : vide pour un réseau ouvert, 8 à 63 octets ou 64 chiffres hexadécimaux.</p><a href=/>Réessayer</a></html>",
+            Typed(
+                HTML,
+                "<html lang=fr><meta charset=utf-8><p>SSID : 1 à 32 octets. Mot de passe : vide pour un réseau ouvert, 8 à 63 octets ou 64 chiffres hexadécimaux.</p><a href=/>Réessayer</a></html>",
+            ),
         );
     }
     // Publish pending before returning 202, including when Improv currently owns the radio.
@@ -222,8 +274,10 @@ async fn accept(credentials: Credentials) -> HtmlReply {
     {
         return (
             StatusCode::CONFLICT,
-            ("Content-Type", "text/html; charset=utf-8"),
-            "Une configuration Wi-Fi est déjà en cours. Patientez puis rechargez la page.",
+            Typed(
+                HTML,
+                "Une configuration Wi-Fi est déjà en cours. Patientez puis rechargez la page.",
+            ),
         );
     }
     let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
@@ -236,8 +290,10 @@ async fn accept(credentials: Credentials) -> HtmlReply {
         .await;
     (
         StatusCode::ACCEPTED,
-        ("Content-Type", "text/html; charset=utf-8"),
-        "<html lang=fr><meta charset=utf-8><p>Vérification en cours. Si votre connexion change, rejoignez le réseau puis rechargez la page.</p><a href=/>Retour</a></html>",
+        Typed(
+            HTML,
+            "<html lang=fr><meta charset=utf-8><p>Vérification en cours. Si votre connexion change, rejoignez le réseau puis rechargez la page.</p><a href=/>Retour</a></html>",
+        ),
     )
 }
 
@@ -256,13 +312,9 @@ struct StationForm {
 struct IdForm {
     id: u32,
 }
-const JSON_HEADERS: [(&str, &str); 2] = [
-    ("Content-Type", "application/json; charset=utf-8"),
-    ("Cache-Control", "no-store"),
-];
 fn mutation(
     result: Result<bool, crate::stations::Error>,
-) -> (StatusCode, [(&'static str, &'static str); 2], String) {
+) -> (StatusCode, [(&'static str, &'static str); 1], Typed<String>) {
     match result {
         Ok(restart) => {
             if restart {
@@ -275,34 +327,35 @@ fn mutation(
             }
             (
                 StatusCode::OK,
-                JSON_HEADERS,
-                serde_json::json!({"ok":true,"restart":restart}).to_string(),
+                NO_STORE,
+                json(serde_json::json!({"ok":true,"restart":restart}).to_string()),
             )
         }
         Err(error) => (
             StatusCode::BAD_REQUEST,
-            JSON_HEADERS,
-            serde_json::json!({"ok":false,"error":error.message()}).to_string(),
+            NO_STORE,
+            json(serde_json::json!({"ok":false,"error":error.message()}).to_string()),
         ),
     }
 }
-async fn state<B: ConfigBackend>(radio: &Radio<B>) -> ([(&'static str, &'static str); 2], String) {
+async fn state<B: ConfigBackend>(
+    radio: &Radio<B>,
+) -> ([(&'static str, &'static str); 1], Typed<String>) {
     let catalog = radio.snapshot().await;
     let (online, ssid, ip, networks) = WIFI.lock(|v| {
         let v = v.borrow();
         (v.online, v.ssid.clone(), v.ip.clone(), v.networks.clone())
     });
     (
-        JSON_HEADERS,
-        serde_json::json!({
+        NO_STORE,
+        json(serde_json::json!({
             "catalog":catalog, "online":online, "ssid":ssid, "ip":ip,
             "networks":networks, "scanning":SCANNING.load(Ordering::Relaxed) != 0,
             "setup":MODE_SETUP.load(Ordering::Relaxed) != 0,
             "reading":crate::stream::STREAM.is_reading(), "ready":crate::stream::STREAM.is_ready(),
             "restarting":RESTARTING.load(Ordering::Relaxed) != 0, "persisted":!radio.is_unsaved(),
             "wifi_message":status_message(), "wifi_status":STATUS.load(Ordering::Relaxed),
-        })
-        .to_string(),
+        }).to_string()),
     )
 }
 
@@ -319,45 +372,48 @@ struct LogsQuery {
 fn logs<B: ConfigBackend>(
     diag: &crate::diag::Diag<B>,
     n: Option<usize>,
-) -> (StatusCode, [(&'static str, &'static str); 2], String) {
+) -> (StatusCode, [(&'static str, &'static str); 1], Typed<String>) {
     use crate::diag::{DEFAULT_LINES, HISTORY_LINES};
     let n = n.unwrap_or(DEFAULT_LINES).clamp(1, HISTORY_LINES);
     let mut body = String::new();
     match diag.write_recent(n, &mut body) {
-        Ok(()) => (StatusCode::OK, JSON_HEADERS, body),
+        Ok(()) => (StatusCode::OK, NO_STORE, json(body)),
         // An empty body: even a short message could fail to allocate when the heap is this short.
-        Err(_) => (StatusCode::SERVICE_UNAVAILABLE, JSON_HEADERS, String::new()),
+        Err(_) => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            NO_STORE,
+            json(String::new()),
+        ),
     }
 }
 /// The active policy as the restricted YAML of `iobewi-log-config`, and whether it may be changed here.
 fn log_config<B: ConfigBackend>(
     diag: &crate::diag::Diag<B>,
-) -> ([(&'static str, &'static str); 2], String) {
+) -> ([(&'static str, &'static str); 1], Typed<String>) {
     use crate::diag::Source;
     let (yaml, source, load_error) = diag.policy_yaml();
     (
-        JSON_HEADERS,
-        serde_json::json!({
+        NO_STORE,
+        json(serde_json::json!({
             "yaml": yaml, "source": if source == Source::Persisted { "persisted" } else { "default" },
             "load_error": load_error, "writable": in_setup(),
             "max_bytes": iobewi_log_config::POLICY_BYTES_MAX,
-        })
-        .to_string(),
+        }).to_string()),
     )
 }
 /// Replaces the policy. Setup (AP) boot only: the LAN can read the diagnostic but never change it.
 async fn put_log_config<B: ConfigBackend>(
     diag: &crate::diag::Diag<B>,
     body: &str,
-) -> (StatusCode, [(&'static str, &'static str); 2], String) {
+) -> (StatusCode, [(&'static str, &'static str); 1], Typed<String>) {
     use crate::diag::PutError;
     // Boxed: the persistence future (policy copies, YAML buffer) lives on the heap for the one AP request
     // instead of inflating the task future of the whole web server.
     match alloc::boxed::Box::pin(diag.replace_yaml(body, in_setup())).await {
         Ok(generation) => (
             StatusCode::OK,
-            JSON_HEADERS,
-            serde_json::json!({"ok": true, "generation": generation}).to_string(),
+            NO_STORE,
+            json(serde_json::json!({"ok": true, "generation": generation}).to_string()),
         ),
         Err(error) => {
             let (status, message) = match error {
@@ -377,8 +433,8 @@ async fn put_log_config<B: ConfigBackend>(
             };
             (
                 status,
-                JSON_HEADERS,
-                serde_json::json!({"ok": false, "error": message}).to_string(),
+                NO_STORE,
+                json(serde_json::json!({"ok": false, "error": message}).to_string()),
             )
         }
     }
@@ -400,48 +456,12 @@ fn app<'a, B: ConfigBackend>(
             "/status",
             get(|| async {
                 (
-                    [
-                        ("Content-Type", "text/plain; charset=utf-8"),
-                        ("Cache-Control", "no-store"),
-                    ],
-                    status_message(),
+                    NO_STORE,
+                    Typed("text/plain; charset=utf-8", status_message()),
                 )
             }),
         )
         .route("/wifi", post(provision))
-        .route(
-            "/ui.css",
-            get(|| async {
-                (
-                    ("Content-Type", "text/css; charset=utf-8"),
-                    // A page and its scripts come from the same firmware: never a script from the previous one.
-                    ("Cache-Control", "no-store"),
-                    include_str!("ui.css"),
-                )
-            }),
-        )
-        .route(
-            "/catalog.js",
-            get(|| async {
-                (
-                    ("Content-Type", "application/javascript; charset=utf-8"),
-                    // A page and its scripts come from the same firmware: never a script from the previous one.
-                    ("Cache-Control", "no-store"),
-                    include_str!("catalog.js"),
-                )
-            }),
-        )
-        .route(
-            "/ui.js",
-            get(|| async {
-                (
-                    ("Content-Type", "application/javascript; charset=utf-8"),
-                    // A page and its scripts come from the same firmware: never a script from the previous one.
-                    ("Cache-Control", "no-store"),
-                    include_str!("ui.js"),
-                )
-            }),
-        )
         .route("/api/state", get(move || async move { state(radio).await }))
         .route(
             "/api/scan",
@@ -489,19 +509,32 @@ fn app<'a, B: ConfigBackend>(
         )
 }
 
+/// How long a silent connection (no request byte) may hold a worker before the server closes it.
+const START_READ_REQUEST: embassy_time::Duration = embassy_time::Duration::from_secs(10);
+/// Bound on reading a request once it has started, **and on the closing handshake**: picoserve ends a connection
+/// by sending its FIN and then waits, for at most this long, for the client to close its own side before the
+/// worker listens again. A client that keeps its socket open (a browser's idle or lingering connection) holds the
+/// worker for the whole time, and a connection arriving meanwhile is refused (RST, no backlog): it was 90 s (#28).
+const READ_REQUEST: embassy_time::Duration = embassy_time::Duration::from_secs(5);
+const WRITE: embassy_time::Duration = embassy_time::Duration::from_secs(5);
+
+/// One bounded HTTP client at a time, no keep-alive. A connection attempt + DHCP may take time.
+fn config() -> picoserve::Config {
+    picoserve::Config::new(picoserve::Timeouts {
+        start_read_request: START_READ_REQUEST,
+        read_request: READ_REQUEST,
+        write: WRITE,
+        ..picoserve::Timeouts::const_default()
+    })
+}
+
 pub async fn serve<B: ConfigBackend>(
     stack: Stack<'static>,
     radio: &Radio<B>,
     diag: &crate::diag::Diag<B>,
 ) -> ! {
     let router = app(radio, diag);
-    // A connection attempt + DHCP may take time. One bounded HTTP client, no keep-alive.
-    let config = picoserve::Config::new(picoserve::Timeouts {
-        start_read_request: embassy_time::Duration::from_secs(10),
-        read_request: embassy_time::Duration::from_secs(90),
-        write: embassy_time::Duration::from_secs(5),
-        ..picoserve::Timeouts::const_default()
-    });
+    let config = config();
     let mut http = [0; 2048];
     let mut rx = [0; 1024];
     let mut tx = [0; 1024];
@@ -525,7 +558,7 @@ mod tests {
             .as_mut()
             .poll(&mut Context::from_waker(Waker::noop()))
         {
-            Poll::Ready((status, _, _)) => assert_eq!(status, StatusCode::BAD_REQUEST),
+            Poll::Ready((status, _)) => assert_eq!(status, StatusCode::BAD_REQUEST),
             Poll::Pending => panic!("invalid input must not queue a Wi-Fi operation"),
         }
     }
@@ -614,11 +647,49 @@ mod tests {
         assert!(deserialize_form::<IdForm>(UrlEncodedString("id=2&extra=1")).is_err());
     }
     #[test]
-    fn the_page_loads_the_catalog_filter_before_the_ui() {
-        let catalog = PAGE.find("/catalog.js").expect("catalog.js is in the page");
-        let ui = PAGE.find("/ui.js").expect("ui.js is in the page");
+    fn the_page_runs_the_catalog_filter_before_the_ui_once_the_document_is_there() {
+        let parts = Page("").parts();
+        let page: String = parts.concat();
+        let body_end = page.rfind("</body>").expect("a closed body");
+        let catalog = page
+            .find(include_str!("catalog.js"))
+            .expect("catalog.js is in the page");
+        let ui = page
+            .find(include_str!("ui.js"))
+            .expect("ui.js is in the page");
         assert!(catalog < ui, "ui.js uses StreamCatalog");
         assert!(include_str!("ui.js").contains("StreamCatalog.sort"));
+        // An inline script is not deferred: both come after the markup `ui.js` looks up, not in the head.
+        let markup = page
+            .find("id=\"stations\"")
+            .expect("the favourites section");
+        assert!(markup < catalog && ui < body_end);
+        assert!(page.find("<style>").unwrap() < page.find("<main>").unwrap());
+    }
+    #[test]
+    fn the_page_needs_no_other_download_and_leaves_no_marker() {
+        let page: String = Page("ok").parts().concat();
+        for marker in ["<!--CSS-->", "<!--S-->", "<!--CATALOG-->", "<!--UI-->"] {
+            assert!(!page.contains(marker), "{marker} was not replaced");
+        }
+        for external in [
+            "<link",
+            "src=\"/",
+            "src='/",
+            "href=\"/ui",
+            "href=\"/catalog",
+        ] {
+            assert!(
+                !page.contains(external),
+                "the page still fetches {external}"
+            );
+        }
+        // The sources are inert text in their element: nothing in them can end it early.
+        assert!(!include_str!("ui.css").contains("</style"));
+        for script in [include_str!("ui.js"), include_str!("catalog.js")] {
+            assert!(!script.contains("</script") && !script.contains("<!--"));
+        }
+        assert!(page.contains(">ok</p>"));
     }
     #[test]
     fn ap_configuration_matches_the_page_contract() {
@@ -799,11 +870,8 @@ mod routing_tests {
                 "/status",
                 get(|| async {
                     (
-                        [
-                            ("Content-Type", "text/plain; charset=utf-8"),
-                            ("Cache-Control", "no-store"),
-                        ],
-                        status_message(),
+                        NO_STORE,
+                        Typed("text/plain; charset=utf-8", status_message()),
                     )
                 }),
             )
@@ -980,5 +1048,242 @@ mod routing_tests {
                 403
             );
         });
+    }
+
+    /// What the browser receives, not what the handlers meant to send: one `Content-Type` per answer, the
+    /// right one, and the exact bytes of the embedded file. picoserve adds `text/plain` to a `&str` or a
+    /// `String` body, so naming the type in the headers as well made two contradictory headers.
+    #[test]
+    fn every_answer_carries_exactly_one_correct_content_type() {
+        fn split(raw: &str) -> (Vec<(String, String)>, &str) {
+            let (head, body) = raw.split_once("\r\n\r\n").expect("a complete answer");
+            let headers = head
+                .lines()
+                .skip(1)
+                .filter_map(|l| l.split_once(':'))
+                .map(|(n, v)| (n.trim().to_ascii_lowercase(), v.trim().to_string()))
+                .collect();
+            (headers, body)
+        }
+        let expected: &[(&str, &str, &str)] = &[
+            ("GET", "/", "text/html; charset=utf-8"),
+            ("GET", "/status", "text/plain; charset=utf-8"),
+            ("GET", "/api/state", "application/json; charset=utf-8"),
+            ("GET", "/api/logs", "application/json; charset=utf-8"),
+            ("GET", "/api/logs/config", "application/json; charset=utf-8"),
+            (
+                "POST",
+                "/api/stations/save",
+                "application/json; charset=utf-8",
+            ),
+            (
+                "POST",
+                "/api/stations/save",
+                "application/json; charset=utf-8",
+            ),
+            (
+                "POST",
+                "/api/stations/select",
+                "application/json; charset=utf-8",
+            ),
+            ("POST", "/wifi", "text/html; charset=utf-8"),
+            ("PUT", "/api/logs/config", "application/json; charset=utf-8"),
+        ];
+        embassy_futures::block_on(async {
+            let (radio, diag) = fixtures().await;
+            let router = app(&radio, &diag);
+            for (method, path, kind) in expected {
+                let body = match *path {
+                    "/api/stations/save" => FORM,
+                    "/api/stations/select" => "id=1",
+                    "/wifi" => "ssid=home&password=correct-horse",
+                    "/api/logs/config" if *method == "PUT" => "log:\n  default_level: warn\n",
+                    _ => "",
+                };
+                let (_, raw) = call(&router, method, path, body);
+                let (headers, payload) = split(&raw);
+                let types: Vec<&String> = headers
+                    .iter()
+                    .filter(|(n, _)| n == "content-type")
+                    .map(|(_, v)| v)
+                    .collect();
+                assert_eq!(types, [&kind.to_string()], "{method} {path}: {raw:?}");
+                let length: usize = headers
+                    .iter()
+                    .find(|(n, _)| n == "content-length")
+                    .map(|(_, v)| v.parse().unwrap())
+                    .unwrap_or_else(|| panic!("{method} {path}: no Content-Length"));
+                assert_eq!(length, payload.len(), "{method} {path}: length");
+            }
+            // The page goes out as one answer, the three sources in it byte for byte, nothing cached.
+            let (_, raw) = call(&router, "GET", "/", "");
+            let (_, page) = split(&raw);
+            for file in [
+                include_str!("ui.css"),
+                include_str!("catalog.js"),
+                include_str!("ui.js"),
+            ] {
+                assert!(page.contains(file));
+            }
+            assert!(
+                raw.contains("cache-control: no-store") || raw.contains("Cache-Control: no-store")
+            );
+            // The files it used to link are not routes any more.
+            for path in ["/ui.css", "/ui.js", "/catalog.js"] {
+                assert_eq!(call(&router, "GET", path, "").0, 404, "{path}");
+            }
+            // Whatever the route, a refusal or an unknown path never carries two types either.
+            for (method, path) in [("GET", "/nothing"), ("GET", "/wifi"), ("DELETE", "/ui.css")] {
+                let (_, raw) = call(&router, method, path, "");
+                let n = split(&raw)
+                    .0
+                    .iter()
+                    .filter(|(n, _)| n == "content-type")
+                    .count();
+                assert!(n <= 1, "{method} {path}: {n} content types");
+            }
+        });
+    }
+}
+
+/// How long a worker stays unavailable after a client that does not behave: picoserve runs on a tokio socket here
+/// (the firmware uses the embassy one; the connection logic is the same), with the firmware's own timeouts.
+/// One worker as on the board, one connection at a time; a probe request measures when it is free again.
+#[cfg(test)]
+mod worker_release_tests {
+    use super::*;
+    use std::time::{Duration, Instant};
+    use tokio::{
+        io::{AsyncReadExt, AsyncWriteExt},
+        net::{TcpListener, TcpStream},
+        task::LocalSet,
+    };
+
+    const WORKERS: usize = 1;
+    const GET: &[u8] = b"GET /api/state HTTP/1.1\r\nHost: t\r\nConnection: close\r\n\r\n";
+
+    async fn workers(listener: TcpListener) {
+        let listener = std::rc::Rc::new(listener);
+        for _ in 0..WORKERS {
+            let listener = listener.clone();
+            tokio::task::spawn_local(async move {
+                let router = picoserve::Router::new()
+                    .route("/api/state", picoserve::routing::get(|| async { "{}" }));
+                let config = config();
+                let mut buffer = [0; 2048];
+                loop {
+                    let (socket, _) = listener.accept().await.unwrap();
+                    let _ = picoserve::Server::new_tokio(&router, &config, &mut buffer)
+                        .serve(socket)
+                        .await;
+                }
+            });
+        }
+    }
+
+    /// A well-behaved client: one request, read the answer to the end, close. Returns the wait until the answer.
+    async fn probe(addr: std::net::SocketAddr) -> Duration {
+        let started = Instant::now();
+        let mut socket = TcpStream::connect(addr).await.unwrap();
+        socket.write_all(GET).await.unwrap();
+        let mut answer = Vec::new();
+        socket.read_to_end(&mut answer).await.unwrap();
+        assert!(answer.starts_with(b"HTTP/1.1 200"), "{answer:?}");
+        started.elapsed()
+    }
+
+    async fn run<F: std::future::Future<Output = ()>>(
+        scenario: impl FnOnce(std::net::SocketAddr) -> F,
+    ) {
+        LocalSet::new()
+            .run_until(async {
+                let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+                let addr = listener.local_addr().unwrap();
+                workers(listener).await;
+                scenario(addr).await;
+            })
+            .await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn a_normal_request_is_answered_at_once() {
+        run(|addr| async move {
+            assert!(probe(addr).await < Duration::from_secs(1));
+        })
+        .await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn clients_that_keep_their_socket_open_after_the_answer_free_the_workers_within_read_request()
+     {
+        run(|addr| async move {
+            let mut held = Vec::new();
+            for _ in 0..WORKERS {
+                let mut socket = TcpStream::connect(addr).await.unwrap();
+                socket.write_all(GET).await.unwrap();
+                let mut answer = Vec::new();
+                socket.read_to_end(&mut answer).await.unwrap(); // the server's FIN is in; ours is not sent
+                held.push(socket);
+            }
+            let waited = probe(addr).await;
+            eprintln!("answer-then-hold: next request served after {waited:?}");
+            assert!(
+                waited >= Duration::from_secs(4),
+                "{waited:?}: they were not held at all"
+            );
+            assert!(waited < Duration::from_secs(8), "{waited:?}");
+        })
+        .await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn partially_sent_requests_free_the_workers_within_read_request() {
+        run(|addr| async move {
+            let mut held = Vec::new();
+            for _ in 0..WORKERS {
+                let mut socket = TcpStream::connect(addr).await.unwrap();
+                socket
+                    .write_all(b"GET /api/state HTTP/1.1\r\nHost: t\r\n")
+                    .await
+                    .unwrap();
+                held.push(socket);
+            }
+            let waited = probe(addr).await;
+            eprintln!("partial request: next request served after {waited:?}");
+            assert!(waited < Duration::from_secs(8), "{waited:?}");
+        })
+        .await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn silent_connections_free_the_workers_within_start_and_read_request() {
+        run(|addr| async move {
+            let mut held = Vec::new();
+            for _ in 0..WORKERS {
+                held.push(TcpStream::connect(addr).await.unwrap());
+            }
+            let waited = probe(addr).await;
+            eprintln!("silent connections: next request served after {waited:?}");
+            assert!(
+                waited >= Duration::from_secs(9),
+                "{waited:?}: not held for the start timeout"
+            );
+            assert!(waited < Duration::from_secs(17), "{waited:?}");
+        })
+        .await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn a_slow_request_within_the_limit_is_still_served() {
+        run(|addr| async move {
+            let mut socket = TcpStream::connect(addr).await.unwrap();
+            socket.write_all(&GET[..20]).await.unwrap();
+            tokio::time::sleep(Duration::from_secs(2)).await;
+            socket.write_all(&GET[20..]).await.unwrap();
+            let mut answer = Vec::new();
+            socket.read_to_end(&mut answer).await.unwrap();
+            assert!(answer.starts_with(b"HTTP/1.1 200"), "{answer:?}");
+        })
+        .await;
     }
 }

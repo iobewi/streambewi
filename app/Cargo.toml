@@ -43,6 +43,9 @@ iobewi-wifi-manager = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "
 
 
 [dev-dependencies]
+# Host tests of the server's timeouts run picoserve on a tokio socket (the firmware uses the embassy one).
+picoserve = { version = "0.20.0", default-features = false, features = ["embassy", "alloc", "tokio"] }
+tokio = { version = "1", features = ["rt", "net", "time", "io-util", "macros"] }
 ekv = { version = "=1.0.0", features = ["crc", "max-value-size-8192", "max-chunk-size-256"] }
 embassy-time = { version = "0.5.1", features = ["std", "generic-queue-8"] }
 critical-section = { version = "1.2", features = ["std"] }
