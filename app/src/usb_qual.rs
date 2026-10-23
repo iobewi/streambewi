@@ -55,57 +55,9 @@ pub fn first(ev: Ev) -> Option<u32> {
     FIRST[ev as usize].load(Relaxed).checked_sub(1)
 }
 
-static PREV_INDEX: AtomicU32 = AtomicU32::new(u32::MAX);
-static DATA_LINES: AtomicU32 = AtomicU32::new(0);
-
-/// A data sector of the file was asked for. Logs the first one and every jump (not the sequential ones, not the
-/// retries of the same sector), at most 48 lines per boot: where the host starts reading and where it leaps.
-pub fn data_read(index: u32, pending: bool, live: u64, base: Option<u64>) {
-    let prev = PREV_INDEX.swap(index.wrapping_add(1), Relaxed);
-    let same = index.wrapping_add(1) == prev;
-    if prev != u32::MAX && (index == prev || same) {
-        return;
-    }
-    if DATA_LINES.fetch_add(1, Relaxed) < 48 {
-        log::info!(
-            "usb-qual data: t={} index={} expected={} pending={} live={} base={:?}",
-            now() - 1,
-            index,
-            prev,
-            pending,
-            live,
-            base
-        );
-    }
-}
-
-static HEADS: AtomicU32 = AtomicU32::new(0);
-
-/// The first bytes of sector 0 as the host gets them, and where MPEG frame syncs (0xFF, then 0xE0 or more)
-/// start in it: the content the host decides its first jump from. At most 8 lines per boot.
-pub fn head(sector: &[u8]) {
-    if HEADS.fetch_add(1, Relaxed) >= 8 {
-        return;
-    }
-    let mut syncs = [u16::MAX; 3];
-    let mut n = 0;
-    for i in 0..sector.len().saturating_sub(1) {
-        if n < syncs.len() && sector[i] == 0xFF && sector[i + 1] & 0xE0 == 0xE0 {
-            syncs[n] = i as u16;
-            n += 1;
-        }
-    }
-    log::info!(
-        "usb-qual head: t={} b={:02x?} id3={} syncs={:?}",
-        now() - 1,
-        &sector[..16.min(sector.len())],
-        sector.starts_with(b"ID3"),
-        &syncs[..n]
-    );
-}
-
 // ---------------------------------------------------------------------------------------------------------
-// The first READ(10) commands of each MSC session, and the exact bytes of the file's first four sectors.
+// The first READ(10) commands of each MSC session and the first four sectors of the file, kept in RAM and printed
+// later by the qual task (`drain`), outside the USB path: nothing is printed while a command is being answered.
 
 use core::cell::RefCell;
 use embassy_sync::blocking_mutex::{Mutex, raw::CriticalSectionRawMutex};
@@ -115,14 +67,21 @@ use iobewi_fat16::{ReadOnlyBlockDevice, ReadStatus, SECTOR_SIZE};
 const COMMANDS: u32 = 16;
 /// First LBA of the file's data: boot sector, two FATs, root directory (`Geometry::data_start_lba`).
 const DATA_START: u32 = 1 + 2 * 129 + 2;
+const RECORDS: usize = 48;
+/// Sessions whose first four file sectors are kept.
+const SECTOR_SESSIONS: usize = 2;
+/// Bytes of a sector per printed line, and the age a record must have before it is printed.
+const CHUNK: usize = 128;
+const PRINT_AFTER_MS: u32 = 800;
 
-struct Tracker {
+#[derive(Clone, Copy)]
+struct Rec {
     session: u32,
-    session_start: u32,
     command: u32,
-    open: bool,
+    /// 0 free, 1 waiting to be printed, 2 printed.
+    state: u8,
     start: u32,
-    prev_end: u32,
+    end: u32,
     first_lba: u32,
     last_lba: u32,
     sectors: u32,
@@ -130,20 +89,17 @@ struct Tracker {
     pending: u32,
     other: u32,
     crc: u32,
-    pending_logged: bool,
     live: u64,
     consumed: u64,
-    base: Option<u64>,
-    heads: u8,
+    base: u64,
 }
 
-static TRACKER: Mutex<CriticalSectionRawMutex, RefCell<Tracker>> = Mutex::new(RefCell::new(Tracker {
+const EMPTY: Rec = Rec {
     session: 0,
-    session_start: 0,
     command: 0,
-    open: false,
+    state: 0,
     start: 0,
-    prev_end: 0,
+    end: 0,
     first_lba: 0,
     last_lba: 0,
     sectors: 0,
@@ -151,12 +107,44 @@ static TRACKER: Mutex<CriticalSectionRawMutex, RefCell<Tracker>> = Mutex::new(Re
     pending: 0,
     other: 0,
     crc: 0,
-    pending_logged: false,
     live: 0,
     consumed: 0,
-    base: None,
-    heads: 0,
+    base: u64::MAX,
+};
+
+struct Qual {
+    session: u32,
+    session_start: u32,
+    command: u32,
+    open: bool,
+    cur: Rec,
+    recs: [Rec; RECORDS],
+    dropped: u32,
+    /// Per kept session: the session number, which of sectors 0 to 3 were seen, the next chunk to print.
+    sec_session: [u32; SECTOR_SESSIONS],
+    sec_seen: [u8; SECTOR_SESSIONS],
+    sec_next: [u8; SECTOR_SESSIONS],
+    sectors: [[[u8; SECTOR_SIZE]; 4]; SECTOR_SESSIONS],
+}
+
+static QUAL: Mutex<CriticalSectionRawMutex, RefCell<Qual>> = Mutex::new(RefCell::new(Qual {
+    session: 0,
+    session_start: 0,
+    command: 0,
+    open: false,
+    cur: EMPTY,
+    recs: [EMPTY; RECORDS],
+    dropped: 0,
+    sec_session: [0; SECTOR_SESSIONS],
+    sec_seen: [0; SECTOR_SESSIONS],
+    sec_next: [0; SECTOR_SESSIONS],
+    sectors: [[[0; SECTOR_SIZE]; 4]; SECTOR_SESSIONS],
 }));
+
+/// Highest file sector index served, start of the last READ(10) and of the last sector read, since boot.
+static MAX_INDEX: AtomicU32 = AtomicU32::new(0);
+static LAST_SECTOR_MS: AtomicU32 = AtomicU32::new(0);
+static SESSIONS: AtomicU32 = AtomicU32::new(0);
 
 struct Hex<'a>(&'a [u8]);
 impl core::fmt::Display for Hex<'_> {
@@ -182,134 +170,182 @@ fn file_index(lba: u32) -> Option<u32> {
     lba.checked_sub(DATA_START)
 }
 
-fn log_command(t: &Tracker, end: u32, note: &str) {
-    let fidx = file_index(t.first_lba);
-    log::info!(
-        "usb-qual rd: s={} c={} {note} t={} gap={} dur={} lba={}..{} fidx={:?} n={} ready={} pend={} other={} crc={:08x} live={} consumed={} base={:?}",
-        t.session,
-        t.command,
-        t.start.wrapping_sub(t.session_start),
-        t.start.wrapping_sub(t.prev_end),
-        end.wrapping_sub(t.start),
-        t.first_lba,
-        t.last_lba,
-        fidx,
-        t.sectors,
-        t.ready,
-        t.pending,
-        t.other,
-        t.crc,
-        t.live,
-        t.consumed,
-        t.base
-    );
-}
-
-fn flush(t: &mut Tracker) {
-    if t.open && t.sectors > 0 {
-        let end = now() - 1;
-        log_command(t, end, "done");
-        t.prev_end = end;
+fn flush(q: &mut Qual) {
+    if q.open && q.cur.sectors > 0 {
+        let free = q.recs.iter().position(|r| r.state == 0);
+        match free {
+            Some(i) => {
+                q.recs[i] = q.cur;
+                q.recs[i].state = 1;
+            }
+            None => q.dropped += 1,
+        }
     }
-    t.open = false;
+    q.open = false;
 }
 
 pub fn session_begin() {
-    TRACKER.lock(|c| {
-        let mut t = c.borrow_mut();
-        t.session += 1;
-        t.session_start = now() - 1;
-        t.command = 0;
-        t.open = false;
-        t.prev_end = t.session_start;
-        t.heads = 0;
+    SESSIONS.fetch_add(1, Relaxed);
+    QUAL.lock(|c| {
+        let mut q = c.borrow_mut();
+        q.session += 1;
+        q.session_start = now() - 1;
+        q.command = 0;
+        q.open = false;
+        let slot = q.session as usize - 1;
+        if slot < SECTOR_SESSIONS {
+            q.sec_session[slot] = q.session;
+        }
     });
 }
 
 pub fn session_end() {
-    TRACKER.lock(|c| flush(&mut c.borrow_mut()));
+    QUAL.lock(|c| flush(&mut c.borrow_mut()));
 }
 
-/// A READ(10) starts: closes the previous command's line and opens this one (the first `COMMANDS` only).
+/// A READ(10) starts: closes the previous command's record and opens this one (the first `COMMANDS` only).
 pub fn command_started() {
     let (live, consumed) = crate::stream::STREAM.progress();
-    let base = crate::stream::STREAM.session_base();
-    TRACKER.lock(|c| {
-        let mut t = c.borrow_mut();
-        flush(&mut t);
-        t.command += 1;
-        t.open = t.command <= COMMANDS;
-        if t.open {
-            t.start = now() - 1;
-            t.first_lba = u32::MAX;
-            t.last_lba = 0;
-            t.sectors = 0;
-            t.ready = 0;
-            t.pending = 0;
-            t.other = 0;
-            t.crc = 0xFFFF_FFFF;
-            t.pending_logged = false;
-            t.live = live;
-            t.consumed = consumed;
-            t.base = base;
+    let base = crate::stream::STREAM.session_base().unwrap_or(u64::MAX);
+    let t = now() - 1;
+    QUAL.lock(|c| {
+        let mut q = c.borrow_mut();
+        flush(&mut q);
+        q.command += 1;
+        q.open = q.command <= COMMANDS;
+        if q.open {
+            q.cur = Rec {
+                session: q.session,
+                command: q.command,
+                start: t,
+                first_lba: u32::MAX,
+                crc: 0xFFFF_FFFF,
+                live,
+                consumed,
+                base,
+                ..EMPTY
+            };
         }
     });
 }
 
-/// A sector was asked of the disk by the open command.
+/// A sector was asked of the disk and has been answered (`end` is when the answer was complete).
 pub fn sector(lba: u32, status: ReadStatus, data: &[u8; SECTOR_SIZE]) {
-    TRACKER.lock(|c| {
-        let mut t = c.borrow_mut();
-        if !t.open {
-            return;
-        }
-        t.first_lba = t.first_lba.min(lba);
-        t.last_lba = t.last_lba.max(lba);
-        match status {
-            ReadStatus::Ready => {
-                t.ready += 1;
-                t.sectors += 1;
-                t.crc = crc32(t.crc, data);
-            }
-            ReadStatus::Pending => {
-                // The disk retries a pending sector every 5 ms: count the distinct ones, log the first.
-                if !t.pending_logged {
-                    t.pending_logged = true;
-                    t.sectors += 1;
-                    let now_ms = now() - 1;
-                    log_command(&t, now_ms, "PENDING");
+    let t = now() - 1;
+    if status == ReadStatus::Ready
+        && let Some(idx) = file_index(lba)
+    {
+        MAX_INDEX.fetch_max(idx, Relaxed);
+        LAST_SECTOR_MS.store(t, Relaxed);
+    }
+    // The checksum is computed outside the critical section.
+    let open = QUAL.lock(|c| c.borrow().open);
+    let crc = if open && status == ReadStatus::Ready {
+        Some(crc32(0, data))
+    } else {
+        None
+    };
+    QUAL.lock(|c| {
+        let mut q = c.borrow_mut();
+        if q.open {
+            let r = &mut q.cur;
+            r.first_lba = r.first_lba.min(lba);
+            r.last_lba = r.last_lba.max(lba);
+            r.sectors += 1;
+            r.end = t;
+            match status {
+                ReadStatus::Ready => {
+                    r.ready += 1;
+                    // Combined by xor: the same sectors give the same value whatever their order of arrival.
+                    r.crc ^= crc.unwrap_or(0);
                 }
-                t.pending += 1;
-            }
-            _ => {
-                t.other += 1;
-                t.sectors += 1;
+                ReadStatus::Pending => r.pending += 1,
+                _ => r.other += 1,
             }
         }
         if status == ReadStatus::Ready
             && let Some(idx) = file_index(lba)
             && idx < 4
-            && t.heads & (1 << idx) == 0
         {
-            t.heads |= 1 << idx;
-            let find = |needle: &[u8]| data.windows(needle.len()).position(|w| w == needle);
-            log::info!(
-                "usb-qual sec: s={} idx={} lba={} id3={:?} xing={:?} info={:?} vbri={:?} tag={:?} hex={}",
-                t.session,
-                idx,
-                lba,
-                find(b"ID3"),
-                find(b"Xing"),
-                find(b"Info"),
-                find(b"VBRI"),
-                find(b"TAG"),
-                Hex(data)
-            );
+            let session = q.session;
+            if let Some(slot) = q.sec_session.iter().position(|s| *s == session) {
+                if q.sec_seen[slot] & (1 << idx) == 0 {
+                    q.sec_seen[slot] |= 1 << idx;
+                    q.sectors[slot][idx as usize] = *data;
+                }
+            }
         }
     });
 }
 
-/// The block device the MSC class reads, seen through the qual tracker. It forwards everything unchanged.
+/// Prints what is old enough, a little at a time. Called by the qual task only.
+pub fn drain() {
+    let t = now() - 1;
+    // One record per call.
+    let rec = QUAL.lock(|c| {
+        let mut q = c.borrow_mut();
+        let found = q
+            .recs
+            .iter_mut()
+            .filter(|r| r.state == 1 && t.wrapping_sub(r.end.max(r.start)) >= PRINT_AFTER_MS)
+            .min_by_key(|r| (r.session, r.command));
+        found.map(|r| {
+            r.state = 2;
+            *r
+        })
+    });
+    if let Some(r) = rec {
+        log::info!(
+            "usb-qual rd: s={} c={} start={} end={} dur={} lba={}..{} fidx={:?} n={} ready={} pend={} other={} xor={:08x} live={} consumed={} base={:?}",
+            r.session,
+            r.command,
+            r.start,
+            r.end,
+            r.end.wrapping_sub(r.start),
+            r.first_lba,
+            r.last_lba,
+            file_index(r.first_lba),
+            r.sectors,
+            r.ready,
+            r.pending,
+            r.other,
+            r.crc,
+            r.live,
+            r.consumed,
+            if r.base == u64::MAX { None } else { Some(r.base) }
+        );
+        return;
+    }
+    // One 128-byte chunk of a kept sector per call, once its session has been running a while.
+    let mut buf = [0u8; CHUNK];
+    let chunk = QUAL.lock(|c| {
+        let mut q = c.borrow_mut();
+        for slot in 0..SECTOR_SESSIONS {
+            if q.sec_session[slot] == 0 || q.sec_seen[slot] != 0x0F {
+                continue;
+            }
+            // Only the current or an earlier session: its start is not stored per slot, so use the age of the
+            // last read as the quiet signal.
+            if t.wrapping_sub(LAST_SECTOR_MS.load(Relaxed)) < 400 && q.sec_session[slot] == q.session {
+                continue;
+            }
+            let n = q.sec_next[slot] as usize;
+            if n >= 4 * SECTOR_SIZE / CHUNK {
+                continue;
+            }
+            let (idx, off) = (n * CHUNK / SECTOR_SIZE, n * CHUNK % SECTOR_SIZE);
+            buf.copy_from_slice(&q.sectors[slot][idx][off..off + CHUNK]);
+            q.sec_next[slot] += 1;
+            return Some((q.sec_session[slot], idx, off));
+        }
+        None
+    });
+    if let Some((s, idx, off)) = chunk {
+        log::info!("usb-qual sec: s={s} idx={idx} off={off} hex={}", Hex(&buf));
+    }
+}
+
+/// The block device the MSC class reads, seen through the recorder. It forwards everything unchanged.
 pub struct TrackedDisk<D>(pub D);
 
 impl<D: ReadOnlyBlockDevice> ReadOnlyBlockDevice for TrackedDisk<D> {
@@ -342,9 +378,13 @@ pub fn report(tag: &str) {
     }
     let (written, consumed) = crate::stream::STREAM.progress();
     log::info!(
-        "usb-qual {tag}: t={}{} written={written} consumed={consumed}",
+        "usb-qual {tag}: t={}{} written={written} consumed={consumed} maxidx={} lastsector={} sessions={} dropped={}",
         now() - 1,
-        line.as_str()
+        line.as_str(),
+        MAX_INDEX.load(Relaxed),
+        LAST_SECTOR_MS.load(Relaxed),
+        SESSIONS.load(Relaxed),
+        QUAL.lock(|c| c.borrow().dropped)
     );
 }
 
