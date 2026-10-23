@@ -28,8 +28,12 @@ const root=path.resolve(__dirname,'../../app/src');
    if(p.endsWith('/select'))state.catalog.selected=Number(v.id);
    return route.fulfill({json:{ok:true,restart:false}});
   }
-  const file=path.join(root,p==='/'?'setup.html':p.slice(1));
-  if(fs.existsSync(file))return route.fulfill({body:fs.readFileSync(file,'utf8').replace('<!--S-->',''),contentType:file.endsWith('.js')?'application/javascript':file.endsWith('.css')?'text/css':'text/html'});
+  // The page is one answer: setup.rs splices the three sources in where setup.html marks them.
+  if(p==='/'){
+   const src=f=>fs.readFileSync(path.join(root,f),'utf8');
+   const body=src('setup.html').replace('<!--CSS-->',()=>src('ui.css')).replace('<!--S-->','').replace('<!--CATALOG-->',()=>src('catalog.js')).replace('<!--UI-->',()=>src('ui.js'));
+   return route.fulfill({body,contentType:'text/html'});
+  }
   return route.fulfill({status:404,body:'Not found'});
  });
  await page.route('https://*.api.radio-browser.info/**',route=>route.fulfill({json:[{name:'Radio test',url_resolved:'http://example.org/radio',favicon:'',codec:'MP3',hls:0},{name:'Radio TLS',url_resolved:'https://example.org/tls',favicon:'',codec:'MP3',hls:0},{name:'Radio AAC',url_resolved:'https://example.org/aac',favicon:'',codec:'AAC',hls:0},{name:'Radio HLS',url_resolved:'https://example.org/live.m3u8',favicon:'',codec:'UNKNOWN',hls:1}]}));

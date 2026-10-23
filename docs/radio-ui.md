@@ -70,8 +70,11 @@ décrites. Exemple : « Mon Petit France Inter » n'est dans l'annuaire qu'en HL
 son flux MP3 `https://icecast.radiofrance.fr/monpetitfranceinter-midfi.mp3` y est absent : il s'ajoute par
 l'adresse manuelle.
 
-La page, `ui.js`, `catalog.js` et `ui.css` sont servis `Cache-Control: no-store` : un navigateur ne garde
-pas un script du firmware précédent.
+La page est une seule réponse, `Cache-Control: no-store` : les sources `setup.html`, `ui.css`, `catalog.js` et
+`ui.js` restent des fichiers séparés, assemblés à la compilation (`app/src/setup.rs`, `Page`) et écrits morceau par
+morceau depuis la flash, sans chaîne de 31 Ko sur le tas. Le serveur n'a qu'un travailleur et refuse (RST) une
+connexion qui arrive pendant qu'il sert : une feuille de style ou un script séparé, refusé, n'était pas redemandé et
+la page restait nue (#28). Un navigateur ne garde pas non plus un script du firmware précédent.
 
 Catalogue et logos sont téléchargés par le téléphone/PC ; pas par la clé. Sans Internet sur ce
 navigateur, recherche indisponible mais favoris, interface et radio de remplacement restent
@@ -84,7 +87,7 @@ aux serveurs de logos et omet les credentials lors de la recherche externe.
 
 | Route | Effet |
 | --- | --- |
-| GET `/` / `/ui.css` / `/ui.js` | Interface locale |
+| GET `/` | Interface locale : HTML, styles et scripts en une réponse |
 | GET `/api/state` | Favoris, sélection, états observés et résultats Wi-Fi, sans mot de passe |
 | POST `/api/stations/save` | Formulaire id optionnel, name, url, logo optionnel |
 | POST `/api/stations/select` | Sélection par id |
