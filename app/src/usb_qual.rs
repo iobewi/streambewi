@@ -78,7 +78,7 @@ const COMMANDS: u32 = 240;
 const DATA_START: u32 = 1 + 2 * 129 + 2;
 const RECORDS: usize = 32;
 /// Sessions whose first four file sectors are kept.
-const SECTOR_SESSIONS: usize = 1;
+const SECTOR_SESSIONS: usize = 0;
 /// Audio sectors (file index of 8 or more) kept for the current session.
 const AUDIO_KEEP: usize = 16;
 /// Bytes of a sector per printed line, and the age a record must have before it is printed.
