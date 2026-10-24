@@ -359,7 +359,7 @@ pub fn drain() {
             .filter(|r| r.state == 1 && t.wrapping_sub(r.end.max(r.start)) >= PRINT_AFTER_MS)
             .min_by_key(|r| (r.session, r.command));
         found.map(|r| {
-            r.state = 2;
+            r.state = 0;
             *r
         })
     });
