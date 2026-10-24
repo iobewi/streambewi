@@ -24,6 +24,8 @@ pub mod setup;
 pub mod stations;
 pub mod stream;
 pub mod usb;
+#[cfg(feature = "qual")]
+pub mod usb_qual;
 
 use core::fmt::{Debug, Display};
 use embassy_futures::join::{join, join3};

@@ -89,6 +89,20 @@ impl Default for SharedStream {
 }
 
 impl SharedStream {
+    /// `(enabled, rebases, refusals, sector of the last rebase, file offset bound to the origin)` (qual only).
+    pub fn resume_stats(&self) -> (bool, u32, u32, u32, u64) {
+        self.resume.lock(|r| {
+            let r = r.borrow();
+            (r.enabled(), r.rebases, r.refused, r.last_index, r.shift())
+        })
+    }
+    /// Base of the current session's window (qual only).
+    pub fn session_base(&self) -> Option<u64> {
+        self.inner.lock(|c| c.borrow().session().map(|s| s.base))
+    }
+}
+
+impl SharedStream {
     pub const fn new() -> Self {
         Self {
             inner: Mutex::new(RefCell::new(new_stream())),
