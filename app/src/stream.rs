@@ -11,7 +11,13 @@ use embassy_time::{Duration, Instant, Timer, with_timeout};
 use iobewi_fat16::{FileSource, ReadStatus, SECTOR_SIZE};
 use iobewi_http_client::{HeadError, Target, get, read_head};
 use iobewi_net_io::{Close, Connector, ErrorType};
-use streambewi_core::{PREBUFFER_BYTES, Stream, StreamFile, is_ready, new_stream, progress};
+use streambewi_core::{
+    PREBUFFER_BYTES, Resume, Stream, StreamFile, is_ready, new_stream, progress,
+};
+
+/// Bind the offset a host resumes at to the live edge (see `streambewi_core::Resume`). `false` restores the
+/// previous policy exactly.
+const RESUME_REBASE: bool = true;
 
 pub const STREAM_URL: &str = "http://icecast.radiofrance.fr/monpetitfranceinter-midfi.mp3";
 
@@ -63,6 +69,8 @@ pub(crate) async fn read_bounded<R: embedded_io_async::Read>(
 /// The product stream window shared between the network task and the USB MSC task.
 pub struct SharedStream {
     inner: Mutex<CriticalSectionRawMutex, RefCell<Stream>>,
+    /// The resume policy of the MSC session (#31).
+    resume: Mutex<CriticalSectionRawMutex, RefCell<Resume>>,
     reconnects: AtomicU32,
     last_read: Mutex<CriticalSectionRawMutex, Cell<u64>>,
     /// Keep the consumer session across the next reconnection of the host (see `hold_session`).
@@ -84,6 +92,7 @@ impl SharedStream {
     pub const fn new() -> Self {
         Self {
             inner: Mutex::new(RefCell::new(new_stream())),
+            resume: Mutex::new(RefCell::new(Resume::new(RESUME_REBASE))),
             reconnects: AtomicU32::new(0),
             last_read: Mutex::new(Cell::new(0)),
             hold: AtomicBool::new(false),
@@ -199,9 +208,14 @@ impl SharedStreamSource {
     }
 
     fn with_file<R>(&self, f: impl FnOnce(&mut StreamFile<'_>) -> R) -> R {
-        self.stream
-            .inner
-            .lock(|cell| f(&mut StreamFile::new(&mut cell.borrow_mut())))
+        self.stream.inner.lock(|cell| {
+            self.stream.resume.lock(|resume| {
+                f(&mut StreamFile::with_resume(
+                    &mut cell.borrow_mut(),
+                    &mut resume.borrow_mut(),
+                ))
+            })
+        })
     }
 }
 
@@ -244,7 +258,7 @@ impl FileSource for SharedStreamSource {
             if before != after {
                 let (live, _) = self.stream.progress();
                 log::info!(
-                    "stream: REBASE on re-read of sector {} base {:?} -> {:?} live={}",
+                    "stream: REBASE on read of sector {} base {:?} -> {:?} live={}",
                     index,
                     before,
                     after,

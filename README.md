@@ -29,7 +29,7 @@ stream.
 - `app`: product provisioning/recovery policy, HTTP/HTTPS producer, bounded
   shared stream and USB radio composition. Its APIs accept prepared resources.
 - `core`: pure product policy, including 1 GiB RADIO.MP3, 96 KiB window,
-  64 KiB prebuffer, 80 KiB maximum lead and far-ahead zero probes.
+  64 KiB prebuffer, 80 KiB maximum lead and far-ahead zero probes, and a one-time rebase for a host that resumes at a remembered offset (docs/usb-resume.md).
 - `rust-mcu-libs`: ConfigSpace/EKV, logging, Improv, Wi-Fi mechanics, rolling,
   virtual FAT16, MSC and ESP adaptations. All Git dependencies are pinned to the
   same revision; no path patches or legacy iobewi dependencies remain.
