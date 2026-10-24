@@ -102,6 +102,11 @@ struct Rec {
     syncs: u32,
     /// The first 16 bytes of the first sector served by the command.
     head: [u8; 16],
+    /// First valid MPEG-1/2 Layer III header in the first sector served: offset, frame length, and how many
+    /// further headers follow at the expected distance inside that sector (None if no header).
+    frame: Option<(u16, u16, u8)>,
+    /// File-offset shift of the rebase in force when the command started (0 = none).
+    shift: u64,
     live: u64,
     consumed: u64,
     base: u64,
@@ -122,6 +127,8 @@ const EMPTY: Rec = Rec {
     crc: 0,
     syncs: 0,
     head: [0; 16],
+    frame: None,
+    shift: 0,
     live: 0,
     consumed: 0,
     base: u64::MAX,
@@ -169,6 +176,41 @@ impl core::fmt::Display for Hex<'_> {
         }
         Ok(())
     }
+}
+
+/// Length in bytes of the MPEG-1/2 Layer III frame whose header is `h`, if the header is valid.
+fn frame_len(h: &[u8]) -> Option<u16> {
+    if h.len() < 4 || h[0] != 0xFF || h[1] & 0xE0 != 0xE0 {
+        return None;
+    }
+    let ver = (h[1] >> 3) & 3; // 3 = MPEG-1, 2 = MPEG-2, 0 = MPEG-2.5, 1 = reserved
+    let layer = (h[1] >> 1) & 3; // 1 = Layer III
+    let br = (h[2] >> 4) as usize;
+    let sr = ((h[2] >> 2) & 3) as usize;
+    if ver == 1 || layer != 1 || br == 0 || br == 15 || sr == 3 {
+        return None;
+    }
+    const BR1: [u32; 15] = [0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320];
+    const BR2: [u32; 15] = [0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160];
+    const SR1: [u32; 3] = [44100, 48000, 32000];
+    let pad = ((h[2] >> 1) & 1) as u32;
+    let (kbps, rate, k) = if ver == 3 {
+        (BR1[br], SR1[sr], 144)
+    } else {
+        (BR2[br], SR1[sr] / if ver == 2 { 2 } else { 4 }, 72)
+    };
+    Some((k * kbps * 1000 / rate + pad) as u16)
+}
+
+/// Looks for the first valid Layer III header in a sector and follows the chain of frames inside it.
+fn frame_probe(data: &[u8; SECTOR_SIZE]) -> Option<(u16, u16, u8)> {
+    let (off, len) = (0..SECTOR_SIZE - 3).find_map(|i| frame_len(&data[i..]).map(|l| (i, l as usize)))?;
+    let (mut pos, mut chain) = (off + len, 0u8);
+    while pos + 4 <= SECTOR_SIZE && frame_len(&data[pos..]).is_some() {
+        chain += 1;
+        pos += frame_len(&data[pos..]).unwrap_or(1) as usize;
+    }
+    Some((off as u16, len as u16, chain))
 }
 
 fn crc32(mut crc: u32, data: &[u8]) -> u32 {
@@ -222,6 +264,7 @@ pub fn session_end() {
 pub fn command_started() {
     let (live, consumed) = crate::stream::STREAM.progress();
     let base = crate::stream::STREAM.session_base().unwrap_or(u64::MAX);
+    let shift = crate::stream::STREAM.resume_stats().4;
     let t = now() - 1;
     QUAL.lock(|c| {
         let mut q = c.borrow_mut();
@@ -235,6 +278,7 @@ pub fn command_started() {
                 start: t,
                 first_lba: u32::MAX,
                 crc: 0xFFFF_FFFF,
+                shift,
                 live,
                 consumed,
                 base,
@@ -273,6 +317,7 @@ pub fn sector(lba: u32, status: ReadStatus, data: &[u8; SECTOR_SIZE]) {
             r.last_lba = r.last_lba.max(lba);
             if r.sectors == 0 {
                 r.head.copy_from_slice(&data[..16]);
+                r.frame = frame_probe(data);
             }
             r.sectors += 1;
             r.end = t;
@@ -320,7 +365,7 @@ pub fn drain() {
     });
     if let Some(r) = rec {
         log::info!(
-            "usb-qual rd: s={} c={} start={} end={} dur={} lba={}..{} fidx={:?} n={} ready={} pend={} other={} xor={:08x} syncs={} head={} live={} consumed={} base={:?}",
+            "usb-qual rd: s={} c={} start={} end={} dur={} lba={}..{} fidx={:?} n={} ready={} pend={} other={} xor={:08x} syncs={} head={} frame={:?} shift={} live={} consumed={} base={:?}",
             r.session,
             r.command,
             r.start,
@@ -336,6 +381,8 @@ pub fn drain() {
             r.crc,
             r.syncs,
             Hex(&r.head),
+            r.frame,
+            r.shift,
             r.live,
             r.consumed,
             if r.base == u64::MAX {
