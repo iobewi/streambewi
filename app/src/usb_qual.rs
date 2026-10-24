@@ -76,9 +76,11 @@ use iobewi_fat16::{ReadOnlyBlockDevice, ReadStatus, SECTOR_SIZE};
 const COMMANDS: u32 = 240;
 /// First LBA of the file's data: boot sector, two FATs, root directory (`Geometry::data_start_lba`).
 const DATA_START: u32 = 1 + 2 * 129 + 2;
-const RECORDS: usize = 64;
+const RECORDS: usize = 32;
 /// Sessions whose first four file sectors are kept.
-const SECTOR_SESSIONS: usize = 2;
+const SECTOR_SESSIONS: usize = 1;
+/// Audio sectors (file index of 8 or more) kept for the current session.
+const AUDIO_KEEP: usize = 16;
 /// Bytes of a sector per printed line, and the age a record must have before it is printed.
 const CHUNK: usize = 128;
 const PRINT_AFTER_MS: u32 = 800;
@@ -147,6 +149,11 @@ struct Qual {
     sec_seen: [u8; SECTOR_SESSIONS],
     sec_next: [u8; SECTOR_SESSIONS],
     sectors: [[[u8; SECTOR_SIZE]; 4]; SECTOR_SESSIONS],
+    /// The first `AUDIO_KEEP` distinct audio sectors served in the current session, and the next chunk to print.
+    aud: [[u8; SECTOR_SIZE]; AUDIO_KEEP],
+    aud_idx: [u32; AUDIO_KEEP],
+    aud_n: u8,
+    aud_next: u8,
 }
 
 static QUAL: Mutex<CriticalSectionRawMutex, RefCell<Qual>> = Mutex::new(RefCell::new(Qual {
@@ -161,6 +168,10 @@ static QUAL: Mutex<CriticalSectionRawMutex, RefCell<Qual>> = Mutex::new(RefCell:
     sec_seen: [0; SECTOR_SESSIONS],
     sec_next: [0; SECTOR_SESSIONS],
     sectors: [[[0; SECTOR_SIZE]; 4]; SECTOR_SESSIONS],
+    aud: [[0; SECTOR_SIZE]; AUDIO_KEEP],
+    aud_idx: [0; AUDIO_KEEP],
+    aud_n: 0,
+    aud_next: 0,
 }));
 
 /// Highest file sector index served, start of the last READ(10) and of the last sector read, since boot.
@@ -249,6 +260,8 @@ pub fn session_begin() {
         q.session_start = now() - 1;
         q.command = 0;
         q.open = false;
+        q.aud_n = 0;
+        q.aud_next = 0;
         let slot = q.session as usize - 1;
         if slot < SECTOR_SESSIONS {
             q.sec_session[slot] = q.session;
@@ -334,6 +347,17 @@ pub fn sector(lba: u32, status: ReadStatus, data: &[u8; SECTOR_SIZE]) {
         }
         if status == ReadStatus::Ready
             && let Some(idx) = file_index(lba)
+            && idx >= 8
+            && (q.aud_n as usize) < AUDIO_KEEP
+            && !q.aud_idx[..q.aud_n as usize].contains(&idx)
+        {
+            let n = q.aud_n as usize;
+            q.aud_idx[n] = idx;
+            q.aud[n] = *data;
+            q.aud_n += 1;
+        }
+        if status == ReadStatus::Ready
+            && let Some(idx) = file_index(lba)
             && idx < 4
         {
             let session = q.session;
@@ -391,6 +415,26 @@ pub fn drain() {
                 Some(r.base)
             }
         );
+        return;
+    }
+    // One 128-byte chunk of the kept audio sectors per call, once the session has been quiet for a while.
+    let mut abuf = [0u8; CHUNK];
+    let achunk = QUAL.lock(|c| {
+        let mut q = c.borrow_mut();
+        let per = SECTOR_SIZE / CHUNK;
+        let n = q.aud_next as usize;
+        if n >= q.aud_n as usize * per
+            || (q.aud_n as usize) < AUDIO_KEEP && t.wrapping_sub(LAST_SECTOR_MS.load(Relaxed)) < 1500
+        {
+            return None;
+        }
+        let (i, off) = (n / per, n % per * CHUNK);
+        abuf.copy_from_slice(&q.aud[i][off..off + CHUNK]);
+        q.aud_next += 1;
+        Some((q.session, q.aud_idx[i], off))
+    });
+    if let Some((s, idx, off)) = achunk {
+        log::info!("usb-qual aud: s={s} fidx={idx} off={off} hex={}", Hex(&abuf));
         return;
     }
     // One 128-byte chunk of a kept sector per call, once its session has been running a while.
