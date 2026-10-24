@@ -73,10 +73,10 @@ use embassy_sync::blocking_mutex::{Mutex, raw::CriticalSectionRawMutex};
 use iobewi_fat16::{ReadOnlyBlockDevice, ReadStatus, SECTOR_SIZE};
 
 /// READ(10) commands detailed per session.
-const COMMANDS: u32 = 40;
+const COMMANDS: u32 = 240;
 /// First LBA of the file's data: boot sector, two FATs, root directory (`Geometry::data_start_lba`).
 const DATA_START: u32 = 1 + 2 * 129 + 2;
-const RECORDS: usize = 64;
+const RECORDS: usize = 96;
 /// Sessions whose first four file sectors are kept.
 const SECTOR_SESSIONS: usize = 2;
 /// Bytes of a sector per printed line, and the age a record must have before it is printed.

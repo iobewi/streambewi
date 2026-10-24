@@ -21,7 +21,9 @@ pub async fn probe() {
     let mut tick = 0u32;
     loop {
         // The recorder's lines are printed here, a little at a time, never from the USB path.
-        drain();
+        for _ in 0..4 {
+            drain();
+        }
         let since = Instant::now().as_millis() as u32 - enabled_at;
         // Registers: every 500 ms for the first 10 s after the product enables USB, then every 5 s.
         let regs_every = if since < 10_000 { 5 } else { 50 };
