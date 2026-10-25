@@ -16,10 +16,12 @@ macro_rules! mk_static {
 }
 
 pub mod boot_policy;
+pub mod brightness;
 pub mod diag;
 pub mod fetch;
 pub mod logging;
 pub mod provisioning;
+pub mod settings;
 pub mod setup;
 pub mod stations;
 pub mod status;
@@ -27,7 +29,7 @@ pub mod stream;
 pub mod usb;
 
 use core::fmt::{Debug, Display};
-use embassy_futures::join::{join, join3};
+use embassy_futures::join::{join, join3, join4};
 use embassy_net::Stack;
 use embassy_usb::driver::Driver;
 use embedded_hal_async::digital::Wait;
@@ -50,6 +52,7 @@ pub async fn run<T, B, Btn, R, W, D, F, C, S>(
     setup_network: Option<Stack<'static>>,
     radio: stations::Radio<B>,
     diag: alloc::boxed::Box<diag::Diag<B>>,
+    settings: alloc::boxed::Box<settings::SettingsStore<B>>,
     secure: S,
 ) where
     S: FnOnce(Stack<'static>) -> C,
@@ -108,10 +111,11 @@ pub async fn run<T, B, Btn, R, W, D, F, C, S>(
             )
             .await
         };
-        join3(
+        join4(
             producer,
             setup::serve(web_stack, &radio, &diag),
             diag::drain_loop(&diag),
+            stream::save_settings(&settings, &brightness::BRIGHTNESS, &stream::STREAM, link),
         )
         .await;
     };

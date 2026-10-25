@@ -1,5 +1,6 @@
 //! Product provisioning page on the AP network only. Radio and DHCP are provided by the target.
 //! HTTP uses picoserve; both UIs submit to the single owner of the Wi-Fi manager.
+use crate::brightness::{self, BRIGHTNESS, Brightness};
 use crate::stations::Radio;
 use alloc::{
     string::{String, ToString},
@@ -11,6 +12,7 @@ use embassy_net::Stack;
 use embassy_sync::{
     blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel, signal::Signal,
 };
+use embassy_time::Instant;
 use iobewi_config_space::ConfigBackend;
 use iobewi_wifi_core::AccessPointConfig;
 use picoserve::{
@@ -338,6 +340,75 @@ fn mutation(
         ),
     }
 }
+/// The LED brightness setting as the page reads it: `saved` is what the configuration holds, `preview` what
+/// is being tried (never saved), `applied` what the LED shows; `busy` while a save is asked for or being
+/// written, `error` after a failed save. Hidden by the page when `available` is false.
+fn led_json(status: &brightness::Status) -> serde_json::Value {
+    serde_json::json!({
+        "available": status.available,
+        "saved": status.saved,
+        "preview": status.preview,
+        "applied": status.applied,
+        "busy": status.busy,
+        "error": status.error.map(brightness::SaveError::message),
+    })
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PercentForm {
+    percent: u8,
+}
+type JsonReply = (StatusCode, [(&'static str, &'static str); 1], Typed<String>);
+fn led_answer(status: StatusCode, body: serde_json::Value) -> JsonReply {
+    (status, NO_STORE, json(body.to_string()))
+}
+/// What a LED request does without a LED: nothing, and says so.
+fn led_unavailable(brightness: &Brightness) -> Option<JsonReply> {
+    (!brightness.status(Instant::now()).available).then(|| {
+        led_answer(
+            StatusCode::CONFLICT,
+            serde_json::json!({"ok":false,"error":"Cet appareil n’a pas de LED de statut."}),
+        )
+    })
+}
+fn led_invalid() -> JsonReply {
+    led_answer(
+        StatusCode::BAD_REQUEST,
+        serde_json::json!({"ok":false,"error":"La luminosité va de 0 à 100 %."}),
+    )
+}
+/// Tries a brightness on the LED for a while. Nothing is written.
+fn led_preview(brightness: &Brightness, percent: u8) -> JsonReply {
+    if let Some(answer) = led_unavailable(brightness) {
+        return answer;
+    }
+    match brightness.preview(percent, Instant::now()) {
+        Ok(()) => led_answer(StatusCode::OK, serde_json::json!({"ok":true})),
+        Err(brightness::Invalid) => led_invalid(),
+    }
+}
+/// Back to the saved brightness.
+fn led_cancel(brightness: &Brightness) -> JsonReply {
+    if let Some(answer) = led_unavailable(brightness) {
+        return answer;
+    }
+    brightness.cancel();
+    led_answer(StatusCode::OK, serde_json::json!({"ok":true}))
+}
+/// Asks to keep a brightness. The answer comes at once, the write comes later (the disk may have to leave
+/// the bus first): the page reads `led.busy`, `led.saved` and `led.error` in `/api/state`.
+fn led_save(brightness: &Brightness, percent: u8) -> JsonReply {
+    if let Some(answer) = led_unavailable(brightness) {
+        return answer;
+    }
+    match brightness.request_save(percent) {
+        Ok(()) => led_answer(
+            StatusCode::ACCEPTED,
+            serde_json::json!({"ok":true,"pending":true}),
+        ),
+        Err(brightness::Invalid) => led_invalid(),
+    }
+}
 async fn state<B: ConfigBackend>(
     radio: &Radio<B>,
 ) -> ([(&'static str, &'static str); 1], Typed<String>) {
@@ -355,6 +426,7 @@ async fn state<B: ConfigBackend>(
             "reading":crate::stream::STREAM.is_reading(), "ready":crate::stream::STREAM.is_ready(),
             "restarting":RESTARTING.load(Ordering::Relaxed) != 0, "persisted":!radio.is_unsaved(),
             "wifi_message":status_message(), "wifi_status":STATUS.load(Ordering::Relaxed),
+            "led":led_json(&BRIGHTNESS.status(Instant::now())),
         }).to_string()),
     )
 }
@@ -451,6 +523,24 @@ fn app<'a, B: ConfigBackend>(
     diag: &'a crate::diag::Diag<B>,
 ) -> picoserve::Router<impl picoserve::routing::PathRouter + 'a> {
     picoserve::Router::new()
+        // Declared first so that it adds no frame to the other routes (the LED routes never reach the flash).
+        .nest(
+            "/api/led",
+            picoserve::Router::new()
+                .route(
+                    "/preview",
+                    post(|Form(value): Form<PercentForm>| async move {
+                        led_preview(&BRIGHTNESS, value.percent)
+                    }),
+                )
+                .route("/cancel", post(|| async { led_cancel(&BRIGHTNESS) }))
+                .route(
+                    "/save",
+                    post(|Form(value): Form<PercentForm>| async move {
+                        led_save(&BRIGHTNESS, value.percent)
+                    }),
+                ),
+        )
         .route("/", get(page))
         .route(
             "/status",
@@ -995,6 +1085,65 @@ mod routing_tests {
                 assert_eq!(status.1, raw.1, "{method} {path}: answer");
             }
             assert_eq!(radio.snapshot().await, reference_radio.snapshot().await);
+        });
+    }
+
+    /// The LED routes through the real router: their statuses, their refusal without a LED, and what each
+    /// one does to the brightness. Nothing here reaches the configuration.
+    #[test]
+    fn the_led_routes_preview_cancel_and_ask_for_a_save_and_refuse_without_a_led() {
+        embassy_futures::block_on(async {
+            let (radio, diag) = fixtures().await;
+            let router = app(&radio, &diag);
+            let call = |method, path, body| call(&router, method, path, body);
+            let led = || BRIGHTNESS.status(Instant::now());
+
+            // No LED task: every LED request is refused and changes nothing.
+            BRIGHTNESS.set_available(false);
+            for path in ["/api/led/preview", "/api/led/save"] {
+                assert_eq!(call("POST", path, "percent=40").0, 409, "{path}");
+            }
+            assert_eq!(call("POST", "/api/led/cancel", "").0, 409);
+            assert_eq!(led().preview, None);
+            assert!(!led().busy);
+            let state = call("GET", "/api/state", "").1;
+            assert!(state.contains("\"available\":false"), "{state}");
+
+            BRIGHTNESS.set_available(true);
+            BRIGHTNESS.loaded(36);
+            // A preview: shown, not saved, nothing asked of the configuration.
+            assert_eq!(call("POST", "/api/led/preview", "percent=80").0, 200);
+            assert_eq!(led().preview, Some(80));
+            assert_eq!(led().saved, 36);
+            assert!(!led().busy, "a preview asks for no save");
+            // A value out of range, or not a number, is refused and changes nothing.
+            assert_eq!(call("POST", "/api/led/preview", "percent=101").0, 400);
+            for body in ["percent=abc", "percent=-1", "percent=300", "", "bogus=1"] {
+                let status = call("POST", "/api/led/preview", body).0;
+                assert!((400..500).contains(&status), "{body}: {status}");
+            }
+            assert_eq!(led().preview, Some(80));
+            assert_eq!(call("POST", "/api/led/save", "percent=101").0, 400);
+            assert!(!led().busy);
+            // The cancel goes back to the saved value.
+            assert_eq!(call("POST", "/api/led/cancel", "").0, 200);
+            assert_eq!(led().preview, None);
+            assert_eq!(led().applied, 36);
+            // A save is accepted at once, as pending: the write is not done here.
+            assert_eq!(call("POST", "/api/led/save", "percent=0").0, 202);
+            assert!(led().busy);
+            assert_eq!(
+                led().saved,
+                36,
+                "the saved value changes when the write is done"
+            );
+            let state = call("GET", "/api/state", "").1;
+            assert!(state.contains("\"busy\":true"), "{state}");
+            for (method, path) in [("GET", "/api/led/preview"), ("PUT", "/api/led/save")] {
+                assert_eq!(call(method, path, "").0, 405, "{method} {path}");
+            }
+            assert_eq!(call("POST", "/api/led/nothing", "").0, 404);
+            BRIGHTNESS.set_available(false);
         });
     }
 

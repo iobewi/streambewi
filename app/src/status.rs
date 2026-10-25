@@ -21,7 +21,7 @@
 //! A green LED means the Wi-Fi is connected and the stream has delivered its prebuffer. It does not
 //! say that the player is listening: the product has no event for that.
 
-use embassy_futures::select::{Either, select};
+use embassy_futures::select::{Either4, select4};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::once_lock::OnceLock;
 use embassy_time::{Instant, Timer};
@@ -29,11 +29,13 @@ use iobewi_indicator::{Indicator, Millis, Pattern, RGB8};
 use iobewi_state::{Flags, Observer, Registry, Snapshot, Source, SourceId, State};
 
 use crate::boot_policy::BootMode;
+use crate::brightness::Brightness;
 
 /// Sources of the product: System, Wi-Fi, Stream, UsbMsc.
 pub const SOURCES: usize = 4;
-/// Observers: the status LED, and one spare for the debug mode that comes later.
-pub const OBSERVERS: usize = 2;
+/// Observers: the status LED, the settings saver (it waits for the disk to be free), and one spare for
+/// the debug mode that comes later.
+pub const OBSERVERS: usize = 3;
 
 pub type Reg = Registry<CriticalSectionRawMutex, SOURCES, OBSERVERS>;
 pub type Obs<'a> = Observer<'a, CriticalSectionRawMutex, SOURCES, OBSERVERS>;
@@ -43,13 +45,14 @@ type Src<'a> = Source<'a, CriticalSectionRawMutex, SOURCES, OBSERVERS>;
 /// The registry of the product.
 pub static STATE: Reg = Registry::new();
 
-// Colours at their final level: 16/255 for white, blue and green, 24/255 for orange and red. The
-// on-board LEDs are bright and the device sits in a room.
-const WHITE: RGB8 = RGB8::new(16, 16, 16);
-const BLUE: RGB8 = RGB8::new(0, 0, 16);
-const GREEN: RGB8 = RGB8::new(0, 16, 0);
-const ORANGE: RGB8 = RGB8::new(24, 10, 0);
-const RED: RGB8 = RGB8::new(24, 0, 0);
+// Colours at their full value: the LED brightness (`crate::brightness`) is the only attenuation, applied
+// once by the indicator's master level. White, blue and green sit at two thirds of the level of orange and
+// red, as they did (16/255 and 24/255 at the default brightness, level 23, to within 1/255).
+const WHITE: RGB8 = RGB8::new(171, 171, 171);
+const BLUE: RGB8 = RGB8::new(0, 0, 171);
+const GREEN: RGB8 = RGB8::new(0, 171, 0);
+const ORANGE: RGB8 = RGB8::new(255, 106, 0);
+const RED: RGB8 = RGB8::new(255, 0, 0);
 
 const FAST: u16 = 250;
 const SLOW: u16 = 1_000;
@@ -271,11 +274,27 @@ pub fn usb_error() {
     with(|s| s.usb_error());
 }
 
-/// An observer of the product's registry for the status LED, and the identifiers of its sources.
-/// `None` before [`init`], or if the observers are all taken.
-pub fn led_observer() -> Option<(Obs<'static>, Ids)> {
+/// An observer of the product's registry, and the identifiers of its sources. `None` before [`init`],
+/// or if the observers are all taken.
+pub fn observer() -> Option<(Obs<'static>, Ids)> {
     let sources = SOURCES_CELL.try_get()?;
     Some((STATE.observer()?, sources.ids()))
+}
+
+/// What the settings saver needs to know about the USB disk and to say about it: to watch the UsbMsc
+/// source and to publish its own detachment.
+pub struct Disk<'a> {
+    pub observer: Obs<'a>,
+    pub sources: &'a Sources<'a>,
+}
+
+/// The saver's view of the product's registry. `None` before [`init`], or if the observers are all
+/// taken.
+pub fn disk() -> Option<Disk<'static>> {
+    Some(Disk {
+        observer: STATE.observer()?,
+        sources: SOURCES_CELL.try_get()?,
+    })
 }
 
 /// A look: the pattern and a name for the log.
@@ -346,18 +365,33 @@ fn now_ms() -> Millis {
     Instant::now().as_millis() as Millis
 }
 
-/// The status LED task: shows [`look`] of the registry on one LED through `sink`.
+/// The status LED task: shows [`look`] of the registry on one LED through `sink`, at the brightness
+/// of `brightness`.
 ///
-/// It wakes when the registry changes and when the indicator says the colour can next change
-/// (blink, pulse); nothing else. A change that leaves the look the same writes nothing and does
-/// not restart the animation. `sink` writes one colour; its first error ends the task and nothing
-/// else (the product goes on without the LED).
+/// It wakes on four things and nothing else: the registry changes, the indicator says the colour can
+/// next change (blink, pulse), the brightness changes, and a preview of the brightness runs out. A
+/// change that leaves the look and the level the same writes nothing; a change of level keeps the
+/// phase of the animation. Until the saved brightness is known the LED stays dark. `sink` writes one
+/// colour; its first error ends the task and nothing else (the product goes on without the LED).
 pub async fn run_led<E>(
     mut observer: Obs<'_>,
     ids: Ids,
+    brightness: &Brightness,
     mut sink: impl FnMut(RGB8) -> Result<(), E>,
 ) {
+    brightness.set_available(true);
+    run_led_loop(&mut observer, ids, brightness, &mut sink).await;
+    brightness.set_available(false);
+}
+
+async fn run_led_loop<E>(
+    observer: &mut Obs<'_>,
+    ids: Ids,
+    brightness: &Brightness,
+    sink: &mut impl FnMut(RGB8) -> Result<(), E>,
+) {
     let mut indicator = Indicator::new(Pattern::Off, now_ms());
+    indicator.set_intensity(brightness.applied_level(Instant::now()));
     let mut last_name = "";
     let mut snapshot = observer.changed().await;
     loop {
@@ -372,25 +406,39 @@ pub async fn run_led<E>(
                 snapshot.revision()
             );
         }
-        let Ok(mut wake) = indicator.drive(now, &mut sink) else {
+        let Ok(mut wake) = indicator.drive(now, &mut *sink) else {
             log::warn!("status: LED write failed, the status LED stops");
             return;
         };
         snapshot = loop {
-            let event = match wake {
-                Some(ms) => select(observer.changed(), Timer::after_millis(u64::from(ms))).await,
-                None => Either::First(observer.changed().await),
+            let tick = async {
+                match wake {
+                    Some(ms) => Timer::after_millis(u64::from(ms)).await,
+                    None => core::future::pending().await,
+                }
             };
-            match event {
-                Either::First(next) => break next,
+            let expiry = async {
+                match brightness.preview_deadline() {
+                    Some(deadline) => Timer::at(deadline).await,
+                    None => core::future::pending().await,
+                }
+            };
+            match select4(observer.changed(), tick, brightness.changed(), expiry).await {
+                Either4::First(next) => break next,
                 // The colour can change although no flag did: blink and pulse.
-                Either::Second(()) => match indicator.drive(now_ms(), &mut sink) {
-                    Ok(next) => wake = next,
-                    Err(_) => {
-                        log::warn!("status: LED write failed, the status LED stops");
-                        return;
-                    }
-                },
+                Either4::Second(()) => {}
+                // The level changed, or a preview ran out: same look, other level, same phase.
+                Either4::Third(()) | Either4::Fourth(()) => {
+                    brightness.expire(Instant::now());
+                    indicator.set_intensity(brightness.applied_level(Instant::now()));
+                }
+            }
+            match indicator.drive(now_ms(), &mut *sink) {
+                Ok(next) => wake = next,
+                Err(_) => {
+                    log::warn!("status: LED write failed, the status LED stops");
+                    return;
+                }
             }
         };
     }
