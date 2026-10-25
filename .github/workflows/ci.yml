@@ -47,6 +47,13 @@ jobs:
         run: scripts/build-image.sh ci-out
       - name: USB debug build and layout
         run: FEATURES=usb-debug scripts/build-image.sh ci-out/usb-debug
+      # Status LED (#3): one image per board; the LED pin is the only difference. The image above has no LED.
+      - name: Board variant DevKitC-1 v1.0 (LED on GPIO48)
+        run: FEATURES=board-devkitc-1 scripts/build-image.sh ci-out/board-devkitc-1
+      - name: Board variant DevKitC-1 v1.1 (LED on GPIO38)
+        run: FEATURES=board-devkitc-1-v1-1 scripts/build-image.sh ci-out/board-devkitc-1-v1-1
+      - name: Board variant Waveshare ESP32-S3 Zero (LED on GPIO21)
+        run: FEATURES=board-s3-zero scripts/build-image.sh ci-out/board-s3-zero
       # Same source, instrumentation on: it must keep compiling and linking (bench qualification image).
       - name: Qualification build (instrumentation on)
         run: FEATURES=qual scripts/build-image.sh ci-out/qual

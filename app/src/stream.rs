@@ -314,6 +314,7 @@ where
                 Timer::at(since + SWITCH_DETACH).await;
                 crate::usb::clear_stall();
                 link.set_connected(true);
+                crate::status::usb_ready();
                 crate::setup::RESTARTING.store(0, Ordering::Relaxed);
                 log::info!(
                     "station: disk back after {} ms (live={})",
@@ -330,7 +331,7 @@ where
         )
         .await;
         match switched {
-            Either3::Third(()) => {}
+            Either3::Third(()) => crate::status::stream_busy(),
             Either3::First(never) => match never {},
             Either3::Second(()) => unreachable!(),
         }
@@ -338,6 +339,7 @@ where
         let since = Instant::now();
         if let Some(link) = link {
             link.set_connected(false);
+            crate::status::usb_off_bus();
         }
         let live = stream.begin_station_change();
         log::info!("station: switching, disk off the bus (live={})", live);
@@ -353,15 +355,21 @@ where
         }
         let started = Instant::now();
         match persist().await {
-            Ok(wrote) => log::info!(
-                "station: selection persisted={} in {} ms",
-                wrote,
-                started.elapsed().as_millis()
-            ),
-            Err(()) => log::error!(
-                "station: persisting the selection FAILED after {} ms: active in RAM, NOT saved",
-                started.elapsed().as_millis()
-            ),
+            Ok(wrote) => {
+                crate::status::stream_selection_unsaved(false);
+                log::info!(
+                    "station: selection persisted={} in {} ms",
+                    wrote,
+                    started.elapsed().as_millis()
+                )
+            }
+            Err(()) => {
+                crate::status::stream_selection_unsaved(true);
+                log::error!(
+                    "station: persisting the selection FAILED after {} ms: active in RAM, NOT saved",
+                    started.elapsed().as_millis()
+                )
+            }
         }
         pending_attach = Some((since, live));
     }
@@ -485,6 +493,7 @@ where
         let _ = conn.close().await;
         return Exchange::Retry(Duration::from_secs(5));
     }
+    crate::status::stream_connected();
 
     // The body as the head describes it: chunked (what Radio France sends over TLS), with a length,
     // or up to the close. `edge-http` decodes it, so the window only ever gets audio bytes, never
@@ -571,10 +580,20 @@ where
     for<'a> <P::Connection<'a> as ErrorType>::Error: core::fmt::Display,
     for<'a> <T::Connection<'a> as ErrorType>::Error: core::fmt::Display,
 {
+    let mut first = true;
     loop {
         let reconnect = stream.mark_reconnect();
         log::info!("stream: connecting attempt={} url={}", reconnect, url);
-        Timer::after(attempt(tcp, tls, stream, url).await).await;
+        if first {
+            crate::status::stream_connecting();
+        } else {
+            crate::status::stream_reconnecting();
+        }
+        first = false;
+        let delay = attempt(tcp, tls, stream, url).await;
+        // The connection is over: do not keep saying it is up (or ready) while waiting to retry.
+        crate::status::stream_reconnecting();
+        Timer::after(delay).await;
     }
 }
 
@@ -629,6 +648,10 @@ where
 {
     let mut buf = [0u8; CHUNK_BYTES];
     let mut last_progress_log = Instant::now();
+    // Bytes this connection delivered: the stream is ready for the status LED once it passed the
+    // prebuffer. A local counter, one comparison per chunk; the registry is touched once.
+    let mut delivered = 0u64;
+    let mut ready = false;
     #[cfg(feature = "qual")]
     let started = Instant::now();
 
@@ -662,6 +685,13 @@ where
                 let before = stream.progress().0;
                 let pushed = stream.push(&buf[..n]);
                 let (written, consumed) = stream.progress();
+                if !ready {
+                    delivered += pushed as u64;
+                    if delivered >= PREBUFFER_BYTES {
+                        ready = true;
+                        crate::status::stream_ready();
+                    }
+                }
 
                 // Prebuffer reached, then a heartbeat every 60 s while data flows.
                 if before < PREBUFFER_BYTES && written >= PREBUFFER_BYTES

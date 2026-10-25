@@ -30,16 +30,18 @@ heapless = { version = "0.9", default-features = false }
 picoserve = { version = "0.20.0", default-features = false, features = ["embassy", "alloc"] }
 serde = { version = "1", default-features = false, features = ["derive", "alloc"] }
 
-improv-serial = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "abd8b33f52f147ffa1db2996da1f62df9f488070" }
-iobewi-config-space = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "abd8b33f52f147ffa1db2996da1f62df9f488070" }
-iobewi-log = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "abd8b33f52f147ffa1db2996da1f62df9f488070" }
-iobewi-log-config = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "abd8b33f52f147ffa1db2996da1f62df9f488070" }
-iobewi-http-client = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "abd8b33f52f147ffa1db2996da1f62df9f488070" }
-iobewi-net-io = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "abd8b33f52f147ffa1db2996da1f62df9f488070" }
-iobewi-fat16 = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "abd8b33f52f147ffa1db2996da1f62df9f488070" }
-iobewi-usb-msc = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "abd8b33f52f147ffa1db2996da1f62df9f488070" }
-iobewi-wifi-core = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "abd8b33f52f147ffa1db2996da1f62df9f488070" }
-iobewi-wifi-manager = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "abd8b33f52f147ffa1db2996da1f62df9f488070" }
+iobewi-state = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "f9a2a9a4099dd43c3e9eb0b1410fc3a523286f53" }
+iobewi-indicator = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "f9a2a9a4099dd43c3e9eb0b1410fc3a523286f53" }
+improv-serial = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "f9a2a9a4099dd43c3e9eb0b1410fc3a523286f53" }
+iobewi-config-space = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "f9a2a9a4099dd43c3e9eb0b1410fc3a523286f53" }
+iobewi-log = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "f9a2a9a4099dd43c3e9eb0b1410fc3a523286f53" }
+iobewi-log-config = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "f9a2a9a4099dd43c3e9eb0b1410fc3a523286f53" }
+iobewi-http-client = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "f9a2a9a4099dd43c3e9eb0b1410fc3a523286f53" }
+iobewi-net-io = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "f9a2a9a4099dd43c3e9eb0b1410fc3a523286f53" }
+iobewi-fat16 = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "f9a2a9a4099dd43c3e9eb0b1410fc3a523286f53" }
+iobewi-usb-msc = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "f9a2a9a4099dd43c3e9eb0b1410fc3a523286f53" }
+iobewi-wifi-core = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "f9a2a9a4099dd43c3e9eb0b1410fc3a523286f53" }
+iobewi-wifi-manager = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "f9a2a9a4099dd43c3e9eb0b1410fc3a523286f53" }
 
 
 [dev-dependencies]
