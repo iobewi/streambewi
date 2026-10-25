@@ -238,6 +238,12 @@ improv: provisioned, credentials saved
 On later boots the saved network is connected automatically (`wifi: ready`), with
 reconnection/backoff handled by `WifiManager`.
 
+## Status LED
+
+With a board feature (`board-devkitc-1`, `board-devkitc-1-v1-1` or `board-s3-zero`) the firmware shows
+its main states on the board's RGB LED; without one the product has no LED. See
+[docs/status-led.md](docs/status-led.md) for the states, the policy and the wiring.
+
 ## Flash StreamBeWI
 
 Board: ESP32-S3. Two different USB connectors are involved:

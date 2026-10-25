@@ -4,6 +4,33 @@
 extern crate alloc;
 #[cfg(feature = "qual")]
 mod qual_mem;
+
+// The status LED sits on a different GPIO from one board to the next: the board is chosen at build time,
+// and without a board the product has no LED and does not touch the RMT.
+#[cfg(any(
+    all(feature = "board-devkitc-1", feature = "board-devkitc-1-v1-1"),
+    all(feature = "board-devkitc-1", feature = "board-s3-zero"),
+    all(feature = "board-devkitc-1-v1-1", feature = "board-s3-zero"),
+))]
+compile_error!("Choose at most one board feature");
+#[cfg(feature = "board-devkitc-1")]
+type LedPin = esp_hal::peripherals::GPIO48<'static>;
+#[cfg(feature = "board-devkitc-1-v1-1")]
+type LedPin = esp_hal::peripherals::GPIO38<'static>;
+#[cfg(feature = "board-s3-zero")]
+type LedPin = esp_hal::peripherals::GPIO21<'static>;
+
+/// The status LED: shows the look of the product's state (`streambewi::status`). A write error ends this
+/// task and nothing else.
+#[cfg(status_led)]
+#[embassy_executor::task]
+async fn status_led(
+    observer: streambewi::status::Obs<'static>,
+    ids: streambewi::status::Ids,
+    mut led: iobewi_esp_ws2812::Ws2812<'static>,
+) {
+    streambewi::status::run_led(observer, ids, |color| led.set(color)).await;
+}
 mod serial;
 
 fn console(r: &log::Record<'_>) {
@@ -81,6 +108,10 @@ struct Resources {
     usb: USB_FS<'static>,
     dp: GPIO20<'static>,
     dm: GPIO19<'static>,
+    #[cfg(status_led)]
+    rmt: esp_hal::peripherals::RMT<'static>,
+    #[cfg(status_led)]
+    led: LedPin,
 }
 
 // Fatal startup diagnostics are allowed before UART0 becomes an Improv port.
@@ -109,6 +140,18 @@ fn boot_result<T, E: core::fmt::Debug>(
 
 #[embassy_executor::task]
 async fn product(p: Resources, spawner: Spawner) {
+    // `Booting` shows from here. A fatal startup error below keeps it on (see `boot_result`).
+    streambewi::status::init();
+    #[cfg(status_led)]
+    {
+        // No LED, no restitution: the product goes on without it.
+        if let Ok(rmt) = esp_hal::rmt::Rmt::new(p.rmt, iobewi_esp_ws2812::RMT_FREQ)
+            && let Ok(led) = iobewi_esp_ws2812::Ws2812::new(rmt.channel0, p.led)
+            && let Some((observer, ids)) = streambewi::status::led_observer()
+        {
+            spawner.spawn(status_led(observer, ids, led).unwrap());
+        }
+    }
     let mut uart = Uart::new(p.uart, UartConfig::default())
         .expect("UART0 unavailable")
         .with_rx(p.rx)
@@ -311,6 +354,14 @@ fn main() -> ! {
         usb: p.USB_FS,
         dp: p.GPIO20,
         dm: p.GPIO19,
+        #[cfg(status_led)]
+        rmt: p.RMT,
+        #[cfg(all(status_led, feature = "board-devkitc-1"))]
+        led: p.GPIO48,
+        #[cfg(all(status_led, feature = "board-devkitc-1-v1-1"))]
+        led: p.GPIO38,
+        #[cfg(all(status_led, feature = "board-s3-zero"))]
+        led: p.GPIO21,
     };
     static EXECUTOR: StaticCell<esp_rtos::embassy::Executor> = StaticCell::new();
     EXECUTOR

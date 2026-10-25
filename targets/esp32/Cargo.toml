@@ -6,6 +6,10 @@ publish = false
 
 [features]
 default = []
+# Status LED: choose at most one board. Without one the product has no LED and no RMT use.
+board-devkitc-1 = ["dep:iobewi-esp-ws2812"]
+board-devkitc-1-v1-1 = ["dep:iobewi-esp-ws2812"]
+board-s3-zero = ["dep:iobewi-esp-ws2812"]
 usb-debug = ["streambewi/usb-debug"]
 # Debug build: driver traces, stack/heap high-water probe. The operating log (Info/Warn on UART0) is
 # always on; this adds the debug detail. Off by default; CI compiles both.
@@ -24,16 +28,17 @@ static_cell = "2.1"
 esp-println = { version = "~0.18", default-features = false, features = ["esp32s3", "uart", "log-04"] }
 embassy-time = { version = "0.5", default-features = false }
 log = "0.4"
-iobewi-config-space = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "abd8b33f52f147ffa1db2996da1f62df9f488070" }
-iobewi-esp-config-space = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "abd8b33f52f147ffa1db2996da1f62df9f488070", features = ["esp32s3"] }
-iobewi-esp-flash = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "abd8b33f52f147ffa1db2996da1f62df9f488070", features = ["esp32s3"] }
-iobewi-esp-wifi = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "abd8b33f52f147ffa1db2996da1f62df9f488070", features = ["esp32s3"] }
-iobewi-esp-usb = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "abd8b33f52f147ffa1db2996da1f62df9f488070", features = ["esp32s3"] }
-iobewi-wifi-manager = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "abd8b33f52f147ffa1db2996da1f62df9f488070" }
-iobewi-log = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "abd8b33f52f147ffa1db2996da1f62df9f488070" }
+iobewi-config-space = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "f9a2a9a4099dd43c3e9eb0b1410fc3a523286f53" }
+iobewi-esp-config-space = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "f9a2a9a4099dd43c3e9eb0b1410fc3a523286f53", features = ["esp32s3"] }
+iobewi-esp-flash = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "f9a2a9a4099dd43c3e9eb0b1410fc3a523286f53", features = ["esp32s3"] }
+iobewi-esp-wifi = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "f9a2a9a4099dd43c3e9eb0b1410fc3a523286f53", features = ["esp32s3"] }
+iobewi-esp-usb = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "f9a2a9a4099dd43c3e9eb0b1410fc3a523286f53", features = ["esp32s3"] }
+iobewi-wifi-manager = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "f9a2a9a4099dd43c3e9eb0b1410fc3a523286f53" }
+iobewi-log = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "f9a2a9a4099dd43c3e9eb0b1410fc3a523286f53" }
 # HTTPS stations: the TLS client, the public trust anchors in flash and the clock the certificate dates need.
-iobewi-esp-tls = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "abd8b33f52f147ffa1db2996da1f62df9f488070", default-features = false, features = ["esp32s3", "public-pki"] }
-iobewi-tls-service = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "abd8b33f52f147ffa1db2996da1f62df9f488070" }
-iobewi-tls-roots = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "abd8b33f52f147ffa1db2996da1f62df9f488070" }
-iobewi-ntp = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "abd8b33f52f147ffa1db2996da1f62df9f488070" }
-iobewi-time = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "abd8b33f52f147ffa1db2996da1f62df9f488070" }
+iobewi-esp-tls = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "f9a2a9a4099dd43c3e9eb0b1410fc3a523286f53", default-features = false, features = ["esp32s3", "public-pki"] }
+iobewi-tls-service = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "f9a2a9a4099dd43c3e9eb0b1410fc3a523286f53" }
+iobewi-tls-roots = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "f9a2a9a4099dd43c3e9eb0b1410fc3a523286f53" }
+iobewi-ntp = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "f9a2a9a4099dd43c3e9eb0b1410fc3a523286f53" }
+iobewi-time = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "f9a2a9a4099dd43c3e9eb0b1410fc3a523286f53" }
+iobewi-esp-ws2812 = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "f9a2a9a4099dd43c3e9eb0b1410fc3a523286f53", features = ["esp32s3"], optional = true }

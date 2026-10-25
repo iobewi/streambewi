@@ -43,11 +43,13 @@ struct LogObserver<'a> {
 
 impl LinkObserver<Stack<'static>> for LogObserver<'_> {
     fn link_down(&mut self) {
+        crate::status::wifi_link_down();
         crate::setup::set_offline();
         log::info!("wifi: link down, reconnecting");
     }
     fn ready(&mut self, network: Stack<'static>) {
         log::info!("wifi: ready");
+        crate::status::wifi_connected();
         crate::setup::set_network(network);
         self.network.signal(network);
     }
@@ -233,6 +235,8 @@ where
 
     loop {
         CONFIGURED.store(true, Ordering::Relaxed);
+        // `maintain` connects (or redoes a connection it took over from); `ready` says when it is up.
+        crate::status::wifi_connecting();
         let mut state = if flag_committed && manager.is_online() {
             State::Provisioned
         } else {
@@ -248,6 +252,7 @@ where
         {
             Either4::First(MaintainError::NotProvisioned) => {
                 CONFIGURED.store(false, Ordering::Relaxed);
+                crate::status::wifi_unconfigured();
                 log::info!("wifi: no saved credentials; waiting for Improv provisioning");
                 let (port, command) = match select3(
                     IMPROV_COMMANDS.receive(),
@@ -281,6 +286,8 @@ where
                 .await;
             }
             Either4::Second((port, command)) => {
+                // `maintain` is dropped: a command may change the network, the old link is not vouched for.
+                crate::status::wifi_connecting();
                 handle(
                     command,
                     Reply {
@@ -296,6 +303,7 @@ where
                 .await
             }
             Either4::Third(request) => {
+                crate::status::wifi_connecting();
                 provision_web(request, &mut manager, boot, &mut flag_committed).await;
             }
             Either4::Fourth(()) => {

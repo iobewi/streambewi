@@ -136,6 +136,7 @@ impl LinkSupervisor {
         let (written_at_stall, _) = self.stream.progress();
         let generation = self.stream.generation();
         log::info!("usb: stream stalled, leaving the bus");
+        crate::status::usb_off_bus();
         // The player will resume at the offset it had: keep the session through the reconnection.
         self.stream.hold_session();
         self.link.set_connected(false);
@@ -154,6 +155,7 @@ impl LinkSupervisor {
         self.stall.reset();
         log::info!("usb: stream back, rejoining the bus");
         self.link.set_connected(true);
+        crate::status::usb_ready();
     }
 }
 
@@ -196,6 +198,7 @@ where
     // The USB disk is only presented once the stream has delivered the prebuffer: a visible
     // RADIO.MP3 with no audio behind it (Wi-Fi not provisioned/connected, stream down)
     // would look like an empty file to the host. Without data there is no USB device.
+    crate::status::usb_initializing();
     let mut waits = 0u32;
     while !STREAM.is_ready() {
         // One line when the wait starts, then one every 10 s: a silent stream is visible, not flooded.
@@ -214,6 +217,7 @@ where
     let (written, _) = STREAM.progress();
     log::info!("stream: prebuffer bytes={}", written);
     log::info!("usb: enabling MSC for Metronic");
+    crate::status::usb_ready();
 
     let mut usb_config = embassy_usb::Config::new(0x303A, 0x4001);
     usb_config.manufacturer = Some("IOBEWI");
@@ -258,6 +262,7 @@ where
             .await
         {
             log::info!("msc: fatal endpoint error: {:?}", err);
+            crate::status::usb_error();
         }
     };
 

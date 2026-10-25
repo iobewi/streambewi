@@ -22,6 +22,7 @@ pub mod logging;
 pub mod provisioning;
 pub mod setup;
 pub mod stations;
+pub mod status;
 pub mod stream;
 pub mod usb;
 
@@ -70,6 +71,7 @@ pub async fn run<T, B, Btn, R, W, D, F, C, S>(
         return;
     }
     setup::set_setup(boot.mode() == boot_policy::BootMode::Provisioning);
+    status::system_started(boot.mode());
     let network = provisioning::NetworkSignal::new();
     let (readers, ports) = provisioning::take_ports(serial);
     let provisioning_fut = join(
