@@ -100,7 +100,7 @@
     try {
       const next=await request('/api/state');
       if(rebooting&&!next.restarting) { rebooting=false;if(next.persisted===false)message('notice','Station active, mais non enregistrée : l’ancienne reviendra au redémarrage.',true);else message('notice','Votre station est choisie. Bonne écoute !'); }
-      state=next;failures=0;render(next);
+      state=next;failures=0;render(next);renderLed(next.led);
     } catch(_) { failures++;if(failures>2&&!rebooting) { $('play-label').textContent='Connexion à votre radio…'; $('play-state').classList.remove('reading'); } }
     finally {refreshBusy=false;}
   }
@@ -166,5 +166,43 @@
       if (j.ok) diagLoad();
     } catch (_) { message('diag-result', 'Envoi impossible.', true); }
   });
+  // LED brightness. Moving the slider only previews (RAM, nothing is written, the firmware drops it after 60 s);
+  // "Enregistrer" asks for a protected save, and "Enregistré" is shown only once /api/state says it is kept.
+  const led={editing:false,sent:0,inFlight:false,timer:null,waiting:null};
+  function ledValue(){return Number($('led-range').value);}
+  function ledShow(v){$('led-range').value=v;$('led-value').textContent=v+' %';}
+  async function ledSend(){
+    led.timer=null;const v=ledValue();led.inFlight=true;led.sent=Date.now();
+    try{await request('/api/led/preview',{percent:v});}catch(e){message('led-result',e.message,true);}
+    finally{led.inFlight=false;if(ledValue()!==v)ledSoon();}
+  }
+  function ledSoon(){ // at most one request in flight, 150 ms apart, and the last value is always sent
+    if(led.inFlight||led.timer)return;
+    led.timer=setTimeout(ledSend,Math.max(0,150-(Date.now()-led.sent)));
+  }
+  async function ledCancel(){
+    led.editing=false;led.waiting=null;if(led.timer){clearTimeout(led.timer);led.timer=null;}
+    try{await request('/api/led/cancel',{});}catch(_){}
+    message('led-result','');await refresh();
+  }
+  $('led-range').addEventListener('input',()=>{led.editing=true;led.waiting=null;$('led-value').textContent=ledValue()+' %';message('led-result','Pas encore enregistré.');$('led-save').disabled=false;ledSoon();});
+  $('led-range').addEventListener('change',ledSoon);
+  $('led-cancel').onclick=ledCancel;
+  $('led-save').onclick=async()=>{
+    const v=ledValue();$('led-save').disabled=true;message('led-result','Enregistrement… La musique peut s’interrompre un instant.');
+    try{await request('/api/led/save',{percent:v});led.waiting=v;await refresh();}
+    catch(e){message('led-result',e.message,true);$('led-save').disabled=false;}
+  };
+  $('settings-panel').addEventListener('close',()=>{if(led.editing)ledCancel();});
+  function renderLed(info){
+    const box=$('led-setting');box.hidden=!info||!info.available;if(box.hidden)return;
+    if(led.waiting!==null){
+      if(info.error){message('led-result',info.error+' Vous pouvez réessayer.',true);led.waiting=null;}
+      else if(!info.busy&&info.saved===led.waiting){message('led-result','Enregistré !');led.waiting=null;led.editing=false;}
+      else message('led-result','Enregistrement… La musique peut s’interrompre un instant.');
+    }
+    if(!led.editing)ledShow(info.preview===null?info.saved:info.preview);
+    $('led-save').disabled=info.busy||!led.editing||(info.preview===null&&ledValue()===info.saved);
+  }
   refresh();setInterval(refresh,2000);
 })();

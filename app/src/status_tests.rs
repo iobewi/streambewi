@@ -104,7 +104,7 @@ fn an_error_or_a_warning_beats_the_rest() {
     assert_eq!(
         red,
         Pattern::Blink {
-            color: RGB8::new(24, 0, 0),
+            color: RED,
             on_ms: 250,
             off_ms: 250
         }
@@ -166,18 +166,43 @@ fn a_station_change_and_the_disk_leaving_the_bus_have_no_look_of_their_own() {
     assert_eq!(name(reg, &s), "green steady");
 }
 
+/// The colour the LED gets from `color` at `level`, as the indicator computes it.
+fn shown(color: RGB8, level: u8) -> RGB8 {
+    let mut indicator = Indicator::new(Pattern::Solid(color), 0);
+    indicator.set_intensity(level);
+    indicator.poll(0).color.expect("a colour to show")
+}
+
 #[test]
-fn the_colours_are_dim() {
-    let (reg, s) = product();
-    s.system_booting();
-    let Pattern::Solid(white) = look(&reg.snapshot(), &s.ids()).pattern else {
-        panic!("steady white at boot");
-    };
-    assert_eq!(iobewi_indicator::level(white), 16);
-    assert_eq!(iobewi_indicator::level(BLUE), 16);
-    assert_eq!(iobewi_indicator::level(GREEN), 16);
-    assert_eq!(iobewi_indicator::level(ORANGE), 24);
-    assert_eq!(iobewi_indicator::level(RED), 24);
+fn the_colours_keep_their_look_at_the_default_brightness_and_are_attenuated_once() {
+    use crate::brightness::{DEFAULT_PERCENT, MAX_LEVEL, level_of};
+    let level = level_of(DEFAULT_PERCENT);
+    assert_eq!(level, 23);
+    // What the LED showed before the setting existed: 16/255 for white, blue and green, 24/255 for
+    // orange and red, to within 1/255.
+    let near = |got: u8, want: u8| got.abs_diff(want) <= 1;
+    for color in [WHITE, BLUE, GREEN] {
+        let on = iobewi_indicator::level(shown(color, level));
+        assert!(near(on, 16), "{color:?} shows {on}");
+    }
+    for color in [ORANGE, RED] {
+        let on = iobewi_indicator::level(shown(color, level));
+        assert!(near(on, 24), "{color:?} shows {on}");
+    }
+    assert_eq!(shown(ORANGE, level), RGB8::new(23, 9, 0));
+    // The proportion between the ordinary and the strong colours is kept at every level.
+    for level in [8, 23, MAX_LEVEL] {
+        let ordinary = u32::from(iobewi_indicator::level(shown(GREEN, level)));
+        let strong = u32::from(iobewi_indicator::level(shown(RED, level)));
+        assert!(
+            (strong * 2).abs_diff(ordinary * 3) <= 3,
+            "level {level}: {ordinary} and {strong}"
+        );
+    }
+    // 100 % is the cap, 0 % is dark.
+    assert_eq!(iobewi_indicator::level(shown(RED, MAX_LEVEL)), MAX_LEVEL);
+    assert_eq!(shown(RED, 0), RGB8::new(0, 0, 0));
+    assert_eq!(shown(WHITE, 0), RGB8::new(0, 0, 0));
 }
 
 // --- Transitions leave nothing stale ---------------------------------------------------------
@@ -412,7 +437,7 @@ fn publishing_before_init_does_nothing_and_init_registers_once() {
         4,
         "four sources, registered once"
     );
-    let (_observer, ids) = led_observer().expect("an observer for the LED");
+    let (_observer, ids) = observer().expect("an observer for the LED");
     assert_eq!(
         snapshot.of(ids.system),
         Some(Flags::of(&[State::Booting])),
@@ -441,6 +466,8 @@ fn run_task(
     let ids = sources.ids();
     let written = RefCell::new(std::vec::Vec::new());
     let observer = reg.observer().expect("an observer");
+    let brightness = Brightness::new();
+    brightness.loaded(crate::brightness::DEFAULT_PERCENT);
     let sink = |color: RGB8| {
         let mut written = written.borrow_mut();
         if fail_after.is_some_and(|n| written.len() >= n) {
@@ -449,7 +476,7 @@ fn run_task(
         written.push(color);
         Ok(())
     };
-    let task = run_led(observer, ids, sink);
+    let task = run_led(observer, ids, &brightness, sink);
     let driver = async {
         // Let the task show the initial state, then play.
         Timer::after_millis(30).await;
@@ -540,7 +567,9 @@ fn a_failed_write_ends_the_task_and_nothing_else() {
         s.stream_ready();
         Timer::after_millis(200).await;
     };
-    let ended = block_on(select(run_led(observer, ids, sink), driver));
+    let brightness = Brightness::new();
+    brightness.loaded(crate::brightness::DEFAULT_PERCENT);
+    let ended = block_on(select(run_led(observer, ids, &brightness, sink), driver));
     assert!(
         matches!(ended, Either::First(())),
         "the task ended on its own"
@@ -548,4 +577,227 @@ fn a_failed_write_ends_the_task_and_nothing_else() {
     // The registry goes on working after the LED is gone.
     s.wifi_link_down();
     assert_eq!(flags(reg, ids.wifi), Flags::of(&[State::Reconnecting]));
+}
+
+// --- The task and the brightness ----------------------------------------------------------------
+
+/// Runs the LED task on `brightness` while `drive` plays, and returns every colour written with the
+/// time since the start, in milliseconds.
+fn run_timed(
+    brightness: &Brightness,
+    drive: impl AsyncFnOnce(&Reg, &Sources<'static>),
+) -> std::vec::Vec<(u128, RGB8)> {
+    let (reg, sources) = product();
+    let ids = sources.ids();
+    let start = std::time::Instant::now();
+    let written = RefCell::new(std::vec::Vec::new());
+    let observer = reg.observer().expect("an observer");
+    let sink = |color: RGB8| -> Result<(), ()> {
+        written
+            .borrow_mut()
+            .push((start.elapsed().as_millis(), color));
+        Ok(())
+    };
+    let task = run_led(observer, ids, brightness, sink);
+    let driver = async {
+        Timer::after_millis(30).await;
+        drive(reg, &sources).await;
+        Timer::after_millis(30).await;
+    };
+    match block_on(select(task, driver)) {
+        Either::First(()) | Either::Second(()) => {}
+    }
+    written.into_inner()
+}
+
+fn colors(written: &[(u128, RGB8)]) -> std::vec::Vec<RGB8> {
+    written.iter().map(|(_, c)| *c).collect()
+}
+
+const DARK: RGB8 = RGB8::new(0, 0, 0);
+
+fn green_ready(s: &Sources<'_>) {
+    s.system_started(BootMode::MassStorage);
+    s.wifi_connected();
+    s.stream_ready();
+}
+
+#[test]
+fn a_preview_is_shown_at_once_without_any_flag_changing_and_a_cancel_goes_back() {
+    let brightness = Brightness::new();
+    brightness.loaded(36);
+    let written = run_timed(&brightness, async |_reg, s| {
+        green_ready(s);
+        Timer::after_millis(40).await;
+        brightness.preview(100, Instant::now()).unwrap();
+        Timer::after_millis(40).await;
+        brightness.preview(0, Instant::now()).unwrap();
+        Timer::after_millis(40).await;
+        brightness.cancel();
+        Timer::after_millis(40).await;
+    });
+    assert_eq!(
+        colors(&written),
+        [
+            DARK,
+            RGB8::new(0, 16, 0), // saved, 36 %
+            RGB8::new(0, 43, 0), // 100 %, level 64
+            DARK,                // 0 %
+            RGB8::new(0, 16, 0), // cancelled
+        ]
+    );
+    assert_eq!(
+        brightness.status(Instant::now()).saved,
+        36,
+        "nothing was saved"
+    );
+}
+
+#[test]
+fn a_preview_ends_by_itself_and_the_led_goes_back_to_the_saved_value() {
+    // The same mechanism as the 60 s of the firmware, with 150 ms.
+    let brightness = Brightness::short_preview(embassy_time::Duration::from_millis(150));
+    brightness.loaded(36);
+    let written = run_timed(&brightness, async |_reg, s| {
+        green_ready(s);
+        Timer::after_millis(40).await;
+        brightness.preview(100, Instant::now()).unwrap();
+        Timer::after_millis(400).await;
+    });
+    assert_eq!(
+        colors(&written),
+        [
+            DARK,
+            RGB8::new(0, 16, 0),
+            RGB8::new(0, 43, 0),
+            RGB8::new(0, 16, 0)
+        ]
+    );
+    let (shown, back) = (written[2].0, written[3].0);
+    assert!(
+        (120..=300).contains(&(back - shown)),
+        "back after {} ms",
+        back - shown
+    );
+}
+
+#[test]
+fn a_new_preview_renews_the_time_and_a_saved_value_ends_the_preview() {
+    let brightness = Brightness::short_preview(embassy_time::Duration::from_millis(200));
+    brightness.loaded(36);
+    let written = run_timed(&brightness, async |_reg, s| {
+        green_ready(s);
+        Timer::after_millis(40).await;
+        brightness.preview(100, Instant::now()).unwrap();
+        // Renewed before it ran out, twice: 360 ms in all, more than the 200 ms of one preview.
+        Timer::after_millis(120).await;
+        brightness.preview(100, Instant::now()).unwrap();
+        Timer::after_millis(120).await;
+        brightness.preview(100, Instant::now()).unwrap();
+        Timer::after_millis(120).await;
+        assert_eq!(brightness.status(Instant::now()).preview, Some(100));
+        // A save that succeeds: the saved value, no preview left.
+        brightness.request_save(50).unwrap();
+        let percent = brightness.next_save().await;
+        brightness.finish_save(percent, Ok(()));
+        Timer::after_millis(60).await;
+    });
+    assert_eq!(
+        colors(&written),
+        [
+            DARK,
+            RGB8::new(0, 16, 0),
+            RGB8::new(0, 43, 0),
+            RGB8::new(0, 22, 0)
+        ],
+        "100 % held through the renewals, then 50 % (level 32)"
+    );
+    assert_eq!(brightness.preview_deadline(), None);
+}
+
+#[test]
+fn the_led_stays_dark_until_the_saved_brightness_is_known() {
+    let brightness = Brightness::new(); // not loaded yet
+    let written = run_timed(&brightness, async |_reg, s| {
+        s.system_booting();
+        Timer::after_millis(80).await;
+        brightness.loaded(36);
+        Timer::after_millis(60).await;
+    });
+    // The white of `Booting` appears only once the level is known.
+    assert_eq!(colors(&written), [DARK, RGB8::new(16, 16, 16)]);
+}
+
+#[test]
+fn a_brightness_saved_at_zero_never_lights_the_led_at_start() {
+    let brightness = Brightness::new();
+    let written = run_timed(&brightness, async |_reg, s| {
+        s.system_booting();
+        Timer::after_millis(40).await;
+        brightness.loaded(0);
+        Timer::after_millis(40).await;
+        s.system_started(BootMode::MassStorage);
+        s.wifi_connecting();
+        Timer::after_millis(40).await;
+    });
+    assert!(!written.is_empty());
+    assert!(colors(&written).iter().all(|c| *c == DARK), "{written:?}");
+}
+
+#[test]
+fn a_change_of_level_keeps_the_phase_of_the_animation() {
+    let brightness = Brightness::new();
+    brightness.loaded(36);
+    // Provisioning: blue blinking, 250 ms lit then 250 ms dark.
+    let written = run_timed(&brightness, async |_reg, s| {
+        s.system_started(BootMode::Provisioning);
+        Timer::after_millis(100).await;
+        brightness.preview(100, Instant::now()).unwrap(); // while lit
+        Timer::after_millis(400).await;
+    });
+    let blue_on = written
+        .iter()
+        .position(|(_, c)| c.b == 16)
+        .expect("lit at the saved level");
+    let (t_on, _) = written[blue_on];
+    assert_eq!(
+        written[blue_on + 1].1,
+        RGB8::new(0, 0, 43),
+        "rewritten at once at the new level"
+    );
+    // The dark half still ends 250 ms after the start of the animation, not 250 ms after the change.
+    let (t_off, color) = written[blue_on + 2];
+    assert_eq!(color, DARK);
+    assert!(
+        (200..=330).contains(&(t_off - t_on)),
+        "dark after {} ms",
+        t_off - t_on
+    );
+}
+
+#[test]
+fn the_setting_is_available_while_the_led_task_runs_and_not_after() {
+    let brightness = Brightness::new();
+    brightness.loaded(36);
+    let seen = RefCell::new(None);
+    let _ = run_timed(&brightness, async |_reg, _s| {
+        *seen.borrow_mut() = Some(brightness.status(Instant::now()).available);
+    });
+    assert_eq!(*seen.borrow(), Some(true));
+    // `select` dropped the task at the end: it never reached its own exit, so check the exit path too.
+    let failing = Brightness::new();
+    failing.loaded(36);
+    let (reg, sources) = product();
+    let observer = reg.observer().unwrap();
+    block_on(async {
+        sources.system_booting();
+        run_led(observer, sources.ids(), &failing, |_: RGB8| {
+            Err::<(), ()>(())
+        })
+        .await;
+    });
+    assert!(
+        !failing.status(Instant::now()).available,
+        "the task ended: the setting is hidden"
+    );
 }

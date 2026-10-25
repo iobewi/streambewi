@@ -25,6 +25,12 @@ pub const SPACES: &[iobewi_config_space::storage::SpaceSpec] = &[
         crate::diag::SPACE,
         crate::diag::CONFIG_BUDGET.max_bytes(),
     ),
+    // Last, so that the spaces above keep their place. With it the manifest admits 48 of the 48
+    // reservable pages of the 64-page `config` partition: the next space needs more room.
+    iobewi_config_space::storage::SpaceSpec::new(
+        crate::settings::SPACE,
+        crate::settings::CONFIG_BUDGET.max_bytes(),
+    ),
 ];
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BootMode {
@@ -95,6 +101,15 @@ impl<B: ConfigBackend> BootPolicy<B> {
         manager.claim(SPACE, CONFIG_BUDGET)?;
         manager.claim(crate::stations::SPACE, crate::stations::CONFIG_BUDGET)?;
         manager.claim(crate::diag::SPACE, crate::diag::CONFIG_BUDGET)
+    }
+    /// Admit the product settings after the spaces above, in the same claim order.
+    pub fn claim_settings(backend: B) -> Result<ConfigSpace<B>, ClaimError> {
+        let mut manager = ConfigManager::new(backend);
+        manager.claim("wifi", WIFI_CONFIG_BUDGET)?;
+        manager.claim(SPACE, CONFIG_BUDGET)?;
+        manager.claim(crate::stations::SPACE, crate::stations::CONFIG_BUDGET)?;
+        manager.claim(crate::diag::SPACE, crate::diag::CONFIG_BUDGET)?;
+        manager.claim(crate::settings::SPACE, crate::settings::CONFIG_BUDGET)
     }
     pub fn mode(&self) -> BootMode {
         self.mode

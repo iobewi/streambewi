@@ -56,7 +56,9 @@ themselves, not the aggregate.
 | 7 | Wi-Fi `Connected`, stream not ready | green pulsing, 4 s |
 | 8 | anything else | off |
 
-Levels: 16/255 for white, blue and green; 24/255 for orange and red.
+The colours are stored at their full value and the brightness setting (below) is the only attenuation, applied once by the
+indicator's master level. At the default brightness (level 23) white, blue and green show 16/255 and orange and red
+24/255, to within 1/255, as before the setting existed; the ratio between them is kept at every brightness.
 
 `Busy` and `Unavailable` have no look of their own. A station change only makes the stream not
 ready (rule 7 shows until the new station has delivered its prebuffer); the disk leaving the bus
@@ -95,7 +97,62 @@ The WS2812 write is a blocking RMT transmission of one LED.
 
 ## Limits
 
-- A fatal startup error (`boot_result`) loops without yielding, so the LED task cannot run: the LED
-  stays at the white of `Booting`.
+- The LED stays dark until the saved brightness is read, right after the configuration is mounted. A fatal
+  startup error before that (`boot_result` loops without yielding, in any case) leaves it dark; one after it
+  leaves the look of `Booting`.
 - No "degraded stream" state (no failure counter) and no "player is listening" state.
 - Nothing is written to flash for a change of status.
+
+## Brightness setting
+
+The "Luminosité de la LED" slider of the settings panel (the gear) sets the brightness from 0 to 100 %.
+0 % is off, 100 % is level 64/255 (`brightness::MAX_LEVEL`), the level is `percent * 64 / 100` rounded down, linear,
+no gamma. The default, with nothing saved, is 36 % (level 23), what the LED showed before the setting. Nothing in
+the look (patterns, colours' proportions, priorities) depends on it. The control is hidden when the firmware has no LED
+(`led.available` is false in `/api/state`).
+
+Three values are kept apart (`app/src/brightness.rs`): **saved** (in the configuration), **previewed** (RAM only) and
+**applied** (what the LED shows: the preview while there is one, else the saved value, else dark while the saved value is
+not known yet).
+
+| Request | Effect |
+| --- | --- |
+| `POST /api/led/preview` `percent=0..100` | applies the value at once; it lasts 60 s, renewed by every request. Nothing is written, the disk is not touched |
+| `POST /api/led/cancel` | back to the saved value |
+| `POST /api/led/save` `percent=0..100` | answers `202` at once and asks for a protected save; the write is done later |
+| `GET /api/state` | `led`: `available`, `saved`, `preview`, `applied`, `busy` (a save is asked for or being written), `error` |
+
+The page sends at most one preview at a time, 150 ms apart, and always the last value after the slider is released. It says
+"Enregistré !" only when `/api/state` shows the saved value equal to the request, no save busy and no error. When the panel
+is closed the page cancels the preview, but the firmware does not depend on it: the preview ends by itself after 60 s.
+
+A failed save leaves the saved value, tells the page (`led.error`) and keeps the preview until it ends or is cancelled, so the
+page can offer to try again. It does not raise the orange `Warning` of an unsaved station.
+
+### Configuration
+
+The value is kept through `iobewi-config-space` only, in a new `settings` space (`app/src/settings.rs`) that holds one small
+record of simple settings: `SET1` then entries `id, length, value` (id 1: LED brightness, one byte, 0 to 100). An entry this
+firmware does not know is kept when the record is rewritten, so another setting can be added without a space of its own.
+A bad value counts as absent (the default applies), a record that is not a `SET1` record counts as empty; loading never
+writes and nothing is erased. `usb_boot`, `wifi`, `stations` and `log` are not changed, nor their budgets.
+
+**Admission**: a space reserves at least 8 pages whatever its size. With `settings` the manifest reserves 48 of the 48 pages
+the 64-page `config` partition can admit (`stations` 16, `wifi` 8, `usb_boot` 8, `log` 8, `settings` 8): **there is no room
+left for another space**. The partition table is not changed.
+
+**Compatibility** (tested over a real EKV store): a partition that holds the four earlier spaces mounts with the five-space
+manifest without formatting or writing, and every byte of the earlier spaces is kept. **The other way is not possible**: once
+the settings are saved, a firmware that does not know the `settings` space refuses to mount the store (`InvalidSpace`) and
+halts at `STREAMBEWI:CONFIG-MOUNT` without reformatting. Nothing is lost, the newer firmware mounts it again, but going back to
+an earlier firmware needs the configuration to be written again.
+
+### Protected save
+
+The write goes through `stream::save_settings`, one save at a time, in the order asked. With no disk (provisioning boot), or a
+disk not presented yet, it is written at once. With the disk on the bus it is the detach window of a station change, without
+the change of station: the disk leaves the bus, the write waits for 300 ms without a read (at most 2 s), the settings are
+written, the disk stays off for 1.5 s since it left and comes back. The stream connection is not touched and the session is
+held across the reconnection, as a stall recovery does; the music stops for the length of the window. A save asked for while
+another actor (a station change, a stall recovery) has the disk off the bus waits for it; a station change that takes over
+during the window keeps the disk and brings it back itself.

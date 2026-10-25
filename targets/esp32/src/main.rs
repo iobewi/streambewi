@@ -29,7 +29,13 @@ async fn status_led(
     ids: streambewi::status::Ids,
     mut led: iobewi_esp_ws2812::Ws2812<'static>,
 ) {
-    streambewi::status::run_led(observer, ids, |color| led.set(color)).await;
+    streambewi::status::run_led(
+        observer,
+        ids,
+        &streambewi::brightness::BRIGHTNESS,
+        |color| led.set(color),
+    )
+    .await;
 }
 mod serial;
 
@@ -147,7 +153,7 @@ async fn product(p: Resources, spawner: Spawner) {
         // No LED, no restitution: the product goes on without it.
         if let Ok(rmt) = esp_hal::rmt::Rmt::new(p.rmt, iobewi_esp_ws2812::RMT_FREQ)
             && let Ok(led) = iobewi_esp_ws2812::Ws2812::new(rmt.channel0, p.led)
-            && let Some((observer, ids)) = streambewi::status::led_observer()
+            && let Some((observer, ids)) = streambewi::status::observer()
         {
             spawner.spawn(status_led(observer, ids, led).unwrap());
         }
@@ -175,6 +181,22 @@ async fn product(p: Resources, spawner: Spawner) {
         boot_result(store.format().await, &mut uart, "STREAMBEWI:CONFIG-INIT");
     }
     boot_result(store.mount().await, &mut uart, "STREAMBEWI:CONFIG-MOUNT");
+    // The settings first: the status LED stays dark until the saved brightness is known, so that a LED saved
+    // at 0 % does not light up while the rest of the configuration is read. Reading never fails and never
+    // writes; whatever is wrong with the record, the default brightness applies.
+    let settings_space = boot_result(
+        BootPolicy::claim_settings(store.backend()),
+        &mut uart,
+        "STREAMBEWI:SETTINGS-CLAIM",
+    );
+    let (settings, loaded) = streambewi::settings::SettingsStore::load(settings_space).await;
+    if loaded != streambewi::settings::Loaded::Record
+        && loaded != streambewi::settings::Loaded::Absent
+    {
+        log::warn!("settings: record not usable ({loaded:?}), default values apply");
+    }
+    streambewi::brightness::BRIGHTNESS.loaded(settings.led_percent().await);
+    let settings = alloc::boxed::Box::new(settings);
     let (boot, wifi_space) = boot_result(
         BootPolicy::prepare(store.backend()).await,
         &mut uart,
@@ -301,6 +323,7 @@ async fn product(p: Resources, spawner: Spawner) {
         setup_network,
         radio,
         diag,
+        settings,
         secure,
     )
     .await;

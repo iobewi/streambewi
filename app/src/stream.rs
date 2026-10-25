@@ -1,6 +1,11 @@
 use core::cell::{Cell, RefCell};
 use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use embassy_futures::select::{Either3, select3};
+use iobewi_config_space::ConfigBackend;
+use iobewi_state::{Flags, State};
+
+use crate::brightness::{Brightness, SaveError};
+use crate::settings::SettingsStore;
 
 use crate::fetch::{Chain, TcpConnector, is_redirect, origin};
 use alloc::string::String;
@@ -372,6 +377,99 @@ where
             }
         }
         pending_attach = Some((since, live));
+    }
+}
+
+/// Waits while another actor (a station change, a stall recovery) has the disk off the bus, then says
+/// what the disk is doing: `Ready` (on the bus), or something else (not presented yet, or dead).
+///
+/// The caller must act on the answer without an `.await` in between. Without a registry to ask (a build
+/// that never called `status::init`), the disk is taken for presented: the protected path is the safe one.
+async fn settled_disk(watch: &mut Option<crate::status::Disk<'_>>) -> Flags {
+    let Some(watch) = watch else {
+        return Flags::of(&[State::Ready]);
+    };
+    let usb = watch.sources.ids().usb;
+    let mut snapshot = watch.observer.get();
+    loop {
+        let disk = snapshot.of(usb).unwrap_or(Flags::EMPTY);
+        if !disk.contains(State::Unavailable) {
+            return disk;
+        }
+        snapshot = watch.observer.changed().await;
+    }
+}
+
+/// Writes the LED brightness. With the disk on the bus this is the detach window of a station change,
+/// without its change of station: the disk leaves the bus, nobody has read for `QUIET_AFTER` (or
+/// `QUIET_WAIT` passed), the settings are written, the disk stays off for `SWITCH_DETACH` since it left,
+/// and it comes back. The stream connection is not touched, and the session is held across the
+/// reconnection as `LinkSupervisor` does, so the player resumes where it was. A station change that took
+/// over meanwhile brings the disk back itself (as for a stall recovery). Without a disk, or with the disk
+/// not presented, it is written at once.
+async fn save_once<B: ConfigBackend>(
+    settings: &SettingsStore<B>,
+    percent: u8,
+    stream: &'static SharedStream,
+    link: Option<&'static dyn crate::usb::UsbLink>,
+    watch: &mut Option<crate::status::Disk<'_>>,
+) -> Result<(), SaveError> {
+    let Some(link) = link else {
+        return settings.save_led_percent(percent).await;
+    };
+    if !settled_disk(watch).await.contains(State::Ready) {
+        return settings.save_led_percent(percent).await;
+    }
+    // From here to the detach: no `.await`.
+    let generation = stream.generation();
+    stream.hold_session();
+    link.set_connected(false);
+    if let Some(watch) = watch {
+        watch.sources.usb_off_bus();
+    }
+    // A stall raised just before cannot start a recovery of its own that would bring the disk back
+    // while the settings are being written.
+    crate::usb::clear_stall();
+    let since = Instant::now();
+    let waited = Instant::now();
+    while stream
+        .since_last_read()
+        .is_some_and(|idle| idle < QUIET_AFTER)
+        && waited.elapsed() < QUIET_WAIT
+    {
+        Timer::after(Duration::from_millis(50)).await;
+    }
+    let outcome = settings.save_led_percent(percent).await;
+    Timer::at(since + SWITCH_DETACH).await;
+    if stream.generation() == generation {
+        crate::usb::clear_stall();
+        link.set_connected(true);
+        if let Some(watch) = watch {
+            watch.sources.usb_ready();
+        }
+    }
+    outcome
+}
+
+/// Does the saves that the settings page asks for, one at a time, in the order asked, and reports each
+/// outcome to `brightness`. A save asked for while another is being written waits for it.
+pub async fn save_settings<B: ConfigBackend>(
+    settings: &SettingsStore<B>,
+    brightness: &Brightness,
+    stream: &'static SharedStream,
+    link: Option<&'static dyn crate::usb::UsbLink>,
+) -> ! {
+    let mut watch = crate::status::disk();
+    loop {
+        let percent = brightness.next_save().await;
+        let outcome = save_once(settings, percent, stream, link, &mut watch).await;
+        match outcome {
+            Ok(()) => log::info!("settings: LED brightness {}% saved", percent),
+            Err(_) => {
+                log::error!("settings: saving the LED brightness FAILED: the saved value is kept")
+            }
+        }
+        brightness.finish_save(percent, outcome);
     }
 }
 
@@ -1265,3 +1363,7 @@ mod tests {
         assert_eq!(tcp.connections() + tls.connections(), 0);
     }
 }
+
+#[cfg(test)]
+#[path = "stream_save_tests.rs"]
+mod save_tests;
