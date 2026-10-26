@@ -455,6 +455,153 @@ fn publishing_before_init_does_nothing_and_init_registers_once() {
     );
 }
 
+// --- Health -------------------------------------------------------------------------------------
+
+fn words(reg: &Reg, sources: &Sources<'_>) -> [&'static str; 4] {
+    let h = health(&reg.snapshot(), &sources.ids());
+    [h.system, h.wifi, h.stream, h.usb]
+}
+
+#[test]
+fn nothing_published_is_none_and_an_unreadable_registry_is_unknown() {
+    let (reg, sources) = product();
+    assert_eq!(words(reg, &sources), ["none"; 4], "registered, silent");
+    // A snapshot without these sources (registry never initialised for them) reads as unknown.
+    let empty = health(&Snap::EMPTY, &sources.ids());
+    assert_eq!(
+        [empty.system, empty.wifi, empty.stream, empty.usb],
+        ["unknown"; 4]
+    );
+}
+
+#[test]
+fn boot_provisioning_and_running_are_told_apart() {
+    let (reg, sources) = product();
+    sources.system_booting();
+    assert_eq!(words(reg, &sources)[0], "booting");
+    sources.system_started(BootMode::Provisioning);
+    assert_eq!(words(reg, &sources)[0], "configuring");
+    sources.system_started(BootMode::MassStorage);
+    assert_eq!(words(reg, &sources)[0], "running");
+}
+
+#[test]
+fn the_wifi_words_follow_its_transitions() {
+    let (reg, sources) = product();
+    let mut seen = std::vec::Vec::new();
+    for step in [
+        |s: &Sources<'static>| s.wifi_unconfigured(),
+        |s: &Sources<'static>| s.wifi_connecting(),
+        |s: &Sources<'static>| s.wifi_connected(),
+        |s: &Sources<'static>| s.wifi_link_down(),
+        |s: &Sources<'static>| s.wifi_connecting(),
+        |s: &Sources<'static>| s.wifi_connected(),
+    ] {
+        step(&sources);
+        seen.push(words(reg, &sources)[1]);
+    }
+    assert_eq!(
+        seen,
+        [
+            "unconfigured",
+            "connecting",
+            "connected",
+            "reconnecting",
+            "connecting",
+            "connected"
+        ]
+    );
+}
+
+#[test]
+fn the_stream_words_keep_connected_and_ready_apart_and_forget_nothing_stale() {
+    let (reg, sources) = product();
+    let mut seen = std::vec::Vec::new();
+    for step in [
+        |s: &Sources<'static>| s.stream_connecting(),
+        |s: &Sources<'static>| s.stream_connected(),
+        |s: &Sources<'static>| s.stream_ready(),
+        |s: &Sources<'static>| s.stream_reconnecting(),
+        |s: &Sources<'static>| s.stream_connected(),
+        |s: &Sources<'static>| s.stream_ready(),
+        |s: &Sources<'static>| s.stream_busy(),
+        |s: &Sources<'static>| s.stream_connecting(),
+    ] {
+        step(&sources);
+        seen.push(words(reg, &sources)[2]);
+    }
+    assert_eq!(
+        seen,
+        [
+            "connecting",
+            "connected",
+            "ready",
+            "reconnecting",
+            "connected",
+            "ready",
+            "busy",
+            "connecting"
+        ]
+    );
+}
+
+#[test]
+fn the_unsaved_warning_changes_no_stream_word() {
+    let (reg, sources) = product();
+    sources.stream_selection_unsaved(true);
+    assert_eq!(
+        words(reg, &sources)[2],
+        "none",
+        "a warning alone is no link"
+    );
+    sources.stream_ready();
+    assert_eq!(words(reg, &sources)[2], "ready");
+    sources.stream_busy();
+    assert_eq!(words(reg, &sources)[2], "busy");
+    sources.stream_selection_unsaved(false);
+    assert_eq!(words(reg, &sources)[2], "busy");
+}
+
+#[test]
+fn the_usb_keeps_unavailable_and_error_apart() {
+    let (reg, sources) = product();
+    let mut seen = std::vec::Vec::new();
+    for step in [
+        |s: &Sources<'static>| s.usb_initializing(),
+        |s: &Sources<'static>| s.usb_ready(),
+        |s: &Sources<'static>| s.usb_off_bus(),
+        |s: &Sources<'static>| s.usb_ready(),
+        |s: &Sources<'static>| s.usb_error(),
+    ] {
+        step(&sources);
+        seen.push(words(reg, &sources)[3]);
+    }
+    assert_eq!(
+        seen,
+        ["initializing", "ready", "unavailable", "ready", "error"]
+    );
+}
+
+#[test]
+fn a_set_the_table_does_not_know_is_unknown_not_nominal() {
+    let (reg, sources) = product();
+    sources.usb.replace(Flags::of(&[State::Healthy]));
+    sources.wifi.replace(Flags::of(&[State::Paused]));
+    let w = words(reg, &sources);
+    assert_eq!((w[1], w[3]), ("unknown", "unknown"));
+}
+
+#[test]
+fn health_is_one_read_that_takes_no_observer() {
+    let (reg, sources) = product();
+    let _a = reg.observer().expect("first");
+    let _b = reg.observer().expect("second");
+    let _c = reg.observer().expect("third");
+    sources.wifi_connected();
+    assert_eq!(words(reg, &sources)[1], "connected");
+    assert!(reg.observer().is_none(), "the three places were left alone");
+}
+
 // --- The task -----------------------------------------------------------------------------------
 
 /// Runs the LED task against a registry that `drive` changes, and returns the colours written.

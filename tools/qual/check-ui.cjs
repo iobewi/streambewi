@@ -10,14 +10,14 @@ const root=path.resolve(__dirname,'../../app/src');
  const page=await browser.newPage({viewport:{width:390,height:844},deviceScaleFactor:1});
  const errors=[];page.on('pageerror',e=>errors.push(e.message));
  let state={catalog:{version:1,selected:1,stations:[{id:1,name:'FIP',url:'http://example.org/fip',logo:''},{id:2,name:'France Inter',url:'http://example.org/inter',logo:''},{id:3,name:'France Culture',url:'http://example.org/culture',logo:''},{id:4,name:'Radio classique',url:'http://example.org/classique',logo:''}]},online:true,ssid:'Maison',ip:'192.168.1.42',networks:[{ssid:'Maison',strength:-40,secured:true},{ssid:'Livebox-Salon',strength:-60,secured:true}],scanning:false,setup:true,reading:true,ready:true,restarting:false,wifi_message:'',wifi_status:0,led:{available:false,saved:36,preview:null,applied:36,busy:false,error:null}};
- const actions=[];
+ const actions=[];let stateReqs=0,stateFail=false;
  // A device journal for the Live view: numbered lines, a start identifier, a window, a failure switch.
  const dev={boot:1001,total:0,window:32,cap:32,lines:[],fail:false,delay:0,inflight:0,maxInflight:0,reqs:[]};
  const devPush=(l,m)=>{dev.total++;dev.lines.push({seq:dev.total,l,m});while(dev.lines.length>dev.window)dev.lines.shift();};
  devPush('I','streambewi::stream: <b>net</b>: got IP 192.168.1.42/24');devPush('I','streambewi::stream: same');devPush('I','streambewi::stream: same');
  await page.route('http://streambewi.test/**',async route=>{
   const u=new URL(route.request().url()),p=u.pathname;
-  if(p==='/api/state')return route.fulfill({json:state});
+  if(p==='/api/state'){stateReqs++;if(stateFail)return route.fulfill({status:503,body:''});return route.fulfill({json:state});}
   if(p==='/api/logs'&&u.searchParams.has('after')){
    dev.reqs.push(u.search);dev.inflight++;dev.maxInflight=Math.max(dev.maxInflight,dev.inflight);
    if(dev.delay)await new Promise(r=>setTimeout(r,dev.delay));
@@ -105,6 +105,35 @@ const root=path.resolve(__dirname,'../../app/src');
  await page.waitForFunction(()=>document.querySelector('#diag-result').textContent.includes('appliquée'));
  assert(actions.some(a=>a[0]==='PUT'&&a[1].includes('warn')));
  state.setup=false;
+ {
+ // System states: four words from `health`, translated; unknown and absent are said, never the raw text; no request of
+ // their own; a failed read replaces them, it does not keep the old ones.
+ const words=()=>page.evaluate(()=>['system','wifi','stream','usb'].map(k=>document.getElementById('health-'+k).textContent));
+ const waitWords=w=>page.waitForFunction(x=>['system','wifi','stream','usb'].every((k,i)=>document.getElementById('health-'+k).textContent===x[i]),w,{timeout:6000});
+ assert.deepEqual(await words(),['État inconnu','État inconnu','État inconnu','État inconnu'],'a device without `health` is unknown, not nominal');
+ state.health={system:'running',wifi:'connected',stream:'ready',usb:'ready'};
+ await waitWords(['En fonctionnement','Connecté','Prêt','Disque présenté']);
+ state.health={system:'running',wifi:'reconnecting',stream:'busy',usb:'unavailable'};
+ await waitWords(['En fonctionnement','Reconnexion…','Changement de station','Temporairement indisponible']);
+ state.health={system:'configuring',wifi:'unconfigured',stream:'connected',usb:'error'};
+ await waitWords(['Configuration en cours','Non configuré','Réception en cours','Erreur']);
+ state.health={system:'booting',wifi:'connecting',stream:'none',usb:'initializing'};
+ await waitWords(['Démarrage','Connexion…','Pas encore actif','Initialisation']);
+ state.health={system:'unknown',wifi:'<b>x</b>',stream:7,usb:'ready'};
+ await waitWords(['État inconnu','État inconnu','État inconnu','Disque présenté']);
+ assert.equal(await page.locator('#health b').count(),0);
+ // Lost connection: the first failed read replaces every word; the return shows the current ones.
+ state.health={system:'running',wifi:'connected',stream:'ready',usb:'ready'};
+ await waitWords(['En fonctionnement','Connecté','Prêt','Disque présenté']);
+ stateFail=true;
+ await waitWords(['Appareil injoignable','Appareil injoignable','Appareil injoignable','Appareil injoignable']);
+ state.health={system:'running',wifi:'connecting',stream:'reconnecting',usb:'ready'};stateFail=false;
+ await waitWords(['En fonctionnement','Connexion…','Reconnexion…','Disque présenté']);
+ // The same single reading as before: about one request every 2 s, with or without the section.
+ const r0=stateReqs;await page.waitForTimeout(4500);assert(stateReqs-r0<=3,'state requests in 4.5 s: '+(stateReqs-r0));
+ state.health={system:'running',wifi:'connected',stream:'ready',usb:'ready'};
+ await page.screenshot({path:'target/ui-check/health-mobile.png',fullPage:true});
+ }
  {
  // Live journal: nothing is asked until it is switched on; each line once; pause freezes the display only;
  // clearing keeps the place; losses, restarts and failures are said; one request at a time; it stops with the view.
@@ -231,5 +260,5 @@ const root=path.resolve(__dirname,'../../app/src');
  await page.setViewportSize({width:1100,height:850});
  await page.screenshot({path:'target/ui-check/home-desktop.png',fullPage:true});
  assert.deepEqual(errors,[]);
- await browser.close();console.log('UI smoke PASS: home, Live journal (cursor, pause, clear, losses, restart, failure, catch-up, stop with the view, export, 2000-line cap), LED brightness (throttled preview, protected save shown as pending then kept, error, cancel), responsive layout, Wi-Fi (setup boot) and read-only Wi-Fi panel (normal boot), catalogue filter/add, selection, safe text, logo fallback, diagnostic log/policy. APIs mocked.');
+ await browser.close();console.log('UI smoke PASS: home, system states (four words, unknown, lost connection), Live journal (cursor, pause, clear, losses, restart, failure, catch-up, stop with the view, export, 2000-line cap), LED brightness (throttled preview, protected save shown as pending then kept, error, cancel), responsive layout, Wi-Fi (setup boot) and read-only Wi-Fi panel (normal boot), catalogue filter/add, selection, safe text, logo fallback, diagnostic log/policy. APIs mocked.');
 })().catch(e=>{console.error(e);process.exit(1)});
