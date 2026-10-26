@@ -222,7 +222,7 @@ async fn product(p: Resources, spawner: Spawner) {
         "STREAMBEWI:LOG-CLAIM",
     );
     let diag = alloc::boxed::Box::new(
-        streambewi::diag::Diag::load(log_space, streambewi::logging::LOG_TARGET).await,
+        streambewi::diag::Diag::load_with(log_space, streambewi::logging::baseline()).await,
     );
     let (rx, tx) = uart.into_async().split();
     let mut serial = vec![(serial::Rx::Uart(rx), serial::Tx::Uart(tx))];
@@ -345,6 +345,7 @@ fn main() -> ! {
         policy
             .add_target("embassy_usb", log::LevelFilter::Trace)
             .unwrap();
+        streambewi::logging::remember_applied(policy.clone());
         iobewi_log::apply_policy(policy);
     }
     esp_alloc::heap_allocator!(size: HEAP_BYTES);

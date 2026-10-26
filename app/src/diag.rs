@@ -14,7 +14,7 @@ use embassy_sync::{
     blocking_mutex::{Mutex as BlockingMutex, raw::NoopRawMutex},
     mutex::Mutex,
 };
-use embassy_time::{Duration, Timer};
+use embassy_time::{Duration, Instant, Timer};
 use iobewi_config_space::{Budget, ConfigBackend, ConfigSpace};
 use iobewi_log::LogPolicy;
 use iobewi_log_config::{LogConfig, POLICY_BYTES_MAX, decode, encode};
@@ -23,6 +23,17 @@ use log::Level;
 /// ConfigSpace holding the persisted log policy (`iobewi-log-config`).
 pub const SPACE: &str = iobewi_log_config::SPACE_NAME;
 pub const CONFIG_BUDGET: Budget = Budget::new(POLICY_BYTES_MAX);
+
+/// How long the temporary detailed diagnostic lasts, from its activation. Not renewable.
+pub const DEBUG_SECONDS: u64 = 900;
+/// The targets raised to `debug` while the detailed diagnostic is on: the product's own, never the Wi-Fi
+/// stack's or a third party's, and never `trace`.
+pub const DEBUG_TARGETS: [&str; 4] = [
+    "streambewi::stream",
+    "streambewi::usb",
+    "streambewi::status",
+    "streambewi::provisioning",
+];
 
 /// Lines kept for the HTTP side. The ring of `iobewi-log` holds 24; the history outlives its overflow.
 pub const HISTORY_LINES: usize = 32;
@@ -373,9 +384,61 @@ struct PolicyState {
     load_error: bool,
 }
 
+/// The temporary detailed diagnostic. It lives in RAM only: nothing about it is ever stored.
+#[derive(Default)]
+struct DebugState {
+    /// When it ends; `None` when it is off.
+    until: Option<Instant>,
+    /// The targets actually raised (fewer than `DEBUG_TARGETS` when the policy has no room for them all).
+    targets: Vec<&'static str>,
+}
+
+/// What `/api/debug` says of the temporary detailed diagnostic.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DebugStatus {
+    pub enabled: bool,
+    pub remaining_seconds: u64,
+    /// The targets raised to `debug` (empty when off).
+    pub targets: Vec<&'static str>,
+    /// Some of `DEBUG_TARGETS` could not be raised: a policy holds at most 8 rules.
+    pub partial: bool,
+}
+
+/// `base` with the debug targets raised to `debug`: the rules of `base` are kept (the ones for a debug
+/// target are raised), then the debug targets that are missing are added as long as there is room. Built on
+/// the heap: a policy is about 600 bytes.
+fn debug_policy(base: &LogPolicy) -> (Box<LogPolicy>, Vec<&'static str>) {
+    let mut policy = Box::new(LogPolicy::new(base.default_level));
+    let mut raised = Vec::new();
+    for rule in base.targets() {
+        let debug_target = DEBUG_TARGETS
+            .iter()
+            .find(|target| **target == rule.target.as_str());
+        let level = match debug_target {
+            Some(target) => {
+                raised.push(*target);
+                log::LevelFilter::Debug
+            }
+            None => rule.level,
+        };
+        // The rules of `base` are distinct and at most 8: they fit.
+        let _ = policy.add_target(rule.target.as_str(), level);
+    }
+    for target in DEBUG_TARGETS {
+        if !raised.contains(&target) && policy.add_target(target, log::LevelFilter::Debug).is_ok() {
+            raised.push(target);
+        }
+    }
+    (policy, raised)
+}
+
 pub struct Diag<B: ConfigBackend> {
     config: Mutex<NoopRawMutex, LogConfig<B>>,
+    /// `policy` is the **base** policy: what applies when no detailed diagnostic is on.
     state: BlockingMutex<NoopRawMutex, RefCell<Box<PolicyState>>>,
+    debug: BlockingMutex<NoopRawMutex, RefCell<DebugState>>,
+    /// Applies a policy to the logger. `iobewi_log::apply_policy`; the tests record what is applied instead.
+    apply: fn(LogPolicy),
     history: BlockingMutex<NoopRawMutex, RefCell<History>>,
 }
 
@@ -383,9 +446,16 @@ impl<B: ConfigBackend> Diag<B> {
     /// Reads the `log` space once. An absent, unreadable or invalid policy keeps the fallback already
     /// installed (and any policy the target applied itself); it is never written back or formatted.
     pub async fn load(space: ConfigSpace<B>, application_target: &str) -> Self {
+        let base = iobewi_log::default_policy(application_target)
+            .unwrap_or_else(|_| LogPolicy::new(log::LevelFilter::Info));
+        Self::load_with(space, base).await
+    }
+
+    /// As `load`, with `applied` as the policy the target already applied (a qualification image adds its
+    /// own targets): it is the base that applies outside the detailed diagnostic when nothing is stored.
+    pub async fn load_with(space: ConfigSpace<B>, applied: LogPolicy) -> Self {
         let mut state = Box::new(PolicyState {
-            policy: iobewi_log::default_policy(application_target)
-                .unwrap_or_else(|_| LogPolicy::new(log::LevelFilter::Info)),
+            policy: applied,
             source: Source::Default,
             load_error: false,
         });
@@ -410,6 +480,8 @@ impl<B: ConfigBackend> Diag<B> {
         Self {
             config: Mutex::new(LogConfig::new(space)),
             state: BlockingMutex::new(RefCell::new(state)),
+            debug: BlockingMutex::new(RefCell::new(DebugState::default())),
+            apply: iobewi_log::apply_policy,
             history: BlockingMutex::new(RefCell::new(History::new())),
         }
     }
@@ -447,7 +519,99 @@ impl<B: ConfigBackend> Diag<B> {
             state.source = Source::Persisted;
             state.load_error = false;
         });
+        // `LogConfig::replace` applied the new base as it is: a detailed diagnostic still on goes back over it.
+        self.debug_reapply();
         Ok(generation)
+    }
+
+    /// Where the detailed diagnostic stands at `now`.
+    pub fn debug_status(&self, now: Instant) -> DebugStatus {
+        self.debug.lock(|d| {
+            let d = d.borrow();
+            match d.until {
+                Some(until) if until > now => DebugStatus {
+                    enabled: true,
+                    remaining_seconds: (until - now).as_millis().div_ceil(1000),
+                    targets: d.targets.clone(),
+                    partial: d.targets.len() < DEBUG_TARGETS.len(),
+                },
+                _ => DebugStatus {
+                    enabled: false,
+                    remaining_seconds: 0,
+                    targets: Vec::new(),
+                    partial: false,
+                },
+            }
+        })
+    }
+
+    /// Turns the detailed diagnostic on for `DEBUG_SECONDS` from `now`. While one is on, this changes
+    /// nothing: the end is not moved. Nothing is written anywhere.
+    pub fn debug_enable(&self, now: Instant) -> DebugStatus {
+        let started = self.debug.lock(|d| {
+            let mut d = d.borrow_mut();
+            if d.until.is_some_and(|until| until > now) {
+                return false;
+            }
+            let (policy, raised) = self.state.lock(|s| debug_policy(&s.borrow().policy));
+            (self.apply)(*policy);
+            d.targets = raised;
+            d.until = Some(now + Duration::from_secs(DEBUG_SECONDS));
+            true
+        });
+        if started {
+            log::info!("diag: detailed diagnostic on for {} s", DEBUG_SECONDS);
+        }
+        self.debug_status(now)
+    }
+
+    /// Turns it off at once and puts the base policy back. Nothing happens when it is off already.
+    pub fn debug_disable(&self) {
+        self.debug_end("disabled");
+    }
+
+    /// Ends the detailed diagnostic when its time is up. Called by the drain loop.
+    pub fn debug_tick(&self, now: Instant) {
+        let over = self
+            .debug
+            .lock(|d| d.borrow().until.is_some_and(|until| until <= now));
+        if over {
+            self.debug_end("expired");
+        }
+    }
+
+    fn debug_end(&self, why: &str) {
+        let was_on = self.debug.lock(|d| {
+            let mut d = d.borrow_mut();
+            let was_on = d.until.take().is_some();
+            if was_on {
+                d.targets.clear();
+                let base = self.state.lock(|s| s.borrow().policy.clone());
+                (self.apply)(base);
+            }
+            was_on
+        });
+        if was_on {
+            log::info!("diag: detailed diagnostic off ({})", why);
+        }
+    }
+
+    /// The base policy changed under a detailed diagnostic that is on: raise the targets over the new one.
+    fn debug_reapply(&self) {
+        self.debug.lock(|d| {
+            let mut d = d.borrow_mut();
+            if d.until.is_some() {
+                let (policy, raised) = self.state.lock(|s| debug_policy(&s.borrow().policy));
+                (self.apply)(*policy);
+                d.targets = raised;
+            }
+        });
+    }
+
+    /// Tests only: where the policies are applied.
+    #[cfg(test)]
+    pub(crate) fn set_applier(&mut self, apply: fn(LogPolicy)) {
+        self.apply = apply;
     }
 
     /// Moves the ring of `iobewi-log` into the history. Called by the drain loop.
@@ -480,10 +644,12 @@ impl<B: ConfigBackend> Diag<B> {
     }
 }
 
-/// Never returns. Cheap: one short critical section per pass, no network, no flash.
+/// Never returns. Cheap: one short critical section per pass, no network, no flash. It also ends the
+/// detailed diagnostic when its time is up, so that nothing else needs a timer.
 pub async fn drain_loop<B: ConfigBackend>(diag: &Diag<B>) -> ! {
     loop {
         diag.drain();
+        diag.debug_tick(Instant::now());
         Timer::after(DRAIN_PERIOD).await;
     }
 }
@@ -491,6 +657,7 @@ pub async fn drain_loop<B: ConfigBackend>(diag: &Diag<B>) -> ! {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use embassy_time::Instant;
 
     fn kept(target: &str, message: &str) -> String {
         match sanitize(target, message) {
@@ -1012,5 +1179,335 @@ mod tests {
             "the old path peaked at {old_peak} B, the new one at {new_peak} B"
         );
         assert!(old_calls > 20 * new_calls);
+    }
+
+    // --- The temporary detailed diagnostic -------------------------------------------------------
+
+    std::thread_local! {
+        static APPLIED: RefCell<Vec<LogPolicy>> = const { RefCell::new(Vec::new()) };
+    }
+    fn record(policy: LogPolicy) {
+        APPLIED.with(|a| a.borrow_mut().push(policy));
+    }
+    fn last_applied() -> LogPolicy {
+        APPLIED.with(|a| a.borrow().last().cloned().expect("a policy was applied"))
+    }
+    fn applied_count() -> usize {
+        APPLIED.with(|a| a.borrow().len())
+    }
+    /// A `Diag` that records the policies it applies (each test runs on its own thread).
+    async fn recording(backend: &Backend, base: LogPolicy) -> Diag<Backend> {
+        let space = ConfigManager::new(backend.clone())
+            .claim(SPACE, CONFIG_BUDGET)
+            .unwrap();
+        let mut diag = Diag::load_with(space, base).await;
+        diag.set_applier(record);
+        APPLIED.with(|a| a.borrow_mut().clear());
+        diag
+    }
+    fn default_base() -> LogPolicy {
+        iobewi_log::default_policy("streambewi").unwrap()
+    }
+    fn at(seconds: u64) -> Instant {
+        Instant::from_secs(seconds)
+    }
+    fn level(policy: &LogPolicy, target: &str) -> log::LevelFilter {
+        policy.level_for(target)
+    }
+
+    #[test]
+    fn the_profile_raises_the_four_product_targets_and_nothing_else() {
+        let (policy, raised) = debug_policy(&default_base());
+        assert_eq!(raised, DEBUG_TARGETS);
+        for target in DEBUG_TARGETS {
+            assert_eq!(level(&policy, target), log::LevelFilter::Debug, "{target}");
+        }
+        // The rest of the product and the third parties keep their level, and nothing is `trace`.
+        assert_eq!(level(&policy, "streambewi::setup"), log::LevelFilter::Info);
+        assert_eq!(level(&policy, "iobewi_esp_wifi"), log::LevelFilter::Warn);
+        assert_eq!(
+            level(&policy, "iobewi_wifi_manager"),
+            log::LevelFilter::Warn
+        );
+        assert_eq!(level(&policy, "embassy_usb"), log::LevelFilter::Warn);
+        assert_eq!(level(&policy, "iobewi_usb_msc"), log::LevelFilter::Warn);
+        assert_eq!(policy.max_level(), log::LevelFilter::Debug);
+        assert!(
+            policy
+                .targets()
+                .iter()
+                .all(|r| r.level <= log::LevelFilter::Debug)
+        );
+    }
+
+    #[test]
+    fn the_profile_never_names_a_wifi_owner_or_a_withheld_target() {
+        for target in DEBUG_TARGETS {
+            assert!(target.starts_with("streambewi::"), "{target}");
+            assert!(
+                !WITHHELD_TARGETS.iter().any(|t| target.starts_with(t)),
+                "{target}"
+            );
+            assert!(
+                !WITHHELD_WORDS
+                    .iter()
+                    .any(|w| contains_ignore_case(target, w)),
+                "{target}"
+            );
+        }
+        // And what they log goes through the same sanitizer as everything else.
+        assert_eq!(
+            sanitize("streambewi::stream", "retry with password=1"),
+            Sanitized::Withhold
+        );
+        assert_eq!(
+            kept(
+                "streambewi::stream",
+                "connecting to http://u:p@host:8000/live?x=abc"
+            ),
+            "streambewi::stream: connecting to http://host:8000/live?…"
+        );
+    }
+
+    #[test]
+    fn a_full_policy_is_kept_and_the_profile_is_partial_and_says_so() {
+        // Eight rules of the user's own: no room for the four targets.
+        let mut base = LogPolicy::new(log::LevelFilter::Warn);
+        for name in ["a", "b", "c", "d", "e", "f", "g", "h"] {
+            base.add_target(name, log::LevelFilter::Error).unwrap();
+        }
+        let (policy, raised) = debug_policy(&base);
+        assert!(raised.is_empty());
+        assert_eq!(
+            policy.targets(),
+            base.targets(),
+            "the policy is kept as it was"
+        );
+
+        // Six rules of the user's own: two of the four fit.
+        let mut base = LogPolicy::new(log::LevelFilter::Warn);
+        for name in ["a", "b", "c", "d", "e", "f"] {
+            base.add_target(name, log::LevelFilter::Error).unwrap();
+        }
+        let (policy, raised) = debug_policy(&base);
+        assert_eq!(raised, DEBUG_TARGETS[..2]);
+        assert_eq!(policy.targets().len(), 8);
+        // A rule of the user's for a debug target is raised, not duplicated, and takes no room.
+        let mut base = LogPolicy::new(log::LevelFilter::Warn);
+        for name in ["a", "b", "c", "d", "e", "f", "g"] {
+            base.add_target(name, log::LevelFilter::Error).unwrap();
+        }
+        let mut with_usb = base.clone();
+        with_usb
+            .add_target("streambewi::usb", log::LevelFilter::Off)
+            .unwrap();
+        let (policy, raised) = debug_policy(&with_usb);
+        assert_eq!(raised, ["streambewi::usb"]);
+        assert_eq!(level(&policy, "streambewi::usb"), log::LevelFilter::Debug);
+        assert_eq!(policy.targets().len(), 8);
+    }
+
+    #[test]
+    fn on_then_off_restores_exactly_the_base_and_writes_nothing() {
+        block(async {
+            let backend = Backend::default();
+            // A base with a target of its own, as a qualification image has.
+            let mut base = default_base();
+            base.add_target("embassy_usb", log::LevelFilter::Trace)
+                .unwrap();
+            let diag = recording(&backend, base.clone()).await;
+            let yaml_before = diag.policy_yaml();
+            assert!(!diag.debug_status(at(0)).enabled);
+
+            let on = diag.debug_enable(at(10));
+            assert!(on.enabled && !on.partial);
+            assert_eq!(on.remaining_seconds, DEBUG_SECONDS);
+            assert_eq!(on.targets, DEBUG_TARGETS);
+            let applied = last_applied();
+            assert_eq!(
+                level(&applied, "streambewi::stream"),
+                log::LevelFilter::Debug
+            );
+            assert_eq!(
+                level(&applied, "embassy_usb"),
+                log::LevelFilter::Trace,
+                "the base's own targets stay"
+            );
+
+            diag.debug_disable();
+            assert!(!diag.debug_status(at(11)).enabled);
+            assert_eq!(last_applied(), base, "exactly the base again");
+            // The persisted policy and the stored bytes were never touched.
+            assert_eq!(diag.policy_yaml(), yaml_before);
+            assert_eq!(backend.commits.get(), 0);
+            assert!(backend.bytes.borrow().is_none());
+        });
+    }
+
+    #[test]
+    fn the_stored_policy_is_the_base_and_stays_stored() {
+        block(async {
+            let backend = Backend::default();
+            *backend.bytes.borrow_mut() = Some(WARN_DEBUG.as_bytes().to_vec());
+            let diag = recording(&backend, default_base()).await;
+            let (yaml, source, _) = diag.policy_yaml();
+            assert_eq!(source, Source::Persisted);
+
+            diag.debug_enable(at(0));
+            // While on, the policy that is asked for and stored is still the persisted one.
+            assert_eq!(diag.policy_yaml().0, yaml);
+            assert_eq!(diag.policy_yaml().1, Source::Persisted);
+            diag.debug_tick(at(DEBUG_SECONDS));
+            assert_eq!(diag.policy_yaml().0, yaml);
+            assert_eq!(
+                backend.bytes.borrow().as_deref(),
+                Some(WARN_DEBUG.as_bytes())
+            );
+            assert_eq!(
+                backend.commits.get(),
+                0,
+                "no write for a temporary diagnostic"
+            );
+        });
+    }
+
+    #[test]
+    fn it_lasts_fifteen_minutes_and_a_second_request_does_not_extend_it() {
+        block(async {
+            let diag = recording(&Backend::default(), default_base()).await;
+            let first = diag.debug_enable(at(100));
+            assert_eq!(first.remaining_seconds, 900);
+            // Asked again (and again) during the session: the end does not move.
+            assert_eq!(diag.debug_enable(at(400)).remaining_seconds, 600);
+            assert_eq!(diag.debug_enable(at(990)).remaining_seconds, 10);
+            assert_eq!(applied_count(), 1, "the policy was applied once");
+
+            // Not over yet.
+            diag.debug_tick(at(999));
+            assert!(diag.debug_status(at(999)).enabled);
+            assert_eq!(diag.debug_status(at(999)).remaining_seconds, 1);
+            // Over: at the deadline, not a second before.
+            diag.debug_tick(at(1000));
+            assert!(!diag.debug_status(at(1000)).enabled);
+            assert_eq!(last_applied(), default_base());
+        });
+    }
+
+    #[test]
+    fn after_the_end_a_new_explicit_request_opens_a_new_session() {
+        block(async {
+            let diag = recording(&Backend::default(), default_base()).await;
+            diag.debug_enable(at(0));
+            diag.debug_tick(at(900));
+            assert!(!diag.debug_status(at(900)).enabled);
+            let again = diag.debug_enable(at(2_000));
+            assert!(again.enabled);
+            assert_eq!(again.remaining_seconds, 900, "a new session of its own");
+            // A request that comes after the deadline but before the drain loop noticed also opens a new one.
+            let late = diag.debug_enable(at(2_900));
+            assert_eq!(late.remaining_seconds, 900);
+        });
+    }
+
+    #[test]
+    fn turning_it_off_is_immediate_and_harmless_when_it_is_off() {
+        block(async {
+            let diag = recording(&Backend::default(), default_base()).await;
+            diag.debug_disable();
+            diag.debug_disable();
+            assert_eq!(applied_count(), 0, "nothing to restore");
+            diag.debug_enable(at(0));
+            diag.debug_disable();
+            diag.debug_disable();
+            assert_eq!(applied_count(), 2, "on, then off once");
+            // The tick of a drain loop that has nothing to end does nothing.
+            diag.debug_tick(at(10_000));
+            assert_eq!(applied_count(), 2);
+        });
+    }
+
+    #[test]
+    fn a_policy_replaced_in_setup_during_the_session_becomes_the_base_under_the_profile() {
+        block(async {
+            let backend = Backend::default();
+            let diag = recording(&backend, default_base()).await;
+            diag.debug_enable(at(0));
+            let before = applied_count();
+
+            // A policy of the user's, with a target of its own.
+            let new =
+                "log:\n  default_level: warn\n  targets:\n    streambewi: debug\n    mine: info\n";
+            assert!(block(diag.replace_yaml(new, true)).is_ok());
+            assert_eq!(
+                backend.commits.get(),
+                1,
+                "the replacement is the only write"
+            );
+
+            // The profile went back over the new policy: its targets are Debug, the user's rules are kept.
+            assert!(applied_count() > before);
+            let applied = last_applied();
+            assert_eq!(
+                level(&applied, "streambewi::stream"),
+                log::LevelFilter::Debug
+            );
+            assert_eq!(
+                level(&applied, "streambewi::setup"),
+                log::LevelFilter::Debug
+            );
+            assert_eq!(level(&applied, "mine"), log::LevelFilter::Info);
+            assert_eq!(applied.default_level, log::LevelFilter::Warn);
+            assert!(diag.debug_status(at(1)).enabled, "the session goes on");
+
+            // At the end, the new policy applies, not the old one.
+            diag.debug_tick(at(DEBUG_SECONDS));
+            let restored = last_applied();
+            // The user's rule for the whole product (debug) applies again, not the default one (info).
+            assert_eq!(
+                level(&restored, "streambewi::stream"),
+                log::LevelFilter::Debug
+            );
+            assert_eq!(restored.targets().len(), 2, "no profile target left");
+            assert_eq!(level(&restored, "mine"), log::LevelFilter::Info);
+            assert_eq!(diag.policy_yaml().0.trim(), new.trim());
+        });
+    }
+
+    #[test]
+    fn a_refused_replacement_during_the_session_changes_nothing() {
+        block(async {
+            let backend = Backend::default();
+            let diag = recording(&backend, default_base()).await;
+            diag.debug_enable(at(0));
+            let before = applied_count();
+            assert_eq!(
+                block(diag.replace_yaml("nonsense", true)),
+                Err(PutError::Invalid)
+            );
+            assert_eq!(
+                block(diag.replace_yaml(WARN_DEBUG, false)),
+                Err(PutError::NotAllowed)
+            );
+            assert_eq!(applied_count(), before);
+            assert!(diag.debug_status(at(1)).enabled);
+            assert_eq!(backend.commits.get(), 0);
+        });
+    }
+
+    #[test]
+    fn the_detailed_diagnostic_allocates_little() {
+        let diag = block(recording(&Backend::default(), default_base()));
+        let (on, peak, total, calls) = probe::measure(|| diag.debug_enable(at(0)));
+        std::println!("POST /api/debug (on): peak {peak} B, total {total} B, {calls} calls");
+        // Two policies of about 600 bytes, built on the heap and freed at once.
+        assert!(on.enabled && peak < 4096, "{peak}");
+        let (_, peak, total, calls) = probe::measure(|| {
+            let s = diag.debug_status(at(1));
+            serde_json::json!({"enabled": s.enabled, "remaining_seconds": s.remaining_seconds, "duration_seconds": DEBUG_SECONDS, "persistent": false, "targets": s.targets, "partial": s.partial}).to_string()
+        });
+        std::println!("GET /api/debug: peak {peak} B, total {total} B, {calls} calls");
+        assert!(peak < 2048, "{peak}");
+        let (_, peak, _, _) = probe::measure(|| diag.debug_disable());
+        assert!(peak < 4096, "{peak}");
     }
 }

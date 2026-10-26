@@ -69,6 +69,46 @@ fn decide(status: ReadStatus, command_elapsed: Duration) -> ReadAction {
     }
 }
 
+/// The zero sectors served in a row, so that a long series does not fill the journal (and the blocking console)
+/// with one line per sector: the first `FIRST` are logged, then one every `EVERY`, then a total when the
+/// series is over. A series ends at the second READ(10) command after the last zero sector. It counts and
+/// decides what to log; it changes nothing of what is served.
+#[derive(Default)]
+struct ZeroSeries {
+    /// Sectors of the series so far.
+    total: u32,
+    /// Sectors of the current READ(10) command.
+    in_command: u32,
+}
+
+impl ZeroSeries {
+    const FIRST: u32 = 3;
+    const EVERY: u32 = 128;
+
+    /// A sector is served as zeroes. Returns its number in the series if it deserves a line.
+    fn sector(&mut self) -> Option<u32> {
+        self.total = self.total.saturating_add(1);
+        self.in_command = self.in_command.saturating_add(1);
+        (self.total <= Self::FIRST || self.total.is_multiple_of(Self::EVERY)).then_some(self.total)
+    }
+
+    /// A READ(10) command starts. Returns the total of a series that has just ended and whose sectors
+    /// were not all logged one by one.
+    fn command(&mut self) -> Option<u32> {
+        let ended =
+            (self.in_command == 0 && self.total > 0).then(|| core::mem::take(&mut self.total));
+        self.in_command = 0;
+        ended.filter(|total| *total > Self::FIRST)
+    }
+
+    /// The session ends: the series in progress, if its sectors were not all logged.
+    fn finish(&mut self) -> Option<u32> {
+        let total = core::mem::take(&mut self.total);
+        self.in_command = 0;
+        (total > Self::FIRST).then_some(total)
+    }
+}
+
 /// Product policy for unavailable sectors: wait for data that is about to arrive, but never
 /// wedge the MSC on a stalled stream; expired data is answered with zeroes. The wait budget is
 /// shared by all the sectors of one READ(10) command.
@@ -76,6 +116,7 @@ struct StreamReadPolicy {
     command_start: Instant,
     stream: &'static SharedStream,
     stall: &'static Signal<CriticalSectionRawMutex, ()>,
+    zeros: ZeroSeries,
 }
 
 impl StreamReadPolicy {
@@ -87,6 +128,18 @@ impl StreamReadPolicy {
             command_start: Instant::now(),
             stream,
             stall,
+            zeros: ZeroSeries::default(),
+        }
+    }
+}
+
+impl Drop for StreamReadPolicy {
+    fn drop(&mut self) {
+        if let Some(total) = self.zeros.finish() {
+            log::warn!(
+                "usb: ZEROFILL series ended with the session: {} sectors",
+                total
+            );
         }
     }
 }
@@ -94,6 +147,9 @@ impl StreamReadPolicy {
 impl ReadPolicy for StreamReadPolicy {
     fn command_started(&mut self) {
         self.command_start = Instant::now();
+        if let Some(total) = self.zeros.command() {
+            log::warn!("usb: ZEROFILL series ended: {} sectors", total);
+        }
     }
 
     fn unavailable(&mut self, status: ReadStatus, _sector_elapsed: Duration) -> ReadAction {
@@ -101,10 +157,14 @@ impl ReadPolicy for StreamReadPolicy {
             self.stall.signal(());
         }
         let action = decide(status, self.command_start.elapsed());
-        if action == ReadAction::ZeroFill {
-            // Operating log: every zero sector served is a lost-data event.
+        if action == ReadAction::ZeroFill
+            && let Some(n) = self.zeros.sector()
+        {
+            // Operating log: a zero sector served is a lost-data event. The first ones of a series are
+            // logged, then one in `EVERY`, then the total (`ZeroSeries`).
             log::warn!(
-                "usb: ZEROFILL status={:?} command_elapsed={} ms",
+                "usb: ZEROFILL #{} status={:?} command_elapsed={} ms",
+                n,
                 status,
                 self.command_start.elapsed().as_millis()
             );
@@ -136,6 +196,10 @@ impl LinkSupervisor {
         let (written_at_stall, _) = self.stream.progress();
         let generation = self.stream.generation();
         log::info!("usb: stream stalled, leaving the bus");
+        log::debug!(
+            "usb: stall recovery waits for {} more bytes",
+            PREBUFFER_BYTES
+        );
         crate::status::usb_off_bus();
         // The player will resume at the offset it had: keep the session through the reconnection.
         self.stream.hold_session();
@@ -423,5 +487,68 @@ mod tests {
             }
         }));
         assert!(stream.writable() > 0);
+    }
+
+    // --- ZEROFILL lines are limited, what is served is not ---------------------------------------
+
+    #[test]
+    fn a_series_logs_its_first_sectors_then_one_in_128_and_a_total_when_it_ends() {
+        let mut series = ZeroSeries::default();
+        let logged: Vec<u32> = (0..300).filter_map(|_| series.sector()).collect();
+        assert_eq!(logged, [1, 2, 3, 128, 256], "5 lines for 300 zero sectors");
+        // The command ends; the next one has zero sectors again: the series goes on.
+        assert_eq!(series.command(), None);
+        series.sector();
+        assert_eq!(series.command(), None);
+        // Two commands without any zero sector: the series is over, with its total.
+        assert_eq!(series.command(), Some(301));
+        assert_eq!(series.command(), None, "told once");
+        // A new series starts over at one.
+        assert_eq!(series.sector(), Some(1));
+    }
+
+    #[test]
+    fn a_short_series_has_no_total_it_was_logged_sector_by_sector() {
+        let mut series = ZeroSeries::default();
+        assert_eq!((series.sector(), series.sector()), (Some(1), Some(2)));
+        assert_eq!(series.command(), None);
+        assert_eq!(series.command(), None, "2 sectors, both logged: no summary");
+        assert_eq!(series.finish(), None);
+    }
+
+    #[test]
+    fn the_end_of_the_session_reports_a_series_in_progress_once() {
+        let mut series = ZeroSeries::default();
+        for _ in 0..96 {
+            series.sector();
+        }
+        assert_eq!(series.finish(), Some(96));
+        assert_eq!(series.finish(), None);
+    }
+
+    #[test]
+    fn limiting_the_lines_changes_nothing_of_what_is_served() {
+        let stream: &'static SharedStream = Box::leak(Box::new(SharedStream::new()));
+        let stall: &'static Signal<CriticalSectionRawMutex, ()> =
+            Box::leak(Box::new(Signal::new()));
+        let mut policy = StreamReadPolicy::new(stream, stall);
+        // Expired data is zero-filled at once, every time, whatever was logged or not.
+        for command in 0..4 {
+            policy.command_started();
+            for sector in 0..96 {
+                assert_eq!(
+                    policy.unavailable(ReadStatus::Expired, Duration::from_millis(0)),
+                    ReadAction::ZeroFill,
+                    "command {command} sector {sector}"
+                );
+            }
+        }
+        // A sector that is only late is still waited for within the command's budget.
+        policy.command_started();
+        assert!(matches!(
+            policy.unavailable(ReadStatus::Pending, Duration::from_secs(60)),
+            ReadAction::RetryAfter(_)
+        ));
+        assert_eq!(policy.zeros.total, 4 * 96, "every zero sector is counted");
     }
 }

@@ -315,8 +315,10 @@ struct IdForm {
     id: u32,
 }
 fn mutation(
+    action: &'static str,
     result: Result<bool, crate::stations::Error>,
 ) -> (StatusCode, [(&'static str, &'static str); 1], Typed<String>) {
+    use crate::stations::Error;
     match result {
         Ok(restart) => {
             if restart {
@@ -333,11 +335,18 @@ fn mutation(
                 json(serde_json::json!({"ok":true,"restart":restart}).to_string()),
             )
         }
-        Err(error) => (
-            StatusCode::BAD_REQUEST,
-            NO_STORE,
-            json(serde_json::json!({"ok":false,"error":error.message()}).to_string()),
-        ),
+        Err(error) => {
+            // A refusal of the input is the user's typo; a storage failure is the product's problem.
+            match error {
+                Error::Storage => log::warn!("stations: {} failed: storage error", action),
+                _ => log::debug!("stations: {} refused: {:?}", action, error),
+            }
+            (
+                StatusCode::BAD_REQUEST,
+                NO_STORE,
+                json(serde_json::json!({"ok":false,"error":error.message()}).to_string()),
+            )
+        }
     }
 }
 /// The LED brightness setting as the page reads it: `saved` is what the configuration holds, `preview` what
@@ -482,12 +491,16 @@ async fn put_log_config<B: ConfigBackend>(
     // Boxed: the persistence future (policy copies, YAML buffer) lives on the heap for the one AP request
     // instead of inflating the task future of the whole web server.
     match alloc::boxed::Box::pin(diag.replace_yaml(body, in_setup())).await {
-        Ok(generation) => (
-            StatusCode::OK,
-            NO_STORE,
-            json(serde_json::json!({"ok": true, "generation": generation}).to_string()),
-        ),
+        Ok(generation) => {
+            log::info!("diag: log policy replaced (generation {})", generation);
+            (
+                StatusCode::OK,
+                NO_STORE,
+                json(serde_json::json!({"ok": true, "generation": generation}).to_string()),
+            )
+        }
         Err(error) => {
+            log::warn!("diag: log policy change refused ({:?})", error);
             let (status, message) = match error {
                 PutError::NotAllowed => (
                     StatusCode::FORBIDDEN,
@@ -512,6 +525,49 @@ async fn put_log_config<B: ConfigBackend>(
     }
 }
 
+/// `{"enabled":true}` or `{"enabled":false}`, nothing else.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DebugRequest {
+    enabled: bool,
+}
+/// The body is read into a fixed buffer: a longer request is rejected before anything is allocated.
+type DebugBody = heapless::String<64>;
+
+/// The temporary detailed diagnostic as the page reads it. It is never persisted.
+fn debug_answer(status: &crate::diag::DebugStatus) -> JsonReply {
+    led_answer(
+        StatusCode::OK,
+        serde_json::json!({
+            "enabled": status.enabled,
+            "remaining_seconds": status.remaining_seconds,
+            "duration_seconds": crate::diag::DEBUG_SECONDS,
+            "persistent": false,
+            "targets": status.targets,
+            "partial": status.partial,
+        }),
+    )
+}
+fn debug_state<B: ConfigBackend>(diag: &crate::diag::Diag<B>) -> JsonReply {
+    debug_answer(&diag.debug_status(Instant::now()))
+}
+/// `{"enabled":true}` turns it on for 15 minutes; asked again while it is on, it answers the state and does
+/// not extend it. `{"enabled":false}` turns it off. Nothing is written.
+fn debug_request<B: ConfigBackend>(diag: &crate::diag::Diag<B>, body: &str) -> JsonReply {
+    match serde_json::from_str::<DebugRequest>(body) {
+        Ok(DebugRequest { enabled: true }) => debug_answer(&diag.debug_enable(Instant::now())),
+        Ok(DebugRequest { enabled: false }) => debug_off(diag),
+        Err(_) => led_answer(
+            StatusCode::BAD_REQUEST,
+            serde_json::json!({"ok":false,"error":"Corps attendu : {\"enabled\":true} ou {\"enabled\":false}."}),
+        ),
+    }
+}
+fn debug_off<B: ConfigBackend>(diag: &crate::diag::Diag<B>) -> JsonReply {
+    diag.debug_disable();
+    debug_answer(&diag.debug_status(Instant::now()))
+}
+
 /// No listener is bound to STA; an AP client must open the explicit local address (no captive DNS).
 /// The HTTP routes. Route order is nesting depth in picoserve (each route wraps the ones declared before
 /// it, and the poll frame of a nested group is several KiB), so the station mutations, which end in a
@@ -523,7 +579,13 @@ fn app<'a, B: ConfigBackend>(
     diag: &'a crate::diag::Diag<B>,
 ) -> picoserve::Router<impl picoserve::routing::PathRouter + 'a> {
     picoserve::Router::new()
-        // Declared first so that it adds no frame to the other routes (the LED routes never reach the flash).
+        // Declared first so that they add no frame to the other routes (neither reaches the flash).
+        .route(
+            "/api/debug",
+            get(move || async move { debug_state(diag) })
+                .post(move |body: DebugBody| async move { debug_request(diag, &body) })
+                .delete(move || async move { debug_off(diag) }),
+        )
         .nest(
             "/api/led",
             picoserve::Router::new()
@@ -578,6 +640,7 @@ fn app<'a, B: ConfigBackend>(
                     "/save",
                     post(move |Form(value): Form<StationForm>| async move {
                         mutation(
+                            "save",
                             radio
                                 .save(value.id, value.name, value.url, value.logo)
                                 .await,
@@ -587,13 +650,13 @@ fn app<'a, B: ConfigBackend>(
                 .route(
                     "/select",
                     post(move |Form(value): Form<IdForm>| async move {
-                        mutation(radio.select(value.id).await)
+                        mutation("select", radio.select(value.id).await)
                     }),
                 )
                 .route(
                     "/delete",
                     post(move |Form(value): Form<IdForm>| async move {
-                        mutation(radio.delete(value.id).await)
+                        mutation("delete", radio.delete(value.id).await)
                     }),
                 ),
         )
@@ -971,6 +1034,7 @@ mod routing_tests {
                 "/api/stations/save",
                 post(move |Form(value): Form<StationForm>| async move {
                     mutation(
+                        "save",
                         radio
                             .save(value.id, value.name, value.url, value.logo)
                             .await,
@@ -980,13 +1044,13 @@ mod routing_tests {
             .route(
                 "/api/stations/select",
                 post(move |Form(value): Form<IdForm>| async move {
-                    mutation(radio.select(value.id).await)
+                    mutation("select", radio.select(value.id).await)
                 }),
             )
             .route(
                 "/api/stations/delete",
                 post(move |Form(value): Form<IdForm>| async move {
-                    mutation(radio.delete(value.id).await)
+                    mutation("delete", radio.delete(value.id).await)
                 }),
             )
             .route(
@@ -1011,13 +1075,15 @@ mod routing_tests {
         )
         .await
         .unwrap();
-        let diag = Diag::load(
+        let mut diag = Diag::load(
             manager
                 .claim(crate::diag::SPACE, crate::diag::CONFIG_BUDGET)
                 .unwrap(),
             "streambewi",
         )
         .await;
+        // The tests must not change the policy of the logger they share.
+        diag.set_applier(|_| {});
         (radio, diag)
     }
 
@@ -1144,6 +1210,100 @@ mod routing_tests {
             }
             assert_eq!(call("POST", "/api/led/nothing", "").0, 404);
             BRIGHTNESS.set_available(false);
+        });
+    }
+
+    fn json_of(raw: &str) -> serde_json::Value {
+        let body = raw.split("\r\n\r\n").nth(1).expect("a body");
+        serde_json::from_str(body).unwrap_or_else(|e| panic!("{e}: {body:?}"))
+    }
+
+    /// The temporary detailed diagnostic through the real router: its contract, its refusals, and that asking
+    /// again does not extend it. Nothing of it reaches the stored policy.
+    #[test]
+    fn the_debug_routes_turn_the_detailed_diagnostic_on_and_off_without_extending_it() {
+        embassy_futures::block_on(async {
+            let (radio, diag) = fixtures().await;
+            let router = app(&radio, &diag);
+            let call = |method, path, body| call(&router, method, path, body);
+
+            let (status, raw) = call("GET", "/api/debug", "");
+            assert_eq!(status, 200);
+            assert!(
+                raw.to_ascii_lowercase().contains("cache-control: no-store"),
+                "{raw}"
+            );
+            let off = json_of(&raw);
+            assert_eq!(off["enabled"], false);
+            assert_eq!(off["remaining_seconds"], 0);
+            assert_eq!(off["duration_seconds"], 900);
+            assert_eq!(off["persistent"], false);
+            assert_eq!(off["targets"], serde_json::json!([]));
+
+            let (status, raw) = call("POST", "/api/debug", r#"{"enabled":true}"#);
+            assert_eq!(status, 200);
+            let on = json_of(&raw);
+            assert_eq!(on["enabled"], true);
+            assert_eq!(on["persistent"], false);
+            assert_eq!(on["partial"], false);
+            assert_eq!(on["targets"].as_array().unwrap().len(), 4);
+            let first = on["remaining_seconds"].as_u64().unwrap();
+            assert!((895..=900).contains(&first), "{first}");
+
+            // Asked again: the state, not a new 15 minutes (and never more than it had).
+            let again = json_of(&call("POST", "/api/debug", r#"{"enabled":true}"#).1);
+            assert!(again["remaining_seconds"].as_u64().unwrap() <= first);
+            let read = json_of(&call("GET", "/api/debug", "").1);
+            assert_eq!(read["enabled"], true);
+
+            // Off, by the body and by DELETE (idempotent).
+            let (status, raw) = call("POST", "/api/debug", r#"{"enabled":false}"#);
+            assert_eq!(
+                (status, json_of(&raw)["enabled"].clone()),
+                (200, false.into())
+            );
+            assert_eq!(
+                json_of(&call("POST", "/api/debug", r#"{"enabled":true}"#).1)["enabled"],
+                true
+            );
+            let (status, raw) = call("DELETE", "/api/debug", "");
+            assert_eq!(
+                (status, json_of(&raw)["enabled"].clone()),
+                (200, false.into())
+            );
+            let (status, raw) = call("DELETE", "/api/debug", "");
+            assert_eq!(
+                (status, json_of(&raw)["enabled"].clone()),
+                (200, false.into())
+            );
+
+            // Refusals: nothing is turned on by a body that is not exactly what is expected.
+            for body in [
+                "",
+                "{}",
+                "nope",
+                r#"{"enabled":1}"#,
+                r#"{"enabled":"yes"}"#,
+                r#"{"enabled":true,"minutes":999}"#,
+                r#"{"level":"trace"}"#,
+            ] {
+                let (status, raw) = call("POST", "/api/debug", body);
+                assert_eq!(status, 400, "{body:?}");
+                assert_eq!(json_of(&raw)["ok"], false);
+            }
+            let too_long = format!(r#"{{"enabled":true,"x":"{}"}}"#, "a".repeat(100));
+            let (status, _) = call("POST", "/api/debug", &too_long);
+            assert!((400..500).contains(&status), "{status}");
+            assert!(
+                !diag.debug_status(Instant::now()).enabled,
+                "none of the refusals turned it on"
+            );
+            for method in ["PUT", "PATCH"] {
+                assert_eq!(call(method, "/api/debug", "").0, 405, "{method}");
+            }
+            // Nothing about it is stored: the policy is the one there was.
+            assert_eq!(diag.policy_yaml().1, crate::diag::Source::Default);
+            assert_eq!(call("GET", "/api/debug/extra", "").0, 404);
         });
     }
 

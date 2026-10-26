@@ -155,8 +155,40 @@
       message('diag-result', c.load_error ? 'La politique enregistrée est invalide : la politique par défaut s’applique.' : (c.writable ? '' : 'La politique se modifie seulement sur le réseau StreamBeWI-Setup.'), c.load_error);
     } catch (_) { message('diag-result', 'Diagnostic indisponible.', true); }
   }
-  $('diag').addEventListener('toggle', () => { if ($('diag').open) diagLoad(); });
-  $('diag-refresh').addEventListener('click', diagLoad);
+  // Detailed diagnostic: 15 minutes, kept and ended by the firmware (RAM only, nothing is written). The page only
+  // asks, shows the time left (counted here between two reads) and reads the state again at the end.
+  const dbg={on:false,until:0,tick:0};
+  async function debugCall(method){
+    const options={method,cache:'no-store'};
+    if(method==='POST'){options.headers={'Content-Type':'application/json'};options.body='{"enabled":true}';}
+    const r=await fetch('/api/debug',options),j=await r.json().catch(()=>({}));
+    if(!r.ok)throw new Error(j.error||'Réessayez dans un instant.');
+    return j;
+  }
+  function debugShow(){
+    const left=Math.max(0,Math.ceil((dbg.until-Date.now())/1000));
+    $('debug-toggle').textContent=dbg.on?'Désactiver':'Activer pour 15 minutes';
+    $('debug-state').textContent=dbg.on?'Actif, encore '+Math.floor(left/60)+' min '+String(left%60).padStart(2,'0')+' s':'Désactivé';
+  }
+  function debugSet(s){
+    const was=dbg.on;dbg.on=s.enabled;dbg.until=Date.now()+s.remaining_seconds*1000;debugShow();
+    if(was&&!dbg.on)message('debug-result','Le diagnostic détaillé est terminé : retour au mode normal.');
+    else if(dbg.on)message('debug-result',s.partial?'Actif, mais une partie seulement des détails est enregistrée (la politique de journalisation n’a plus de place).':'');
+  }
+  async function debugLoad(){try{debugSet(await debugCall('GET'));}catch(_){message('debug-result','État du diagnostic détaillé indisponible.',true);}}
+  $('debug-toggle').onclick=async()=>{
+    $('debug-toggle').disabled=true;
+    try{debugSet(await debugCall(dbg.on?'DELETE':'POST'));message('debug-result',dbg.on?'Diagnostic détaillé activé pour 15 minutes.':'Diagnostic détaillé désactivé.');}
+    catch(e){message('debug-result',e.message,true);}
+    finally{$('debug-toggle').disabled=false;}
+  };
+  setInterval(()=>{
+    if(!$('diag').open||!$('settings-panel').open)return;
+    if(dbg.on)debugShow();
+    if(dbg.on&&Date.now()>=dbg.until||++dbg.tick%15===0)debugLoad();
+  },1000);
+  $('diag').addEventListener('toggle', () => { if ($('diag').open) { diagLoad(); debugLoad(); } });
+  $('diag-refresh').addEventListener('click', () => { diagLoad(); debugLoad(); });
   $('diag-form').addEventListener('submit', async e => {
     e.preventDefault();
     try {
