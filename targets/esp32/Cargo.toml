@@ -5,7 +5,10 @@ edition = "2024"
 publish = false
 
 [features]
-default = []
+# Production: `debug!` and `trace!` are compiled out of the release firmware (the operating log is Info/Warn/Error).
+# The instrumented builds (`usb-debug`, `qual`) are built with `--no-default-features` (scripts/build-env.sh).
+default = ["log-info-ceiling"]
+log-info-ceiling = ["log/release_max_level_info"]
 # Status LED: choose at most one board. Without one the product has no LED and no RMT use.
 board-devkitc-1 = ["dep:iobewi-esp-ws2812"]
 board-devkitc-1-v1-1 = ["dep:iobewi-esp-ws2812"]
