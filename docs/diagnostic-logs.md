@@ -16,6 +16,7 @@ Serveur existant (port 80, AP ou STA). Toutes les réponses sont en JSON, `Cache
 | Route | Accès | Rôle |
 | --- | --- | --- |
 | `GET /api/logs?n=16` | AP et LAN | `n` lignes récentes, 1 à 32 (16 par défaut), plus anciennes d'abord : `{"lines":[{"l":"I","m":"cible: message"}],"capacity":32,"seen":N,"overwritten":N,"withheld":N}` |
+| `GET /api/logs?after=SEQ[&boot=ID][&n=N]` | AP et LAN | Lecture incrémentale (voir « Lecture incrémentale et suivi en direct ») : seulement les lignes après `SEQ`, chacune avec son numéro |
 | `GET /api/logs/config` | AP et LAN | Politique active : `{"yaml":"…","source":"default\|persisted","load_error":false,"writable":false,"max_bytes":1024}` |
 | `PUT /api/logs/config` | **AP seulement** (`StreamBeWI-Setup`) | Corps `text/plain` : le YAML restreint de `iobewi-log-config`, 1 024 octets au plus. `200 {"ok":true,"generation":N}` ; `400` YAML refusé ; `403` hors AP ; `413` trop long ; `500` écriture impossible. |
 
@@ -27,6 +28,35 @@ log:
 ```
 
 Niveaux : `off`, `error`, `warn`, `info`, `debug`, `trace`. Huit préfixes au plus. Le corps est lu dans un tampon fixe de 1 024 octets : une requête plus longue est rejetée avant toute allocation, y compris depuis le LAN.
+
+## Lecture incrémentale et suivi en direct
+
+Le suivi en direct est fait **par le navigateur** : il interroge le serveur existant toutes les deux secondes tant que la vue Configuration, Diagnostic est ouverte et que la page est visible. Le microcontrôleur ne crée aucun fichier, ne garde aucun journal de plus, n'écrit pas en flash, n'ouvre ni WebSocket, ni flux, ni socket de plus, et n'a pas de tâche de plus.
+
+**Numérotation.** L'historique (32 lignes, inchangé) compte les lignes qu'il a **conservées** (`total`). La plus récente porte le numéro `total`, les `n` lignes stockées vont de `total − n + 1` à `total`. Aucun numéro n'est stocké par ligne et deux lignes de même texte ont deux numéros. Une ligne refusée par l'assainissement n'a pas de numéro (le compteur `withheld` la compte). Le numéro est un entier de 32 bits : à une ligne par seconde il boucle après environ 136 ans.
+
+**Session de démarrage.** À chaque démarrage la cible tire un identifiant de 32 bits (`boot`, générateur aléatoire du matériel, jamais écrit en flash) et le donne à `Diag`. La logique portable n'a aucun générateur.
+
+**Requête.** `GET /api/logs?after=SEQ&boot=ID&n=N`. `after` est le numéro de la dernière ligne que le lecteur possède (0 la première fois), `boot` l'identifiant de la dernière réponse (absent la première fois), `n` (1 à 32, 32 par défaut) borne le nombre de lignes. Sans `after`, la réponse est celle de toujours, octet pour octet. Une valeur qui n'est pas un entier de 32 bits donne `400`, comme `n`.
+
+```json
+{"boot":2745377794,
+ "lines":[{"seq":124,"l":"I","m":"streambewi::stream: …"}],
+ "more":false,"next":124,"lost":0,"reset":false,"up":812,
+ "capacity":32,"seen":N,"overwritten":N,"withheld":N}
+```
+
+- `next` est le numéro de la **dernière ligne livrée** par cette réponse (`after` quand elle n'en livre aucune). Le lecteur redemande avec `after=next`.
+- `more` vaut `true` quand des lignes restent après `next` (réponse limitée par `n` ou par `RESPONSE_MAX`). Le navigateur redemande alors après 300 ms, au plus 5 fois de suite, puis reprend son rythme de 2 s.
+- `lost` : nombre de lignes que l'historique a écrasées entre `after` et la plus ancienne ligne conservée. Il vaut 0 à la première lecture (`after=0`) : l'historique déjà écrasé n'est pas un incident du lecteur.
+- `reset` vaut `true` quand `boot` est fourni et diffère de celui du produit, ou quand `after` dépasse `total` : la réponse reprend alors à la plus ancienne ligne conservée et le lecteur signale un redémarrage. `up` (secondes depuis le démarrage) sert à l'affichage.
+- La réponse est écrite en **une seule réservation exacte**, sous un emprunt court de l'historique (aucune attente, aucune E/S), et bornée par `RESPONSE_MAX` (moins de 12 Kio).
+
+**Limite connue.** L'anneau de 24 lignes de `iobewi-log` (vidé toutes les 400 ms) abandonne les nouvelles lignes en cas de rafale, sans les compter : `lost` ne couvre que le débordement de l'historique de 32 lignes. La limitation des répétitions réduit ce risque.
+
+**Navigateur.** Suivre en direct, Pause (l'affichage se fige, la collecte continue), Reprendre, Effacer (affichage local seulement, le curseur est conservé) et Exporter. Une requête à la fois (délai de 5 s), arrêt à la fermeture de la vue ou quand la page est masquée, reprise avec le curseur. Le navigateur garde 2 000 lignes au plus et dit combien il en a écarté avant l'export. L'export est un fichier `.txt` construit sur place (date et heure du navigateur, appareil, session de démarrage, compteurs, lignes dans l'ordre de réception, marqueurs de pertes, de redémarrages et de coupures) : aucune heure n'est inventée pour les lignes, rien n'est envoyé à un serveur.
+
+**Sécurité.** Mêmes droits de lecture que `/api/logs`, aucune route d'écriture, aucun en-tête CORS. Le HTTP du réseau local n'est pas chiffré, et un fichier exporté peut contenir des informations techniques (adresses, noms de stations) même après l'assainissement, qui est lexical. DNS rebinding, `Host` et `Origin` sont traités pour tout le serveur dans l'issue #37.
 
 ## Limitation des messages répétitifs
 
@@ -122,4 +152,6 @@ La qualification sur carte (H5, 10 mutations de favoris) a mesuré une marge de 
 
 **Tests hôte** (`cargo test -p streambewi-core -p streambewi`) : réponse `GET /api/logs` (octets identiques à l'ancienne construction pour 0 à 40 lignes, JSON valide, échappement identique à `serde_json`, borne `RESPONSE_MAX`, une seule allocation exacte contre 404 avant), assainissement, historique borné et ordre, découpe UTF-8, politique absente, invalide ou illisible, refus hors AP, YAML invalide ou trop long, écriture en échec, persistance après rechargement, admission des espaces, vidage de l'anneau. Limitation : décision « premières puis une sur dix », compteur de défaillances sur des connecteurs simulés, série `ZEROFILL` (premiers secteurs, un tous les 128, total, fin de session) et décisions de remplissage inchangées. `tools/qual/check-ui.cjs` couvre la section Diagnostic (Playwright, API simulées, hors CI).
 
-**Non exécuté sur carte :** limitation des répétitions, nouvelles traces, profondeur de pile réelle.
+**Lecture incrémentale** (tests hôte) : numérotation, une seule livraison par ligne, lignes de même texte, ligne refusée sans numéro, première lecture sans perte, perte annoncée, changement de session, `after` trop grand, `n` et `more`, borne avec les lignes les plus longues, une réservation exacte, échappement, routeur de production. Navigateur (`tools/qual/check-ui.cjs`, API simulées) : curseur, doublons, pause, effacement, rattrapage, pertes, redémarrage, coupure, une requête à la fois, arrêt avec la vue, plafond de 2 000 lignes, export.
+
+**Non exécuté sur carte :** suivi en direct, limitation des répétitions, nouvelles traces, profondeur de pile réelle.

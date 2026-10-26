@@ -30,9 +30,10 @@ pub const HISTORY_LINES: usize = 32;
 pub const LINE_BYTES: usize = 160;
 /// Lines returned when the request does not say.
 pub const DEFAULT_LINES: usize = 16;
-/// JSON around one line (`{"l":"I","m":""},`) and around the whole answer (counters, field names).
-const LINE_ENVELOPE: usize = 17;
-const ANSWER_ENVELOPE: usize = 128;
+/// JSON around one line (`{"seq":4294967295,"l":"I","m":""},`) and around the whole answer (counters, field
+/// names). Large enough for the incremental answer, the longer of the two.
+const LINE_ENVELOPE: usize = 34;
+const ANSWER_ENVELOPE: usize = 192;
 /// Hard upper bound of one `GET /api/logs` answer, whatever the lines contain: control characters are
 /// replaced when a line enters the history, so a stored byte costs at most 2 bytes once escaped (`\"`, `\\`).
 pub const RESPONSE_MAX: usize = ANSWER_ENVELOPE + HISTORY_LINES * (LINE_ENVELOPE + 2 * LINE_BYTES);
@@ -227,6 +228,11 @@ pub struct History {
     seen: u32,
     overwritten: u32,
     withheld: u32,
+    /// Lines kept since the start (the sanitizer's refusals do not count). The newest line is number `total`
+    /// and the `stored` ones go from `total - stored + 1` to `total`: no number is stored per entry.
+    total: u32,
+    /// Identifies this start of the product; a reader that sees another one starts again.
+    boot: u32,
 }
 
 impl History {
@@ -238,6 +244,8 @@ impl History {
             seen: 0,
             overwritten: 0,
             withheld: 0,
+            total: 0,
+            boot: 0,
         }
     }
     pub fn push(&mut self, level: Level, target: &str, message: &str) {
@@ -262,6 +270,7 @@ impl History {
             }
         }
         self.next = (self.next + 1) % HISTORY_LINES;
+        self.total = self.total.wrapping_add(1);
         if self.stored == HISTORY_LINES {
             self.overwritten = self.overwritten.wrapping_add(1);
         } else {
@@ -302,7 +311,7 @@ impl History {
         n: usize,
         out: &mut String,
     ) -> Result<(), alloc::collections::TryReserveError> {
-        use core::fmt::Write;
+        use core::fmt::Write as _;
         let mut count = n.min(self.stored);
         // `{"capacity":32,"lines":[` + `],"overwritten":N,"seen":N,"withheld":N}`
         let fixed = 24
@@ -341,6 +350,137 @@ impl History {
         )
         .ok();
         Ok(())
+    }
+}
+
+/// Counts what is written instead of keeping it: the exact size of an answer before the one reservation.
+struct Counter(usize);
+
+impl core::fmt::Write for Counter {
+    fn write_str(&mut self, s: &str) -> core::fmt::Result {
+        self.0 += s.len();
+        Ok(())
+    }
+}
+
+/// `push_escaped` for any writer (same rules as `serde_json`).
+fn write_escaped<W: core::fmt::Write>(out: &mut W, text: &str) -> core::fmt::Result {
+    for c in text.chars() {
+        match c {
+            '"' => out.write_str("\\\"")?,
+            '\\' => out.write_str("\\\\")?,
+            '\n' => out.write_str("\\n")?,
+            '\r' => out.write_str("\\r")?,
+            '\t' => out.write_str("\\t")?,
+            '\u{8}' => out.write_str("\\b")?,
+            '\u{c}' => out.write_str("\\f")?,
+            c if (c as u32) < 0x20 => write!(out, "\\u{:04x}", c as u32)?,
+            c => out.write_char(c)?,
+        }
+    }
+    Ok(())
+}
+
+/// What `History::read_after` found: which lines, and what to tell the reader.
+struct After {
+    /// Number of the first line to send, and how many.
+    first: u32,
+    count: usize,
+    lost: u32,
+    reset: bool,
+}
+
+impl History {
+    /// Lines `after + 1 ..= total` that are still stored, oldest first, at most `n`.
+    fn read_after(&self, after: u32, boot: Option<u32>, n: usize) -> After {
+        use core::cmp::min;
+        let reset = boot.is_some_and(|b| b != self.boot) || after > self.total;
+        let after = if reset { 0 } else { after };
+        // `stored <= total`: the oldest stored line, or `total + 1` when there is none.
+        let oldest = self.total - self.stored as u32 + 1;
+        let wanted = after + 1;
+        // A reader that has seen nothing (`after == 0`) is not told that older lines were lost.
+        let lost = if after > 0 && wanted < oldest {
+            oldest - wanted
+        } else {
+            0
+        };
+        let first = wanted.max(oldest);
+        let available = if first <= self.total {
+            (self.total - first + 1) as usize
+        } else {
+            0
+        };
+        After {
+            first,
+            count: min(available, n),
+            lost,
+            reset,
+        }
+    }
+
+    /// Writes the answer of `GET /api/logs?after=` (see `docs/diagnostic-logs.md`) into `out`, in one exact
+    /// reservation, like `write_json`. `next` is the number of the last line this answer carries (`after`
+    /// when it carries none) and `more` says that lines remain after it: the reader asks again at once.
+    pub fn write_json_after(
+        &self,
+        after: u32,
+        boot: Option<u32>,
+        n: usize,
+        up: u64,
+        out: &mut String,
+    ) -> Result<(), alloc::collections::TryReserveError> {
+        let found = self.read_after(after, boot, n.clamp(1, HISTORY_LINES));
+        let mut count = found.count;
+        let after = if found.reset { 0 } else { after };
+        let size = loop {
+            let mut counter = Counter(0);
+            self.emit_after(&mut counter, &found, count, after, up).ok();
+            if counter.0 <= RESPONSE_MAX || count == 0 {
+                break counter.0;
+            }
+            count -= 1;
+        };
+        out.clear();
+        out.try_reserve_exact(size)?;
+        self.emit_after(out, &found, count, after, up).ok();
+        Ok(())
+    }
+
+    fn emit_after<W: core::fmt::Write>(
+        &self,
+        out: &mut W,
+        found: &After,
+        count: usize,
+        after: u32,
+        up: u64,
+    ) -> core::fmt::Result {
+        write!(out, "{{\"boot\":{},\"lines\":[", self.boot)?;
+        for i in 0..count {
+            let seq = found.first + i as u32;
+            let (level, text) = self.line((self.total - seq) as usize);
+            if i > 0 {
+                out.write_char(',')?;
+            }
+            write!(out, "{{\"seq\":{seq},\"l\":\"{level}\",\"m\":\"")?;
+            write_escaped(out, text)?;
+            out.write_str("\"}")?;
+        }
+        let next = if count > 0 {
+            found.first + count as u32 - 1
+        } else {
+            after
+        };
+        write!(
+            out,
+            "],\"more\":{},\"next\":{next},\"lost\":{},\"reset\":{},\"up\":{up},\"capacity\":{HISTORY_LINES},\"seen\":{},\"overwritten\":{},\"withheld\":{}}}",
+            next < self.total,
+            found.lost,
+            found.reset,
+            self.seen,
+            self.overwritten,
+            self.withheld
+        )
     }
 }
 
@@ -471,6 +611,25 @@ impl<B: ConfigBackend> Diag<B> {
         out: &mut String,
     ) -> Result<(), alloc::collections::TryReserveError> {
         self.history.lock(|h| h.borrow().write_json(n, out))
+    }
+
+    /// Tells the history which start of the product this is. The target draws it at boot (it is not stored
+    /// anywhere); 0 until then.
+    pub fn set_boot_id(&self, id: u32) {
+        self.history.lock(|h| h.borrow_mut().boot = id);
+    }
+
+    /// The answer of `GET /api/logs?after=`, built like `write_recent`: one short borrow, no await, no I/O.
+    pub fn write_after(
+        &self,
+        after: u32,
+        boot: Option<u32>,
+        n: usize,
+        up: u64,
+        out: &mut String,
+    ) -> Result<(), alloc::collections::TryReserveError> {
+        self.history
+            .lock(|h| h.borrow().write_json_after(after, boot, n, up, out))
     }
 
     /// Bounded copy of the newest lines plus the counters (seen, overwritten, withheld).
@@ -1012,5 +1171,180 @@ mod tests {
             "the old path peaked at {old_peak} B, the new one at {new_peak} B"
         );
         assert!(old_calls > 20 * new_calls);
+    }
+    // ---- GET /api/logs?after=: numbering, incremental reads, losses, restarts, bounds --------------------
+
+    fn numbered(count: usize) -> History {
+        let mut h = History::new();
+        h.boot = 77;
+        for i in 1..=count {
+            h.push(Level::Info, "streambewi::t", &format!("line {i}"));
+        }
+        h
+    }
+    fn after(h: &History, after: u32, boot: Option<u32>, n: usize) -> serde_json::Value {
+        let mut out = String::new();
+        h.write_json_after(after, boot, n, 12, &mut out).unwrap();
+        assert!(out.len() <= RESPONSE_MAX, "{} > {RESPONSE_MAX}", out.len());
+        serde_json::from_str(&out).unwrap_or_else(|e| panic!("{e}: {out}"))
+    }
+    fn seqs(answer: &serde_json::Value) -> Vec<u64> {
+        answer["lines"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|l| l["seq"].as_u64().unwrap())
+            .collect()
+    }
+
+    #[test]
+    fn the_lines_are_numbered_from_one_and_the_answer_says_where_it_stops() {
+        let h = numbered(3);
+        let a = after(&h, 0, None, 32);
+        assert_eq!(seqs(&a), [1, 2, 3]);
+        assert_eq!(a["lines"][0]["m"], "streambewi::t: line 1");
+        assert_eq!(a["lines"][0]["l"], "I");
+        assert_eq!(a["boot"], 77);
+        assert_eq!(a["next"], 3);
+        assert_eq!(a["more"], false);
+        assert_eq!(a["lost"], 0);
+        assert_eq!(a["reset"], false);
+        assert_eq!(a["up"], 12);
+        assert_eq!(a["capacity"], 32);
+        assert_eq!(a["seen"], 3);
+    }
+
+    #[test]
+    fn a_reader_gets_each_line_once() {
+        let mut h = numbered(3);
+        assert_eq!(seqs(&after(&h, 2, None, 32)), [3]);
+        let caught_up = after(&h, 3, None, 32);
+        assert!(seqs(&caught_up).is_empty());
+        assert_eq!(caught_up["next"], 3, "next stays where the reader is");
+        h.push(Level::Warn, "streambewi::t", "line 4");
+        let a = after(&h, 3, Some(77), 32);
+        assert_eq!(seqs(&a), [4]);
+        assert_eq!(a["lines"][0]["l"], "W");
+        assert_eq!(a["next"], 4);
+    }
+
+    #[test]
+    fn identical_lines_have_distinct_numbers() {
+        let mut h = History::new();
+        for _ in 0..3 {
+            h.push(Level::Info, "streambewi::t", "same");
+        }
+        let a = after(&h, 0, None, 32);
+        assert_eq!(seqs(&a), [1, 2, 3]);
+        assert_eq!(seqs(&after(&h, 1, None, 32)), [2, 3]);
+    }
+
+    #[test]
+    fn a_withheld_line_takes_no_number() {
+        let mut h = History::new();
+        h.push(Level::Info, "streambewi::t", "one");
+        h.push(Level::Info, "streambewi::t", "the password is x");
+        h.push(Level::Info, "streambewi::t", "two");
+        let a = after(&h, 0, None, 32);
+        assert_eq!(seqs(&a), [1, 2]);
+        assert_eq!(a["withheld"], 1);
+        assert_eq!(a["seen"], 3);
+    }
+
+    #[test]
+    fn the_first_read_does_not_report_old_lines_as_lost_but_a_late_reader_does() {
+        let h = numbered(40); // 32 stored: lines 9 to 40
+        let first = after(&h, 0, None, 32);
+        assert_eq!(seqs(&first).first(), Some(&9));
+        assert_eq!(first["lost"], 0, "history already gone is not an incident");
+        assert_eq!(first["next"], 40);
+        assert_eq!(first["overwritten"], 8);
+        // A reader that had line 5 missed 6, 7 and 8.
+        let late = after(&h, 5, Some(77), 32);
+        assert_eq!(late["lost"], 3);
+        assert_eq!(seqs(&late).first(), Some(&9));
+        // One that had line 8 missed nothing.
+        let exact = after(&h, 8, Some(77), 32);
+        assert_eq!(exact["lost"], 0);
+        assert_eq!(seqs(&exact).len(), 32);
+    }
+
+    #[test]
+    fn another_start_of_the_product_makes_the_reader_start_again() {
+        let h = numbered(4);
+        let other_boot = after(&h, 4, Some(5), 32);
+        assert_eq!(other_boot["reset"], true);
+        assert_eq!(seqs(&other_boot), [1, 2, 3, 4]);
+        assert_eq!(other_boot["lost"], 0);
+        // A number the product has not reached: the same, even without a start identifier.
+        let ahead = after(&h, 900, None, 32);
+        assert_eq!(ahead["reset"], true);
+        assert_eq!(seqs(&ahead), [1, 2, 3, 4]);
+        assert_eq!(after(&h, 4, Some(77), 32)["reset"], false);
+        // A restart whose first lines the reader had already passed: only the identifier tells.
+        let restarted = numbered(10);
+        let mut restarted = restarted;
+        restarted.boot = 78;
+        let a = after(&restarted, 4, Some(77), 32);
+        assert_eq!(a["reset"], true);
+        assert_eq!(seqs(&a).len(), 10);
+        assert_eq!(a["boot"], 78);
+    }
+
+    #[test]
+    fn an_empty_history_and_a_short_n_are_answered_and_the_rest_is_announced() {
+        let empty = after(&History::new(), 0, None, 32);
+        assert!(seqs(&empty).is_empty());
+        assert_eq!(
+            (empty["next"].clone(), empty["more"].clone()),
+            (0.into(), false.into())
+        );
+
+        let h = numbered(5);
+        let a = after(&h, 0, None, 2);
+        assert_eq!(seqs(&a), [1, 2]);
+        assert_eq!(a["next"], 2, "next is the last line delivered");
+        assert_eq!(a["more"], true);
+        let b = after(&h, 2, None, 2);
+        assert_eq!(seqs(&b), [3, 4]);
+        let c = after(&h, 4, None, 2);
+        assert_eq!((seqs(&c), c["more"].clone()), (vec![5], false.into()));
+        // Out of range values are brought back to 1..=32.
+        assert_eq!(seqs(&after(&h, 0, None, 0)).len(), 1);
+        assert_eq!(seqs(&after(&numbered(40), 0, None, 999)).len(), 32);
+    }
+
+    #[test]
+    fn the_incremental_answer_stays_under_the_bound_with_the_longest_escaped_lines() {
+        let mut h = History::new();
+        let quotes = "\"".repeat(LINE_BYTES);
+        for _ in 0..40 {
+            h.push(Level::Error, "t", &quotes);
+        }
+        let mut out = String::new();
+        h.write_json_after(u32::MAX, Some(u32::MAX), 32, u64::MAX, &mut out)
+            .unwrap();
+        assert!(out.len() <= RESPONSE_MAX, "{} > {RESPONSE_MAX}", out.len());
+        let a: serde_json::Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(seqs(&a).len(), 32);
+        const { assert!(RESPONSE_MAX < 12 * 1024) };
+    }
+
+    #[test]
+    fn the_incremental_answer_is_one_exact_allocation() {
+        let h = numbered(32);
+        let mut out = String::new();
+        h.write_json_after(0, None, 32, 1, &mut out).unwrap();
+        assert_eq!(out.capacity(), out.len());
+    }
+
+    #[test]
+    fn control_characters_and_quotes_are_escaped_like_serde_json() {
+        let mut h = History::new();
+        h.push(Level::Info, "t", "a \"quoted\" \\ line\tand\u{1}é");
+        let mut out = String::new();
+        h.write_json_after(0, None, 32, 0, &mut out).unwrap();
+        let a: serde_json::Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(a["lines"][0]["m"], "t: a \"quoted\" \\ line and é");
     }
 }

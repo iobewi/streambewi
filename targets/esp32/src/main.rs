@@ -224,6 +224,8 @@ async fn product(p: Resources, spawner: Spawner) {
     let diag = alloc::boxed::Box::new(
         streambewi::diag::Diag::load(log_space, streambewi::logging::LOG_TARGET).await,
     );
+    // Tells a reader of the journal that the product started again: drawn at each start, stored nowhere.
+    diag.set_boot_id(esp_hal::rng::Rng::new().random());
     let (rx, tx) = uart.into_async().split();
     let mut serial = vec![(serial::Rx::Uart(rx), serial::Tx::Uart(tx))];
     // Read durable mode first; construct exactly one native USB controller.
