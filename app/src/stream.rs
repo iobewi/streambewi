@@ -42,6 +42,8 @@ const CHUNK_BYTES: usize = 2048;
 const READ_TIMEOUT: Duration = Duration::from_secs(8);
 /// Period of the stream progress heartbeat in the operating log.
 const PROGRESS_LOG_PERIOD: Duration = Duration::from_secs(60);
+/// Shortest time between two `debug` snapshots of the stream while it receives.
+const SNAPSHOT_PERIOD: Duration = Duration::from_secs(15);
 /// Room for a response head; a longer one is refused (`TooLarge`), not truncated.
 const HEAD_BYTES: usize = 2048;
 /// Longest the producer waits to open the connection and receive the response headers.
@@ -72,7 +74,6 @@ impl Failures {
         Self::is_logged(before).then_some(before + 1)
     }
 
-    #[cfg(test)]
     pub(crate) fn count(&self) -> u32 {
         self.0.load(Ordering::Relaxed)
     }
@@ -889,6 +890,20 @@ fn qual_drop_due(stream: &SharedStream, started: Instant) -> bool {
     true
 }
 
+/// Paces the `debug` snapshot: due once `SNAPSHOT_PERIOD` has passed since the last one. A timestamp and
+/// nothing else.
+struct Snapshots(Instant);
+
+impl Snapshots {
+    fn due(&mut self, now: Instant) -> bool {
+        let due = now.saturating_duration_since(self.0) >= SNAPSHOT_PERIOD;
+        if due {
+            self.0 = now;
+        }
+        due
+    }
+}
+
 /// Move the body of a response into the window until the server closes, the path goes silent or
 /// the read fails.
 async fn pump<R: embedded_io_async::Read>(stream: &'static SharedStream, body: &mut R)
@@ -897,6 +912,7 @@ where
 {
     let mut buf = [0u8; CHUNK_BYTES];
     let mut last_progress_log = Instant::now();
+    let mut snapshots = Snapshots(Instant::now());
     // Bytes this connection delivered: the stream is ready for the status LED once it passed the
     // prebuffer. A local counter, one comparison per chunk; the registry is touched once.
     let mut delivered = 0u64;
@@ -952,6 +968,17 @@ where
                         written,
                         consumed,
                         written.saturating_sub(consumed)
+                    );
+                }
+
+                // Detailed diagnostic only: the level is checked before anything is read or formatted.
+                if snapshots.due(Instant::now()) && log::log_enabled!(log::Level::Debug) {
+                    log::debug!(
+                        "stream: snapshot live={} consumed={} lead={} failures_in_a_row={}",
+                        written,
+                        consumed,
+                        written.saturating_sub(consumed),
+                        FAILURES.count()
                     );
                 }
 
@@ -1612,6 +1639,34 @@ mod tests {
             &failures,
         ));
         assert_eq!(failures.count(), 0, "the 200 ended the count");
+    }
+    #[test]
+    fn the_snapshot_is_due_every_period_at_most() {
+        let t0 = Instant::from_secs(100);
+        let mut snapshots = Snapshots(t0);
+        assert!(!snapshots.due(t0));
+        assert!(!snapshots.due(t0 + Duration::from_secs(14)));
+        assert!(snapshots.due(t0 + Duration::from_secs(15)));
+        // Counted again from the snapshot, whatever the time since.
+        assert!(!snapshots.due(t0 + Duration::from_secs(29)));
+        assert!(snapshots.due(t0 + Duration::from_secs(30)));
+        assert!(snapshots.due(t0 + Duration::from_secs(300)));
+        assert!(!snapshots.due(t0 + Duration::from_secs(301)));
+        // A clock that did not move forward never makes it due.
+        assert!(!snapshots.due(t0));
+    }
+
+    #[test]
+    fn the_snapshot_level_is_off_unless_the_detailed_diagnostic_is_on() {
+        let normal = iobewi_log::default_policy(crate::logging::LOG_TARGET).unwrap();
+        assert!(!normal.enabled(log::Level::Debug, module_path!()));
+        assert!(normal.enabled(log::Level::Info, module_path!()));
+        let mut debug = normal.clone();
+        debug
+            .add_target("streambewi::stream", log::LevelFilter::Debug)
+            .unwrap();
+        assert!(debug.enabled(log::Level::Debug, "streambewi::stream"));
+        assert!(!debug.enabled(log::Level::Debug, "streambewi::setup"));
     }
 }
 
