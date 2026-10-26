@@ -47,6 +47,58 @@ const HEAD_BYTES: usize = 2048;
 /// Longest the producer waits to open the connection and receive the response headers.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 
+/// Failures in a row since the last good response (or the last station change), to keep a station that
+/// cannot be reached from filling the journal: the first `LOUD_FIRST` failures are logged, then one in
+/// `LOUD_EVERY`, each with its number. The first failure and the return to a good response are always logged.
+/// A counter and nothing else: no allocation, no timer.
+pub(crate) struct Failures(AtomicU32);
+
+const LOUD_FIRST: u32 = 3;
+const LOUD_EVERY: u32 = 10;
+
+impl Failures {
+    pub(crate) const fn new() -> Self {
+        Self(AtomicU32::new(0))
+    }
+
+    /// Whether the failure that comes after `before` others is worth a line.
+    pub(crate) fn is_logged(before: u32) -> bool {
+        before < LOUD_FIRST || before.is_multiple_of(LOUD_EVERY)
+    }
+
+    /// The number of the failure being reported if it is worth a line.
+    pub(crate) fn line(&self) -> Option<u32> {
+        let before = self.0.load(Ordering::Relaxed);
+        Self::is_logged(before).then_some(before + 1)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn count(&self) -> u32 {
+        self.0.load(Ordering::Relaxed)
+    }
+
+    pub(crate) fn failed(&self) {
+        self.0.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// A good response: the failures in a row end. Returns how many there were.
+    pub(crate) fn recovered(&self) -> u32 {
+        self.0.swap(0, Ordering::Relaxed)
+    }
+}
+
+/// The product's own count (one station is streamed at a time).
+static FAILURES: Failures = Failures::new();
+
+/// A line about a failed attempt, subject to `Failures`.
+macro_rules! failure {
+    ($failures:expr, $level:ident, $($arg:tt)+) => {
+        if let Some(n) = $failures.line() {
+            log::$level!("{} (failure {})", format_args!($($arg)+), n);
+        }
+    };
+}
+
 /// Why a bounded read returned no data.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum ReadStop<E> {
@@ -415,9 +467,11 @@ async fn save_once<B: ConfigBackend>(
     watch: &mut Option<crate::status::Disk<'_>>,
 ) -> Result<(), SaveError> {
     let Some(link) = link else {
+        log::debug!("settings: no disk, written at once");
         return settings.save_led_percent(percent).await;
     };
     if !settled_disk(watch).await.contains(State::Ready) {
+        log::debug!("settings: the disk is not on the bus, written at once");
         return settings.save_led_percent(percent).await;
     }
     // From here to the detach: no `.await`.
@@ -431,6 +485,7 @@ async fn save_once<B: ConfigBackend>(
     // while the settings are being written.
     crate::usb::clear_stall();
     let since = Instant::now();
+    log::debug!("settings: the disk leaves the bus to save");
     let waited = Instant::now();
     while stream
         .since_last_read()
@@ -439,7 +494,16 @@ async fn save_once<B: ConfigBackend>(
     {
         Timer::after(Duration::from_millis(50)).await;
     }
+    log::debug!(
+        "settings: host quiet after {} ms, writing",
+        since.elapsed().as_millis()
+    );
     let outcome = settings.save_led_percent(percent).await;
+    log::debug!(
+        "settings: write {} after {} ms",
+        if outcome.is_ok() { "done" } else { "FAILED" },
+        since.elapsed().as_millis()
+    );
     Timer::at(since + SWITCH_DETACH).await;
     if stream.generation() == generation {
         crate::usb::clear_stall();
@@ -447,6 +511,12 @@ async fn save_once<B: ConfigBackend>(
         if let Some(watch) = watch {
             watch.sources.usb_ready();
         }
+        log::debug!(
+            "settings: the disk is back after {} ms",
+            since.elapsed().as_millis()
+        );
+    } else {
+        log::info!("settings: a station change took the disk over during the save");
     }
     outcome
 }
@@ -491,7 +561,12 @@ enum Exchange {
 /// The same code serves `http` and `https`: only the connector differs, and an `https` connector
 /// verifies the certificate of `target.host` (or refuses). Failures are logged by kind: connect (DNS,
 /// TCP or TLS, as the connector says), request, response head, HTTP status.
-async fn exchange<K>(connector: &K, target: &Target, stream: &'static SharedStream) -> Exchange
+async fn exchange<K>(
+    connector: &K,
+    target: &Target,
+    stream: &'static SharedStream,
+    failures: &Failures,
+) -> Exchange
 where
     K: Connector,
     for<'a> <K::Connection<'a> as ErrorType>::Error: core::fmt::Display,
@@ -511,7 +586,9 @@ where
     let mut conn = match connected {
         Ok(Ok(conn)) => conn,
         Ok(Err(err)) => {
-            log::info!(
+            failure!(
+                failures,
+                info,
                 "stream: {} connect to {} failed: {}",
                 scheme,
                 origin(target),
@@ -520,7 +597,9 @@ where
             return Exchange::Retry(Duration::from_secs(2));
         }
         Err(_) => {
-            log::info!(
+            failure!(
+                failures,
+                info,
                 "stream: no {} connection to {} after {} s, retrying",
                 scheme,
                 origin(target),
@@ -529,7 +608,7 @@ where
             return Exchange::Retry(Duration::from_secs(2));
         }
     };
-    log::info!(
+    log::debug!(
         "stream: {} up in {} ms",
         scheme,
         started.elapsed().as_millis()
@@ -543,7 +622,7 @@ where
     )
     .await
     {
-        log::info!("stream: request error {}", err);
+        failure!(failures, info, "stream: request error {}", err);
         let _ = conn.close().await;
         return Exchange::Retry(Duration::from_secs(2));
     }
@@ -551,22 +630,35 @@ where
         Ok(Ok(head)) => head,
         Ok(Err(err)) => {
             match err {
-                HeadError::Io(_) => log::info!("stream: response head read failed"),
-                HeadError::Closed => log::info!("stream: closed before the response head"),
-                HeadError::TooLarge => {
-                    log::warn!("stream: response head over {} bytes, refused", HEAD_BYTES)
+                HeadError::Io(_) => {
+                    failure!(failures, info, "stream: response head read failed")
                 }
-                HeadError::TooManyHeaders => log::warn!(
+                HeadError::Closed => {
+                    failure!(failures, info, "stream: closed before the response head")
+                }
+                HeadError::TooLarge => failure!(
+                    failures,
+                    warn,
+                    "stream: response head over {} bytes, refused",
+                    HEAD_BYTES
+                ),
+                HeadError::TooManyHeaders => failure!(
+                    failures,
+                    warn,
                     "stream: response head with more than {} headers, refused",
                     iobewi_http_client::MAX_HEADERS
                 ),
-                HeadError::Malformed => log::warn!("stream: response head refused (malformed)"),
+                HeadError::Malformed => {
+                    failure!(failures, warn, "stream: response head refused (malformed)")
+                }
             }
             let _ = conn.close().await;
             return Exchange::Retry(Duration::from_secs(2));
         }
         Err(_) => {
-            log::info!(
+            failure!(
+                failures,
+                info,
                 "stream: no response head after {} s",
                 CONNECT_TIMEOUT.as_secs()
             );
@@ -574,12 +666,24 @@ where
             return Exchange::Retry(Duration::from_secs(2));
         }
     };
-    log::info!(
-        "stream: HTTP status={} content_length={:?} chunked={}",
-        head.status,
-        head.content_length,
-        head.chunked
-    );
+    if head.status == 200 {
+        log::info!(
+            "stream: HTTP status={} content_length={:?} chunked={}",
+            head.status,
+            head.content_length,
+            head.chunked
+        );
+    } else {
+        // A station that keeps answering 404 would repeat this line for ever.
+        failure!(
+            failures,
+            info,
+            "stream: HTTP status={} content_length={:?} chunked={}",
+            head.status,
+            head.content_length,
+            head.chunked
+        );
+    }
     if is_redirect(head.status) {
         let _ = conn.close().await;
         return Exchange::Redirect {
@@ -592,6 +696,10 @@ where
         return Exchange::Retry(Duration::from_secs(5));
     }
     crate::status::stream_connected();
+    let failed = failures.recovered();
+    if failed >= LOUD_FIRST {
+        log::info!("stream: back after {} failed attempts", failed);
+    }
 
     // The body as the head describes it: chunked (what Radio France sends over TLS), with a length,
     // or up to the close. `edge-http` decodes it, so the window only ever gets audio bytes, never
@@ -637,21 +745,44 @@ where
     for<'a> <P::Connection<'a> as ErrorType>::Error: core::fmt::Display,
     for<'a> <T::Connection<'a> as ErrorType>::Error: core::fmt::Display,
 {
+    attempt_counting(tcp, tls, stream, url, &FAILURES).await
+}
+
+/// `attempt`, with the count of failures in a row that limits what is logged.
+async fn attempt_counting<P: Connector, T: Connector>(
+    tcp: &P,
+    tls: &T,
+    stream: &'static SharedStream,
+    url: &str,
+    failures: &Failures,
+) -> Duration
+where
+    for<'a> <P::Connection<'a> as ErrorType>::Error: core::fmt::Display,
+    for<'a> <T::Connection<'a> as ErrorType>::Error: core::fmt::Display,
+{
     let Ok(mut target) = Target::parse(url) else {
-        log::warn!("stream: unusable url {}", url);
+        // The address is not logged: it may carry a token.
+        failure!(failures, warn, "stream: unusable station address");
+        failures.failed();
         return Duration::from_secs(5);
     };
     let mut chain = Chain::new(&target);
     loop {
+        if failures.line().is_some() {
+            log::debug!("stream: request to {}", origin(&target));
+        }
         // An `https` target is never fetched in clear: the TLS connector or nothing.
         let outcome = if target.tls {
-            exchange(tls, &target, stream).await
+            exchange(tls, &target, stream, failures).await
         } else {
-            exchange(tcp, &target, stream).await
+            exchange(tcp, &target, stream, failures).await
         };
         match outcome {
             Exchange::Streamed => return Duration::from_secs(1),
-            Exchange::Retry(delay) => return delay,
+            Exchange::Retry(delay) => {
+                failures.failed();
+                return delay;
+            }
             Exchange::Redirect { status, location } => {
                 match chain.follow(&target, location.as_deref()) {
                     Ok(next) => {
@@ -659,7 +790,14 @@ where
                         target = next;
                     }
                     Err(refusal) => {
-                        log::warn!("stream: redirect {} not followed: {}", status, refusal);
+                        failure!(
+                            failures,
+                            warn,
+                            "stream: redirect {} not followed: {}",
+                            status,
+                            refusal
+                        );
+                        failures.failed();
                         return Duration::from_secs(5);
                     }
                 }
@@ -679,9 +817,22 @@ where
     for<'a> <T::Connection<'a> as ErrorType>::Error: core::fmt::Display,
 {
     let mut first = true;
+    // A new station starts with a clean count.
+    FAILURES.recovered();
     loop {
         let reconnect = stream.mark_reconnect();
-        log::info!("stream: connecting attempt={} url={}", reconnect, url);
+        // Never the address itself (it may carry a token), only its scheme and host; and not every time
+        // when the station cannot be reached.
+        if FAILURES.line().is_some() {
+            match Target::parse(url) {
+                Ok(target) => log::info!(
+                    "stream: connecting attempt={} to {}",
+                    reconnect,
+                    origin(&target)
+                ),
+                Err(_) => log::info!("stream: connecting attempt={}", reconnect),
+            }
+        }
         if first {
             crate::status::stream_connecting();
         } else {
@@ -1361,6 +1512,106 @@ mod tests {
             assert_eq!(delay, secs(5), "{url}");
         }
         assert_eq!(tcp.connections() + tls.connections(), 0);
+    }
+
+    // --- Repeated failures are logged sparingly --------------------------------------------------
+
+    #[test]
+    fn the_first_failures_are_logged_then_one_in_ten() {
+        let logged: alloc::vec::Vec<u32> = (0..35u32)
+            .filter(|before| Failures::is_logged(*before))
+            .map(|before| before + 1)
+            .collect();
+        // Failures number 1, 2 and 3, then the 11th, 21st and 31st.
+        assert_eq!(logged, [1, 2, 3, 11, 21, 31]);
+        let failures = Failures::new();
+        assert_eq!(
+            failures.line(),
+            Some(1),
+            "the first failure is always logged"
+        );
+    }
+
+    #[test]
+    fn a_station_that_cannot_be_reached_is_counted_and_a_good_answer_ends_the_count() {
+        let (tls, stream) = (Script::refusing(), fresh());
+        let failures = Failures::new();
+        // Five refused connections in a row.
+        let tcp = Script::refusing();
+        for expected in 1..=5 {
+            let (delay, _) = run(attempt_counting(
+                &tcp,
+                &tls,
+                stream,
+                "http://radio.example/live",
+                &failures,
+            ));
+            assert_eq!(delay, secs(2));
+            assert_eq!(failures.count(), expected);
+        }
+        // The fourth failure is not logged, the first three were.
+        assert_eq!(Failures::new().line(), Some(1));
+        assert!(failures.line().is_none(), "the 6th is silent");
+
+        // The station answers: the count ends, and what it was is returned for the summary.
+        let audio = payload(512);
+        let mut response = b"HTTP/1.1 200 OK\r\nContent-Length: 512\r\n\r\n".to_vec();
+        response.extend(&audio);
+        let tcp = Script::serving(&[&response]);
+        let (delay, _) = run(attempt_counting(
+            &tcp,
+            &tls,
+            stream,
+            "http://radio.example/live",
+            &failures,
+        ));
+        assert_eq!(delay, secs(1));
+        assert_eq!(failures.count(), 0, "back to normal");
+        assert_eq!(window_bytes(stream)[..], audio[..]);
+        assert_eq!(
+            failures.line(),
+            Some(1),
+            "the next failure is a first one again"
+        );
+    }
+
+    #[test]
+    fn a_bad_status_or_an_unusable_address_counts_as_a_failure_but_a_redirect_does_not() {
+        let (tls, stream) = (Script::refusing(), fresh());
+        let failures = Failures::new();
+        let not_found = Script::serving(&[b"HTTP/1.1 404 Not Found\r\n\r\n"]);
+        run(attempt_counting(
+            &not_found,
+            &tls,
+            stream,
+            "http://r.example/x",
+            &failures,
+        ));
+        assert_eq!(failures.count(), 1);
+        run(attempt_counting(
+            &Script::refusing(),
+            &tls,
+            stream,
+            "not a url",
+            &failures,
+        ));
+        assert_eq!(failures.count(), 2);
+        // A redirect that is followed is not a failure of the station.
+        let audio = payload(512);
+        let mut ok = b"HTTP/1.1 200 OK\r\nContent-Length: 512\r\n\r\n".to_vec();
+        ok.extend(&audio);
+        let redirect = Script::serving(&[
+            b"HTTP/1.1 302 Found\r\nLocation: http://b.example/live\r\n\r\n",
+            &ok,
+        ]);
+        run(attempt_counting(
+            &redirect,
+            &tls,
+            stream,
+            "http://a.example/live",
+            &failures,
+        ));
+        assert_eq!(failures.count(), 0, "the 200 ended the count");
     }
 }
 

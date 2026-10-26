@@ -5,6 +5,7 @@
 - Lit un **historique borné** des lignes de journal récentes, sans toucher au flux audio ni au MSC.
 - Persiste la **politique de journalisation** (`iobewi-log-config`, YAML restreint) dans un `ConfigSpace` `log` de 1 024 octets, la relit au démarrage et la remplace à chaud, sans redémarrage.
 - Affiche les deux dans la section **Diagnostic** des réglages de l'interface Web (la page d'accueil n'est pas modifiée).
+- Espace les lignes répétitives (relances du flux, secteurs `ZEROFILL`) pour qu'un incident ne chasse pas sa cause de l'historique de 32 lignes.
 
 Aucun moteur de filtrage n'est ajouté : le filtre reste `iobewi_log::LogPolicy`. Pas de WebSocket, pas de flux permanent, pas de nouvelle infrastructure réseau.
 
@@ -26,6 +27,30 @@ log:
 ```
 
 Niveaux : `off`, `error`, `warn`, `info`, `debug`, `trace`. Huit préfixes au plus. Le corps est lu dans un tampon fixe de 1 024 octets : une requête plus longue est rejetée avant toute allocation, y compris depuis le LAN.
+
+## Limitation des messages répétitifs
+
+- **Relances du flux.** Quand une station ne répond pas, chaque tentative produisait plusieurs lignes (« connecting attempt », « connect … failed », « HTTP status=404 »…). Les trois premiers échecs de suite sont journalisés, puis un sur dix, chacun avec son numéro (`(failure 11)`). Le premier échec et le retour à la normale sont **toujours** écrits (`stream: back after N failed attempts` dès la première réponse 200 après trois échecs ou plus). Le compteur se remet à zéro à un changement de station. Ni l'adresse de la station ni son chemin ne sont journalisés (voir « Console UART0 »).
+- **`ZEROFILL`.** Les trois premiers secteurs nuls d'une série sont journalisés (`usb: ZEROFILL #n …`), puis un tous les 128, puis un total à la fin de la série (`usb: ZEROFILL series ended: N sectors`, au deuxième ordre READ(10) sans secteur nul, ou à la fin de la session). Seule la journalisation change dans `usb.rs` : les décisions de remplissage, les secteurs, les tampons, les temporisations et les transactions sont inchangés (test).
+- **Inchangé.** La ligne `stream: live=… consumed=… lead=…` (toutes les 60 s) sert aux campagnes de qualification ; elle n'évince pas le reste (une ligne par minute pour 32 lignes d'historique).
+- **Non corrigé ici.** L'anneau de `iobewi-log` (24 lignes, vidé toutes les 400 ms) abandonne les nouvelles lignes quand il est plein et ne compte pas ces pertes : le compteur `overwritten` ne voit que l'historique. La limitation ci-dessus réduit le risque (la seule rafale connue était `ZEROFILL`) ; un compteur de pertes demanderait de modifier la bibliothèque.
+
+## Niveaux : production et qualification
+
+La production ne journalise qu'aux niveaux `info`, `warn` et `error` : il n'y a pas de mode Debug à l'exécution, ni de route pour en changer. Le détail (`debug!`) est réservé aux images de qualification : l'image `qual` relève la cible `streambewi` à `debug` sur l'UART0 (et `embassy_usb` à `trace`, `iobewi_usb_msc` à `info`), l'image `usb-debug` ajoute les traces du pilote USB. Un journal plus long que les 32 lignes de l'historique se lit sur l'UART0 du banc.
+
+## Traces ajoutées
+
+| Où | Niveau | Ligne |
+| --- | --- | --- |
+| `PUT /api/logs/config` | Info / Warn | `diag: log policy replaced (generation N)` ; `diag: log policy change refused (Invalid|TooLarge|NotAllowed|Storage)` |
+| Favori : enregistrement, sélection, suppression | Warn / Debug | échec de stockage ; refus d'une saisie |
+| Sauvegarde de la luminosité | Debug / Info | fenêtre de détachement : `the disk leaves the bus`, durée avant l'écriture, `write done|FAILED after N ms`, `the disk is back after N ms` ; Info si une bascule de station reprend le disque |
+| Flux | Info | `stream: back after N failed attempts` |
+
+## Console UART0
+
+L'assainissement ne protège que la sortie HTTP : **tout ce qui passe le filtre de niveau est écrit tel quel sur l'UART0** (sans mot de passe : aucun n'est jamais journalisé). Contenu actuel : l'adresse IP, le schéma et l'hôte de la station (plus jamais l'adresse complète, qui peut porter un jeton : `stream: connecting attempt=N to http://hôte`), et, **hors de la maîtrise du produit**, les noms de réseau Wi-Fi écrits par `iobewi-wifi-manager` et `iobewi-esp-wifi` (bibliothèques). Le produit n'écrit plus le SSID dans sa propre ligne d'approvisionnement (`improv: provisioning requested`). L'accès à l'UART0 suppose un accès physique à la carte.
 
 ## Modèle d'accès
 
@@ -89,8 +114,12 @@ La qualification sur carte (H5, 10 mutations de favoris) a mesuré une marge de 
 
 ## Hors périmètre
 
-La limitation de débit des lignes répétitives (dernier point de #15) n'est pas faite. `POST /wifi`, qui était accessible depuis le LAN, est réservé au boot de configuration depuis #23 : la politique « Wi-Fi seulement en AP » que ce modèle d'accès suppose est maintenant vraie.
+`POST /wifi`, qui était accessible depuis le LAN, est réservé au boot de configuration depuis #23 : la politique « Wi-Fi seulement en AP » que ce modèle d'accès suppose est maintenant vraie. Le transport distant `iobewi-log-stream` n'est **pas** raccordé : il ajouterait une connexion TLS WebSocket permanente, un jeton à provisionner, une horloge fiable et un collecteur, et les cinq sockets du produit sont déjà tous utilisés (DHCP, DNS, flux, interface, SNTP). La consultation HTTP locale suffit ; à reconsidérer seulement si une collecte distante devient un besoin.
 
 ## Validation
 
-Tests hôte (`cargo test -p streambewi-core -p streambewi`) : réponse `GET /api/logs` (octets identiques à l'ancienne construction pour 0 à 40 lignes, JSON valide, échappement identique à `serde_json`, borne `RESPONSE_MAX`, une seule allocation exacte contre 404 avant), assainissement, historique borné et ordre, découpe UTF-8, politique absente, invalide ou illisible, refus hors AP, YAML invalide ou trop long, écriture en échec, persistance après rechargement, admission des espaces, vidage de l'anneau. `tools/qual/check-ui.cjs` couvre la section Diagnostic (Playwright, API simulées). Non exécuté : tout essai sur carte (persistance après redémarrage réel, requêtes pendant la lecture audio, mesure pile/tas).
+**Qualification sur carte de #15 (PR #22, commit `db21162`, ESP32-S3 DevKitC-1 et Metronic 477144), PASS H1 à H10 :** H1 espace de configuration, catalogue et Wi-Fi préservés, politique par défaut chargée ; H2 284/284 puis 280/280 réponses 200 sur `GET /api/logs?n=32` à 1 Hz pendant 5 minutes, sans perte USB ni coupure audio (confirmation de l'utilisateur) ; H3 marge de pile minimale 13 372 octets, tas libre minimal 11 928 octets (seuil 8 192) ; H4 `PUT` refusé en STA (403) ; H5 dix mutations de favoris avec et sans consultation des journaux ; H6 aucun secret parmi 8 960 lignes inspectées ; H7 corps trop long refusé (413) ; H8 `LogConfig::replace()` en mode AP (YAML validé, persisté, appliqué à chaud) ; H9 politique rechargée au redémarrage (`source=persisted`), YAML invalides rejetés ; H10 image nominale fonctionnelle, continuité sonore confirmée. Réserves de l'époque : test Playwright de l'interface non exécuté (fait depuis, hors CI), pile du `PUT` valide en AP non mesurée sur image nominale, assainissement lexical, cause du gel initial (probablement un échec d'allocation) non démontrée. Cette qualification est antérieure aux PR #34 (LED) et #35 (luminosité), à la limitation des répétitions : ce qui suit n'a pas été rejoué sur carte tant que la PR de ce chantier n'a pas été qualifiée.
+
+**Tests hôte** (`cargo test -p streambewi-core -p streambewi`) : réponse `GET /api/logs` (octets identiques à l'ancienne construction pour 0 à 40 lignes, JSON valide, échappement identique à `serde_json`, borne `RESPONSE_MAX`, une seule allocation exacte contre 404 avant), assainissement, historique borné et ordre, découpe UTF-8, politique absente, invalide ou illisible, refus hors AP, YAML invalide ou trop long, écriture en échec, persistance après rechargement, admission des espaces, vidage de l'anneau. Limitation : décision « premières puis une sur dix », compteur de défaillances sur des connecteurs simulés, série `ZEROFILL` (premiers secteurs, un tous les 128, total, fin de session) et décisions de remplissage inchangées. `tools/qual/check-ui.cjs` couvre la section Diagnostic (Playwright, API simulées, hors CI).
+
+**Non exécuté sur carte :** limitation des répétitions, nouvelles traces, profondeur de pile réelle.

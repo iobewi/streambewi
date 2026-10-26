@@ -25,4 +25,6 @@ export RUSTFLAGS="-C force-frame-pointers \
 SOURCE_DATE_EPOCH="$(git -C "$ROOT_DIR" log -1 --format=%ct -- . ':(exclude)dist' ':(exclude)dist-local')"
 export SOURCE_DATE_EPOCH
 
-BUILD_CMD="cargo +esp build -p $PKG --release --locked -Z build-std=core,alloc --target $TARGET${FEATURES:+ --features $FEATURES}"
+# The instrumented builds keep the `debug!` and `trace!` traces that the production firmware compiles out.
+case ",${FEATURES:-}," in *,usb-debug,*|*,qual,*) CEILING=" --no-default-features" ;; *) CEILING="" ;; esac
+BUILD_CMD="cargo +esp build -p $PKG --release --locked -Z build-std=core,alloc --target $TARGET${CEILING}${FEATURES:+ --features $FEATURES}"

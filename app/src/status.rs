@@ -380,6 +380,7 @@ pub async fn run_led<E>(
     mut sink: impl FnMut(RGB8) -> Result<(), E>,
 ) {
     brightness.set_available(true);
+    log::debug!("status: LED task started");
     run_led_loop(&mut observer, ids, brightness, &mut sink).await;
     brightness.set_available(false);
 }

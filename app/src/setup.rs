@@ -315,8 +315,10 @@ struct IdForm {
     id: u32,
 }
 fn mutation(
+    action: &'static str,
     result: Result<bool, crate::stations::Error>,
 ) -> (StatusCode, [(&'static str, &'static str); 1], Typed<String>) {
+    use crate::stations::Error;
     match result {
         Ok(restart) => {
             if restart {
@@ -333,11 +335,18 @@ fn mutation(
                 json(serde_json::json!({"ok":true,"restart":restart}).to_string()),
             )
         }
-        Err(error) => (
-            StatusCode::BAD_REQUEST,
-            NO_STORE,
-            json(serde_json::json!({"ok":false,"error":error.message()}).to_string()),
-        ),
+        Err(error) => {
+            // A refusal of the input is the user's typo; a storage failure is the product's problem.
+            match error {
+                Error::Storage => log::warn!("stations: {} failed: storage error", action),
+                _ => log::debug!("stations: {} refused: {:?}", action, error),
+            }
+            (
+                StatusCode::BAD_REQUEST,
+                NO_STORE,
+                json(serde_json::json!({"ok":false,"error":error.message()}).to_string()),
+            )
+        }
     }
 }
 /// The LED brightness setting as the page reads it: `saved` is what the configuration holds, `preview` what
@@ -482,12 +491,16 @@ async fn put_log_config<B: ConfigBackend>(
     // Boxed: the persistence future (policy copies, YAML buffer) lives on the heap for the one AP request
     // instead of inflating the task future of the whole web server.
     match alloc::boxed::Box::pin(diag.replace_yaml(body, in_setup())).await {
-        Ok(generation) => (
-            StatusCode::OK,
-            NO_STORE,
-            json(serde_json::json!({"ok": true, "generation": generation}).to_string()),
-        ),
+        Ok(generation) => {
+            log::info!("diag: log policy replaced (generation {})", generation);
+            (
+                StatusCode::OK,
+                NO_STORE,
+                json(serde_json::json!({"ok": true, "generation": generation}).to_string()),
+            )
+        }
         Err(error) => {
+            log::warn!("diag: log policy change refused ({:?})", error);
             let (status, message) = match error {
                 PutError::NotAllowed => (
                     StatusCode::FORBIDDEN,
@@ -578,6 +591,7 @@ fn app<'a, B: ConfigBackend>(
                     "/save",
                     post(move |Form(value): Form<StationForm>| async move {
                         mutation(
+                            "save",
                             radio
                                 .save(value.id, value.name, value.url, value.logo)
                                 .await,
@@ -587,13 +601,13 @@ fn app<'a, B: ConfigBackend>(
                 .route(
                     "/select",
                     post(move |Form(value): Form<IdForm>| async move {
-                        mutation(radio.select(value.id).await)
+                        mutation("select", radio.select(value.id).await)
                     }),
                 )
                 .route(
                     "/delete",
                     post(move |Form(value): Form<IdForm>| async move {
-                        mutation(radio.delete(value.id).await)
+                        mutation("delete", radio.delete(value.id).await)
                     }),
                 ),
         )
@@ -971,6 +985,7 @@ mod routing_tests {
                 "/api/stations/save",
                 post(move |Form(value): Form<StationForm>| async move {
                     mutation(
+                        "save",
                         radio
                             .save(value.id, value.name, value.url, value.logo)
                             .await,
@@ -980,13 +995,13 @@ mod routing_tests {
             .route(
                 "/api/stations/select",
                 post(move |Form(value): Form<IdForm>| async move {
-                    mutation(radio.select(value.id).await)
+                    mutation("select", radio.select(value.id).await)
                 }),
             )
             .route(
                 "/api/stations/delete",
                 post(move |Form(value): Form<IdForm>| async move {
-                    mutation(radio.delete(value.id).await)
+                    mutation("delete", radio.delete(value.id).await)
                 }),
             )
             .route(

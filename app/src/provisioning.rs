@@ -237,6 +237,7 @@ where
         CONFIGURED.store(true, Ordering::Relaxed);
         // `maintain` connects (or redoes a connection it took over from); `ready` says when it is up.
         crate::status::wifi_connecting();
+        log::debug!("wifi: maintaining the saved network");
         let mut state = if flag_committed && manager.is_online() {
             State::Provisioned
         } else {
@@ -398,7 +399,8 @@ async fn handle<T, B, W>(
             .await;
         }
         ParsedCommand::WifiSettings(settings) => {
-            log::info!("improv: provisioning ssid={}", settings.ssid);
+            // The network name is not logged: the console is not sanitized.
+            log::info!("improv: provisioning requested");
             *state = State::Provisioning;
             tx.send(&improv::state_frame(*state)).await;
             let result = boot

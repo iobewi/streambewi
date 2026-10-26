@@ -338,7 +338,14 @@ fn main() -> ! {
     streambewi::logging::install(console); // Operating log on UART0 (Improv ignores non-frame text).
     #[cfg(feature = "qual")]
     {
-        let mut policy = iobewi_log::default_policy(streambewi::logging::LOG_TARGET).unwrap();
+        // The detail of the product's own traces (`debug`) is for the bench only.
+        let mut policy = iobewi_log::LogPolicy::new(log::LevelFilter::Warn);
+        policy
+            .add_target("iobewi_log", log::LevelFilter::Info)
+            .unwrap();
+        policy
+            .add_target(streambewi::logging::LOG_TARGET, log::LevelFilter::Debug)
+            .unwrap();
         policy
             .add_target("iobewi_usb_msc", log::LevelFilter::Info)
             .unwrap();
