@@ -456,6 +456,7 @@ struct LogsQuery {
 /// Recent sanitized log lines, oldest first. Bounded by `HISTORY_LINES` and by `diag::RESPONSE_MAX`; nothing
 /// is consumed. The answer is written once, into one exact allocation, while the history is borrowed
 /// (no await); it is sent after the borrow ended. If that allocation fails the answer is a 503, not a halt.
+#[inline(never)]
 fn logs<B: ConfigBackend>(
     diag: &crate::diag::Diag<B>,
     query: &LogsQuery,

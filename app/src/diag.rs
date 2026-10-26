@@ -422,6 +422,7 @@ impl History {
     /// Writes the answer of `GET /api/logs?after=` (see `docs/diagnostic-logs.md`) into `out`, in one exact
     /// reservation, like `write_json`. `next` is the number of the last line this answer carries (`after`
     /// when it carries none) and `more` says that lines remain after it: the reader asks again at once.
+    #[inline(never)]
     pub fn write_json_after(
         &self,
         after: u32,
@@ -447,6 +448,7 @@ impl History {
         Ok(())
     }
 
+    #[inline(never)]
     fn emit_after<W: core::fmt::Write>(
         &self,
         out: &mut W,
@@ -620,6 +622,7 @@ impl<B: ConfigBackend> Diag<B> {
     }
 
     /// The answer of `GET /api/logs?after=`, built like `write_recent`: one short borrow, no await, no I/O.
+    #[inline(never)]
     pub fn write_after(
         &self,
         after: u32,
