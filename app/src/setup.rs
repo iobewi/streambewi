@@ -446,18 +446,38 @@ type LogPolicyBody = heapless::String<{ iobewi_log_config::POLICY_BYTES_MAX }>;
 struct LogsQuery {
     #[serde(default)]
     n: Option<usize>,
+    /// Number of the last line the reader has: asks for the lines after it (see `docs/diagnostic-logs.md`).
+    #[serde(default)]
+    after: Option<u32>,
+    /// The start of the product the reader's number belongs to.
+    #[serde(default)]
+    boot: Option<u32>,
 }
 /// Recent sanitized log lines, oldest first. Bounded by `HISTORY_LINES` and by `diag::RESPONSE_MAX`; nothing
 /// is consumed. The answer is written once, into one exact allocation, while the history is borrowed
 /// (no await); it is sent after the borrow ended. If that allocation fails the answer is a 503, not a halt.
+#[inline(never)]
 fn logs<B: ConfigBackend>(
     diag: &crate::diag::Diag<B>,
-    n: Option<usize>,
+    query: &LogsQuery,
 ) -> (StatusCode, [(&'static str, &'static str); 1], Typed<String>) {
     use crate::diag::{DEFAULT_LINES, HISTORY_LINES};
-    let n = n.unwrap_or(DEFAULT_LINES).clamp(1, HISTORY_LINES);
     let mut body = String::new();
-    match diag.write_recent(n, &mut body) {
+    // With `after` the answer is the incremental one; without it, the answer this route always gave.
+    let written = match query.after {
+        Some(after) => diag.write_after(
+            after,
+            query.boot,
+            query.n.unwrap_or(HISTORY_LINES),
+            Instant::now().as_secs(),
+            &mut body,
+        ),
+        None => diag.write_recent(
+            query.n.unwrap_or(DEFAULT_LINES).clamp(1, HISTORY_LINES),
+            &mut body,
+        ),
+    };
+    match written {
         Ok(()) => (StatusCode::OK, NO_STORE, json(body)),
         // An empty body: even a short message could fail to allocate when the heap is this short.
         Err(_) => (
@@ -577,7 +597,7 @@ fn app<'a, B: ConfigBackend>(
         )
         .route(
             "/api/logs",
-            get(move |Query(query): Query<LogsQuery>| async move { logs(diag, query.n) }),
+            get(move |Query(query): Query<LogsQuery>| async move { logs(diag, &query) }),
         )
         .route(
             "/api/logs/config",
@@ -1006,7 +1026,7 @@ mod routing_tests {
             )
             .route(
                 "/api/logs",
-                get(move |Query(query): Query<LogsQuery>| async move { logs(diag, query.n) }),
+                get(move |Query(query): Query<LogsQuery>| async move { logs(diag, &query) }),
             )
             .route(
                 "/api/logs/config",
@@ -1076,6 +1096,10 @@ mod routing_tests {
             ("GET", "/api/logs", ""),
             ("GET", "/api/logs?n=2", ""),
             ("GET", "/api/logs?n=abc", ""),
+            ("GET", "/api/logs?after=0", ""),
+            ("GET", "/api/logs?after=0&boot=1&n=2", ""),
+            ("GET", "/api/logs?after=abc", ""),
+            ("GET", "/api/logs?after=99999999999", ""),
             ("POST", "/api/logs", ""),
             ("GET", "/api/logs/config", ""),
             ("PUT", "/api/logs/config", "log:\n  default_level: warn\n"),
@@ -1200,6 +1224,10 @@ mod routing_tests {
             }
             assert_eq!(status("GET", "/api/logs", ""), 200);
             assert_eq!(status("GET", "/api/logs?n=32", ""), 200);
+            assert_eq!(status("GET", "/api/logs?after=0", ""), 200);
+            assert_eq!(status("GET", "/api/logs?after=0&boot=7&n=2", ""), 200);
+            assert_eq!(status("GET", "/api/logs?after=abc", ""), 400);
+            assert_eq!(status("GET", "/api/logs?boot=abc&after=1", ""), 400);
             assert_eq!(status("GET", "/api/logs/config", ""), 200);
             assert_eq!(status("GET", "/api/state", ""), 200);
             // Outside the setup boot the LAN may read the policy but neither write it nor send credentials.

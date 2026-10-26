@@ -14,7 +14,7 @@
     img.addEventListener('error', () => img.replaceWith(fallback), {once:true}); return img;
   }
   function message(id, text, error = false) { const el = $(id); el.textContent = text; el.classList.toggle('error', error); }
-  function open(id) { const el = $(id); if (!el.open) el.showModal(); }
+  function open(id) { const el = $(id); if (!el.open) el.showModal(); liveSync(); }
   document.querySelectorAll('[data-close]').forEach(b => b.addEventListener('click', () => b.closest('dialog').close()));
   document.querySelectorAll('dialog').forEach(d => d.addEventListener('click', e => { if (e.target === d) { const r=d.getBoundingClientRect(); if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)d.close(); } }));
   $('open-wifi').onclick = () => { open('wifi-panel'); if (state && state.setup) scan(); };
@@ -147,15 +147,119 @@
   async function diagLoad() {
     try {
       const [l, c] = await Promise.all(['/api/logs?n=32', '/api/logs/config'].map(u => fetch(u, {cache: 'no-store'}).then(r => r.json())));
-      $('diag-log').textContent = l.lines.map(x => x.l + ' ' + x.m).join('\n') || 'Aucune ligne.';
-      $('diag-meta').textContent = `${l.lines.length} lignes · ${l.overwritten} écrasées · ${l.withheld} masquées`;
+      if (!live.on && !live.entries.length) {
+        $('diag-log').textContent = l.lines.map(x => x.l + ' ' + x.m).join('\n') || 'Aucune ligne.';
+        $('diag-meta').textContent = `${l.lines.length} lignes · ${l.overwritten} écrasées · ${l.withheld} masquées`;
+      }
       $('diag-policy').textContent = c.yaml + (c.source === 'default' ? '(politique par défaut)' : '');
       $('diag-form').hidden = !c.writable;
       if (c.writable && !$('diag-yaml').value) $('diag-yaml').value = c.yaml;
       message('diag-result', c.load_error ? 'La politique enregistrée est invalide : la politique par défaut s’applique.' : (c.writable ? '' : 'La politique se modifie seulement sur le réseau StreamBeWI-Setup.'), c.load_error);
     } catch (_) { message('diag-result', 'Diagnostic indisponible.', true); }
   }
-  $('diag').addEventListener('toggle', () => { if ($('diag').open) diagLoad(); });
+  // Live journal. While the Diagnostic view is open and the page visible the page asks for the lines after the last
+  // one it has, every 2 s, one request at a time. It keeps at most 2000 lines and writes the export itself: the
+  // device keeps nothing for it. Pause freezes the display only; the lines go on being collected.
+  const LIVE_MAX=2000,LIVE_EVERY=2000,LIVE_CATCHUP=300,LIVE_CATCHUP_MAX=5;
+  const live={on:false,paused:false,boot:null,after:0,entries:[],unseen:0,dropped:0,lost:0,restarts:0,offline:false,busy:false,timer:0,abort:null,catchup:0,counters:null};
+  const liveActive=()=>live.on&&!document.hidden&&$('diag').open&&$('settings-panel').open;
+  function liveAdd(e){
+    live.entries.push(e);
+    while(live.entries.length>LIVE_MAX){const d=live.entries.shift();if(!d.mark)live.dropped++;}
+    if(live.paused)live.unseen++;
+  }
+  const liveMark=text=>liveAdd({mark:true,m:text});
+  const plural=(n,one,many)=>n+' '+(n>1?many:one);
+  function liveRender(force){
+    if(live.paused&&!force)return;
+    if(!live.on&&!live.entries.length&&!force)return;
+    const pre=$('diag-log'),stick=pre.scrollTop+pre.clientHeight>=pre.scrollHeight-8;
+    pre.textContent=live.entries.map(e=>e.mark?'— '+e.m+' —':e.l+' '+e.m).join('\n')||'Aucune ligne.';
+    if(stick)pre.scrollTop=pre.scrollHeight;
+    const n=live.entries.filter(e=>!e.mark).length,c=live.counters;
+    $('diag-meta').textContent=`${plural(n,'ligne','lignes')} · ${plural(live.lost,'perdue','perdues')} · ${plural(live.dropped,'écartée','écartées')}`+(c?` · ${c[1]} écrasées · ${c[2]} masquées sur l’appareil`:'');
+  }
+  function liveState(){
+    let t='';
+    if(live.on)t=live.offline?'Connexion perdue, nouvel essai…':live.paused?'En pause'+(live.unseen?' · '+plural(live.unseen,'nouvelle ligne','nouvelles lignes')+' en attente':''):'En direct';
+    else if(live.entries.length)t='Suivi arrêté.';
+    if(live.dropped)t+=(t?' · ':'')+plural(live.dropped,'ligne ancienne écartée','lignes anciennes écartées')+' (le navigateur garde '+LIVE_MAX+' lignes).';
+    $('live-state').textContent=t;
+    $('live-toggle').textContent=live.on?'Arrêter le suivi':'Suivre en direct';
+    $('live-toggle').setAttribute('aria-pressed',String(live.on));
+    $('live-pause').disabled=!live.on;
+    $('live-pause').textContent=live.paused?'Reprendre':'Pause';
+    $('live-export').disabled=!live.entries.some(e=>!e.mark);
+  }
+  function liveIngest(j){
+    if(live.boot!==null&&(j.reset||j.boot!==live.boot)){live.restarts++;liveMark('redémarrage détecté');}
+    if(j.lost>0){live.lost+=j.lost;liveMark(plural(j.lost,'ligne perdue','lignes perdues'));}
+    for(const x of j.lines)liveAdd({l:x.l,m:x.m});
+    live.after=j.next;live.boot=j.boot;live.counters=[j.seen,j.overwritten,j.withheld];
+  }
+  async function livePoll(){
+    live.timer=0;
+    if(!liveActive()||live.busy)return;
+    live.busy=true;
+    const abort=live.abort=new AbortController(),timer=setTimeout(()=>abort.abort(),5000);
+    let next=LIVE_EVERY;
+    try{
+      const r=await fetch('/api/logs?after='+live.after+(live.boot===null?'':'&boot='+live.boot),{cache:'no-store',signal:abort.signal});
+      if(!r.ok)throw new Error('http');
+      const j=await r.json();
+      live.offline=false;
+      liveIngest(j);
+      if(j.more&&live.catchup<LIVE_CATCHUP_MAX){live.catchup++;next=LIVE_CATCHUP;}else live.catchup=0;
+    }catch(_){
+      if(liveActive()&&!live.offline){live.offline=true;liveMark('connexion perdue');}
+    }finally{
+      clearTimeout(timer);live.busy=false;live.abort=null;
+      liveRender();liveState();
+      clearTimeout(live.timer);live.timer=liveActive()?setTimeout(livePoll,next):0;
+    }
+  }
+  function liveSync(){
+    if(liveActive()){if(!live.busy&&!live.timer)livePoll();}
+    else{clearTimeout(live.timer);live.timer=0;if(live.abort)live.abort.abort();}
+    liveState();
+  }
+  $('live-toggle').onclick=()=>{
+    live.on=!live.on;
+    if(!live.on&&live.paused){live.paused=false;live.unseen=0;}
+    if(live.on)live.offline=false;
+    liveRender();liveSync();
+  };
+  $('live-pause').onclick=()=>{
+    live.paused=!live.paused;
+    if(!live.paused){live.unseen=0;liveRender();}
+    liveState();
+  };
+  $('live-clear').onclick=()=>{
+    live.entries=[];live.unseen=0;live.dropped=0;live.lost=0;live.restarts=0;
+    liveRender(true);liveState();
+  };
+  $('live-export').onclick=()=>{
+    const now=new Date(),n=live.entries.filter(e=>!e.mark).length,c=live.counters;
+    const head=[
+      'StreamBeWI — journal d’exploitation',
+      'Exporté le '+now.toLocaleString('fr-FR')+' (heure de ce navigateur)',
+      'Appareil : '+location.host,
+      'Session de démarrage : '+(live.boot===null?'inconnue':live.boot),
+      'Lignes : '+n+' · perdues : '+live.lost+' · écartées par le navigateur : '+live.dropped+' · redémarrages détectés : '+live.restarts,
+      c?'Compteurs de l’appareil : '+c[0]+' vues · '+c[1]+' écrasées · '+c[2]+' masquées':'',
+      'Les lignes sont dans l’ordre de réception et n’ont pas d’heure propre. Ce fichier peut contenir des informations techniques (adresses, noms de stations).',
+      '----------------------------------------'
+    ].filter(Boolean);
+    if(live.dropped)head.push('— '+plural(live.dropped,'ligne plus ancienne écartée','lignes plus anciennes écartées')+' par le navigateur —');
+    const body=live.entries.map(e=>e.mark?'— '+e.m+' —':e.l+' '+e.m);
+    const url=URL.createObjectURL(new Blob([head.concat(body).join('\n')+'\n'],{type:'text/plain;charset=utf-8'}));
+    const a=document.createElement('a'),p2=v=>String(v).padStart(2,'0');
+    a.href=url;a.download='streambewi-journal-'+now.getFullYear()+p2(now.getMonth()+1)+p2(now.getDate())+'-'+p2(now.getHours())+p2(now.getMinutes())+p2(now.getSeconds())+'.txt';
+    document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);
+  };
+  document.addEventListener('visibilitychange',liveSync);
+  $('settings-panel').addEventListener('close',liveSync);
+  $('diag').addEventListener('toggle', () => { if ($('diag').open) diagLoad(); liveSync(); });
   $('diag-refresh').addEventListener('click', diagLoad);
   $('diag-form').addEventListener('submit', async e => {
     e.preventDefault();
