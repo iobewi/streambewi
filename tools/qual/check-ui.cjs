@@ -10,7 +10,7 @@ const root=path.resolve(__dirname,'../../app/src');
  const page=await browser.newPage({viewport:{width:390,height:844},deviceScaleFactor:1});
  const errors=[];page.on('pageerror',e=>errors.push(e.message));
  let state={catalog:{version:1,selected:1,stations:[{id:1,name:'FIP',url:'http://example.org/fip',logo:''},{id:2,name:'France Inter',url:'http://example.org/inter',logo:''},{id:3,name:'France Culture',url:'http://example.org/culture',logo:''},{id:4,name:'Radio classique',url:'http://example.org/classique',logo:''}]},online:true,ssid:'Maison',ip:'192.168.1.42',networks:[{ssid:'Maison',strength:-40,secured:true},{ssid:'Livebox-Salon',strength:-60,secured:true}],scanning:false,setup:true,reading:true,ready:true,restarting:false,wifi_message:'',wifi_status:0,led:{available:false,saved:36,preview:null,applied:36,busy:false,error:null}};
- const actions=[];let debugUntil=0,debugLength=900000;
+ const actions=[];
  await page.route('http://streambewi.test/**',async route=>{
   const u=new URL(route.request().url()),p=u.pathname;
   if(p==='/api/state')return route.fulfill({json:state});
@@ -30,13 +30,6 @@ const root=path.resolve(__dirname,'../../app/src');
     return route.fulfill({status:202,json:{ok:true,pending:true}});
    }
    return route.fulfill({json:{ok:true}});
-  }
-  if(p==='/api/debug'){
-   const m=route.request().method(),now=Date.now();
-   if(m==='POST'){actions.push(['POST /api/debug',route.request().postData()]);if(!(debugUntil>now))debugUntil=now+debugLength;}
-   if(m==='DELETE'){actions.push(['DELETE /api/debug']);debugUntil=0;}
-   const on=debugUntil>now;
-   return route.fulfill({json:{enabled:on,remaining_seconds:on?Math.ceil((debugUntil-now)/1000):0,duration_seconds:900,persistent:false,targets:on?['streambewi::stream']:[],partial:false}});
   }
   if(p==='/api/scan')return route.fulfill({status:202,body:'Recherche en cours'});
   if(p==='/wifi'&&!state.setup)return route.fulfill({status:403,body:'Refused outside the setup boot'});
@@ -96,23 +89,6 @@ const root=path.resolve(__dirname,'../../app/src');
  await page.locator('#diag-yaml').fill('log:\n  default_level: warn\n');await page.getByRole('button',{name:'Appliquer',exact:true}).click();
  await page.waitForFunction(()=>document.querySelector('#diag-result').textContent.includes('appliquée'));
  assert(actions.some(a=>a[0]==='PUT'&&a[1].includes('warn')));
- // Detailed diagnostic: the page asks, shows the time left and notices the end that the firmware decided.
- assert.equal(await page.locator('#debug-state').textContent(),'Désactivé');
- debugLength=2500;
- await page.getByRole('button',{name:'Activer pour 15 minutes',exact:true}).click();
- await page.waitForFunction(()=>document.querySelector('#debug-state').textContent.startsWith('Actif'));
- assert.equal(await page.locator('#debug-toggle').textContent(),'Désactiver');
- await page.locator('#debug-toggle').scrollIntoViewIfNeeded();await page.screenshot({path:'target/ui-check/debug-mobile.png'});
- assert(actions.some(a=>Array.isArray(a)&&a[0]==='POST /api/debug'&&a[1]==='{"enabled":true}'));
- await page.waitForFunction(()=>document.querySelector('#debug-result').textContent.includes('terminé'),null,{timeout:9000});
- assert.equal(await page.locator('#debug-state').textContent(),'Désactivé');
- assert.equal(await page.locator('#debug-toggle').textContent(),'Activer pour 15 minutes');
- debugLength=900000;
- await page.getByRole('button',{name:'Activer pour 15 minutes',exact:true}).click();
- await page.waitForFunction(()=>document.querySelector('#debug-state').textContent.includes('14 min'));
- await page.getByRole('button',{name:'Désactiver',exact:true}).click();
- await page.waitForFunction(()=>document.querySelector('#debug-state').textContent==='Désactivé');
- assert(actions.some(a=>Array.isArray(a)&&a[0]==='DELETE /api/debug'));
  state.setup=false;
  // LED brightness: hidden without a LED; a preview is throttled and ends with the last value; "Enregistré" only once kept.
  await page.waitForFunction(()=>document.querySelector('#led-setting').hidden);
@@ -170,5 +146,5 @@ const root=path.resolve(__dirname,'../../app/src');
  await page.setViewportSize({width:1100,height:850});
  await page.screenshot({path:'target/ui-check/home-desktop.png',fullPage:true});
  assert.deepEqual(errors,[]);
- await browser.close();console.log('UI smoke PASS: home, detailed diagnostic (on, time left, ended by the firmware, off), LED brightness (throttled preview, protected save shown as pending then kept, error, cancel), responsive layout, Wi-Fi (setup boot) and read-only Wi-Fi panel (normal boot), catalogue filter/add, selection, safe text, logo fallback, diagnostic log/policy. APIs mocked.');
+ await browser.close();console.log('UI smoke PASS: home, LED brightness (throttled preview, protected save shown as pending then kept, error, cancel), responsive layout, Wi-Fi (setup boot) and read-only Wi-Fi panel (normal boot), catalogue filter/add, selection, safe text, logo fallback, diagnostic log/policy. APIs mocked.');
 })().catch(e=>{console.error(e);process.exit(1)});

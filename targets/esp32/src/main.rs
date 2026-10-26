@@ -222,7 +222,7 @@ async fn product(p: Resources, spawner: Spawner) {
         "STREAMBEWI:LOG-CLAIM",
     );
     let diag = alloc::boxed::Box::new(
-        streambewi::diag::Diag::load_with(log_space, streambewi::logging::baseline()).await,
+        streambewi::diag::Diag::load(log_space, streambewi::logging::LOG_TARGET).await,
     );
     let (rx, tx) = uart.into_async().split();
     let mut serial = vec![(serial::Rx::Uart(rx), serial::Tx::Uart(tx))];
@@ -338,14 +338,20 @@ fn main() -> ! {
     streambewi::logging::install(console); // Operating log on UART0 (Improv ignores non-frame text).
     #[cfg(feature = "qual")]
     {
-        let mut policy = iobewi_log::default_policy(streambewi::logging::LOG_TARGET).unwrap();
+        // The detail of the product's own traces (`debug`) is for the bench only.
+        let mut policy = iobewi_log::LogPolicy::new(log::LevelFilter::Warn);
+        policy
+            .add_target("iobewi_log", log::LevelFilter::Info)
+            .unwrap();
+        policy
+            .add_target(streambewi::logging::LOG_TARGET, log::LevelFilter::Debug)
+            .unwrap();
         policy
             .add_target("iobewi_usb_msc", log::LevelFilter::Info)
             .unwrap();
         policy
             .add_target("embassy_usb", log::LevelFilter::Trace)
             .unwrap();
-        streambewi::logging::remember_applied(policy.clone());
         iobewi_log::apply_policy(policy);
     }
     esp_alloc::heap_allocator!(size: HEAP_BYTES);
