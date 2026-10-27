@@ -4,7 +4,7 @@ Suivi dédié (voir aussi la limitation EKV en coupure de courant, `iobewi/rust-
 
 ## Comportement voulu (inchangé)
 
-Au démarrage, la région `config` (partition `data/0x40`, `0x9000`, `0x40000`) est :
+Au démarrage, la région `config` (partition `data/0x40`, `0x380000`, `0x80000` dans la disposition OTA ; `0x9000`, `0x40000` avant `docs/ota.md`) est :
 
 - **entièrement vierge** : le firmware l'initialise lui-même (formatage EKV) ;
 - **non vierge** : le firmware la **monte** ; si le montage échoue, il **refuse de démarrer** et n'écrit jamais rien de
@@ -35,9 +35,9 @@ Improv, et il faut **reprovisionner** le Wi-Fi.
 
 1. Effacer la région (adapter le port) :
    ```
-   python -m esptool --chip esp32s3 --port COMx erase_region 0x9000 0x40000
+   python -m esptool --chip esp32s3 --port COMx erase_region 0x380000 0x80000
    ```
-   ou, avec le banc, écrire un fichier de `0x40000` octets `0xFF` à `0x9000` (`benchctl.py write <fichier>@0x9000`).
+   ou, avec le banc, écrire un fichier de `0x80000` octets `0xFF` à `0x380000` (`benchctl.py write <fichier>@0x380000`).
 2. Redémarrer la carte (débrancher puis rebrancher, ou RESET).
 3. Reprovisionner (Improv Serial : `improv.py wifi` du banc, `improv_serial.py` sous Windows, ou ESP Web Tools).
 
@@ -55,3 +55,10 @@ démarre) : ce n'est pas le cas décrit ici.
 - journaliser plus que `STREAMBEWI:CONFIG-MOUNT` pour distinguer « jamais formatée » de « formatage interrompu » ;
 - un témoin d'écriture de fin de formatage : à étudier avec le propriétaire du stockage, **sans** formatage automatique
   d'une région non vierge.
+
+## Depuis l'OTA (`docs/ota.md`)
+
+Le watchdog de probation (30 s) est armé dès le démarrage et ne se désarme qu'à la décision de boot qui suit le montage de
+`config`. Un montage refusé **n'arrête donc plus définitivement la carte** : elle redémarre toutes les 30 s environ, et
+`STREAMBEWI:CONFIG-MOUNT` est réaffiché à chaque tentative. La récupération ci-dessus reste la même (effacer la région
+`config`, désormais `0x380000` / `0x80000`).

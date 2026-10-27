@@ -395,6 +395,15 @@ checksum = "773648b94d0e5d620f64f280777445740e61fe701025087ec8b57f45c791888b"
 
 [[package]]
 name = "cpufeatures"
+version = "0.2.17"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "59ed5838eebb26a2bb2e58f6d5b5316989ae9d08bab10e0e6d103e656d1b0280"
+dependencies = [
+ "libc",
+]
+
+[[package]]
+name = "cpufeatures"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5ca28b0ae3115b884660db4118d803791fd6756b6e88f39c0f3f7859060d7566"
@@ -1166,7 +1175,7 @@ dependencies = [
  "esp-rom-sys",
  "esp-storage",
  "jiff",
- "sha2",
+ "sha2 0.11.0",
  "strum 0.27.2",
 ]
 
@@ -2000,6 +2009,16 @@ version = "0.1.0"
 source = "git+https://github.com/iobewi/rust-mcu-libs?rev=f9a2a9a4099dd43c3e9eb0b1410fc3a523286f53#f9a2a9a4099dd43c3e9eb0b1410fc3a523286f53"
 
 [[package]]
+name = "iobewi-esp-boot"
+version = "0.1.0"
+source = "git+https://github.com/iobewi/rust-mcu-libs?rev=f9a2a9a4099dd43c3e9eb0b1410fc3a523286f53#f9a2a9a4099dd43c3e9eb0b1410fc3a523286f53"
+dependencies = [
+ "iobewi-esp-partitions",
+ "iobewi-firmware-image",
+ "iobewi-firmware-layout",
+]
+
+[[package]]
 name = "iobewi-esp-config-space"
 version = "0.1.0"
 source = "git+https://github.com/iobewi/rust-mcu-libs?rev=f9a2a9a4099dd43c3e9eb0b1410fc3a523286f53#f9a2a9a4099dd43c3e9eb0b1410fc3a523286f53"
@@ -2020,6 +2039,35 @@ dependencies = [
  "esp-hal",
  "iobewi-entropy",
  "rand_core 0.10.1",
+]
+
+[[package]]
+name = "iobewi-esp-firmware-a"
+version = "0.1.0"
+source = "git+https://github.com/iobewi/rust-mcu-libs?rev=f9a2a9a4099dd43c3e9eb0b1410fc3a523286f53#f9a2a9a4099dd43c3e9eb0b1410fc3a523286f53"
+dependencies = [
+ "embassy-sync 0.8.0",
+ "embedded-storage",
+ "iobewi-esp-firmware-storage",
+ "iobewi-esp-flash",
+ "iobewi-esp-partitions",
+ "iobewi-esp-watchdog",
+ "iobewi-firmware-boot",
+ "iobewi-firmware-layout",
+ "iobewi-firmware-slots",
+ "iobewi-firmware-update",
+]
+
+[[package]]
+name = "iobewi-esp-firmware-storage"
+version = "0.1.0"
+source = "git+https://github.com/iobewi/rust-mcu-libs?rev=f9a2a9a4099dd43c3e9eb0b1410fc3a523286f53#f9a2a9a4099dd43c3e9eb0b1410fc3a523286f53"
+dependencies = [
+ "embedded-storage",
+ "iobewi-esp-flash",
+ "iobewi-esp-partitions",
+ "iobewi-firmware-layout",
+ "iobewi-firmware-update",
 ]
 
 [[package]]
@@ -2087,6 +2135,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "iobewi-esp-watchdog"
+version = "0.1.0"
+source = "git+https://github.com/iobewi/rust-mcu-libs?rev=f9a2a9a4099dd43c3e9eb0b1410fc3a523286f53#f9a2a9a4099dd43c3e9eb0b1410fc3a523286f53"
+dependencies = [
+ "esp-hal",
+]
+
+[[package]]
 name = "iobewi-esp-wifi"
 version = "0.1.0"
 source = "git+https://github.com/iobewi/rust-mcu-libs?rev=f9a2a9a4099dd43c3e9eb0b1410fc3a523286f53#f9a2a9a4099dd43c3e9eb0b1410fc3a523286f53"
@@ -2125,6 +2181,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "iobewi-firmware-boot"
+version = "0.1.0"
+source = "git+https://github.com/iobewi/rust-mcu-libs?rev=f9a2a9a4099dd43c3e9eb0b1410fc3a523286f53#f9a2a9a4099dd43c3e9eb0b1410fc3a523286f53"
+
+[[package]]
+name = "iobewi-firmware-image"
+version = "0.1.0"
+source = "git+https://github.com/iobewi/rust-mcu-libs?rev=f9a2a9a4099dd43c3e9eb0b1410fc3a523286f53#f9a2a9a4099dd43c3e9eb0b1410fc3a523286f53"
+dependencies = [
+ "sha2 0.10.9",
+]
+
+[[package]]
 name = "iobewi-firmware-layout"
 version = "0.1.0"
 source = "git+https://github.com/iobewi/rust-mcu-libs?rev=f9a2a9a4099dd43c3e9eb0b1410fc3a523286f53#f9a2a9a4099dd43c3e9eb0b1410fc3a523286f53"
@@ -2138,12 +2207,38 @@ version = "0.1.0"
 source = "git+https://github.com/iobewi/rust-mcu-libs?rev=f9a2a9a4099dd43c3e9eb0b1410fc3a523286f53#f9a2a9a4099dd43c3e9eb0b1410fc3a523286f53"
 
 [[package]]
+name = "iobewi-firmware-update"
+version = "0.1.0"
+source = "git+https://github.com/iobewi/rust-mcu-libs?rev=f9a2a9a4099dd43c3e9eb0b1410fc3a523286f53#f9a2a9a4099dd43c3e9eb0b1410fc3a523286f53"
+dependencies = [
+ "embassy-futures",
+ "embassy-sync 0.8.0",
+ "embassy-time",
+ "iobewi-config-space",
+ "iobewi-firmware-image",
+ "sha2 0.10.9",
+]
+
+[[package]]
 name = "iobewi-http-client"
 version = "0.1.0"
 source = "git+https://github.com/iobewi/rust-mcu-libs?rev=f9a2a9a4099dd43c3e9eb0b1410fc3a523286f53#f9a2a9a4099dd43c3e9eb0b1410fc3a523286f53"
 dependencies = [
  "embedded-io-async 0.7.0",
  "httparse",
+]
+
+[[package]]
+name = "iobewi-http-server"
+version = "0.1.0"
+source = "git+https://github.com/iobewi/rust-mcu-libs?rev=f9a2a9a4099dd43c3e9eb0b1410fc3a523286f53#f9a2a9a4099dd43c3e9eb0b1410fc3a523286f53"
+dependencies = [
+ "embassy-sync 0.8.0",
+ "embedded-io-async 0.7.0",
+ "iobewi-net-io",
+ "iobewi-net-tls-core",
+ "log",
+ "picoserve",
 ]
 
 [[package]]
@@ -3042,12 +3137,23 @@ checksum = "bbfa15b3dddfee50a0fff136974b3e1bde555604ba463834a7eb7deb6417705d"
 
 [[package]]
 name = "sha2"
+version = "0.10.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a7507d819769d01a365ab707794a4084392c824f54a7a6a7862f8c3d0892b283"
+dependencies = [
+ "cfg-if",
+ "cpufeatures 0.2.17",
+ "digest 0.10.7",
+]
+
+[[package]]
+name = "sha2"
 version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "446ba717509524cb3f22f17ecc096f10f4822d76ab5c0b9822c5f9c284e825f4"
 dependencies = [
  "cfg-if",
- "cpufeatures",
+ "cpufeatures 0.3.1",
  "digest 0.11.3",
 ]
 
@@ -3207,6 +3313,7 @@ dependencies = [
  "improv-serial",
  "iobewi-config-space",
  "iobewi-fat16",
+ "iobewi-firmware-image",
  "iobewi-http-client",
  "iobewi-indicator",
  "iobewi-log",
@@ -3239,20 +3346,31 @@ version = "0.1.0"
 dependencies = [
  "embassy-executor",
  "embassy-net",
+ "embassy-sync 0.8.0",
  "embassy-time",
  "embedded-io-async 0.7.0",
+ "embedded-storage",
  "esp-alloc",
  "esp-bootloader-esp-idf",
  "esp-hal",
  "esp-println",
  "esp-rtos",
  "iobewi-config-space",
+ "iobewi-crypto-mbedtls",
+ "iobewi-esp-boot",
  "iobewi-esp-config-space",
+ "iobewi-esp-firmware-a",
+ "iobewi-esp-firmware-storage",
  "iobewi-esp-flash",
  "iobewi-esp-tls",
  "iobewi-esp-usb",
+ "iobewi-esp-watchdog",
  "iobewi-esp-wifi",
  "iobewi-esp-ws2812",
+ "iobewi-firmware-image",
+ "iobewi-firmware-slots",
+ "iobewi-firmware-update",
+ "iobewi-http-server",
  "iobewi-log",
  "iobewi-ntp",
  "iobewi-time",
@@ -3260,6 +3378,7 @@ dependencies = [
  "iobewi-tls-service",
  "iobewi-wifi-manager",
  "log",
+ "sha2 0.10.9",
  "static_cell",
  "streambewi",
 ]

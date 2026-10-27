@@ -1,3 +1,11 @@
+# The OTA layout of system A (#3): the one of `rust-mcu-libs/examples/firmware/ota-system` (otadata, ota_0, ota_1,
+# the `config` EKV partition), with slots of 1.6875 MiB and a `config` of 128 pages. All of it fits the 4 MiB
+# the images are packaged for (DIO, 4MB header); the board has 16 MiB and the rest is unused.
+#
+# otadata: two 4 KiB sectors (`EWBT` records); the apps are 64 KiB aligned; `config` is data/0x40 (EKV): 128 pages,
+# of which 16 are kept in reserve and 60 are reserved by the six spaces of `boot_policy::SPACES`.
 # Name, Type, SubType, Offset, Size, Flags
-config, data, 0x40, 0x9000, 0x40000,
-factory, app, factory, 0x50000, 0x180000,
+otadata, data, ota, 0xd000, 0x2000,
+ota_0, app, ota_0, 0x20000, 0x1B0000,
+ota_1, app, ota_1, 0x1D0000, 0x1B0000,
+config, data, 0x40, 0x380000, 0x80000,

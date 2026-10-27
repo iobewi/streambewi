@@ -20,6 +20,7 @@ pub mod brightness;
 pub mod diag;
 pub mod fetch;
 pub mod logging;
+pub mod ota;
 pub mod provisioning;
 pub mod settings;
 pub mod setup;
@@ -126,4 +127,54 @@ pub async fn run<T, B, Btn, R, W, D, F, C, S>(
         }
     })
     .await;
+}
+
+/// The maintenance start (#3): the Wi-Fi station, Improv and the BOOT recovery of the normal start, and in
+/// place of the stream, the disk and the local page, one future of the target: the OTA server on the station
+/// network. It ends by a restart after [`ota::IDLE_LIMIT_SECS`] without a request (the OTA server calls
+/// [`ota::touch`]); an activation restarts by itself. There is no USB controller here: the disk is not
+/// presented, so the host sees it leave when the normal start restarts into this one.
+#[allow(clippy::too_many_arguments)] // Concrete product resources composed by the target.
+pub async fn run_maintenance<T, B, Btn, R, W, F, S, SF>(
+    boot: boot_policy::BootPolicy<B>,
+    manager: WifiManager<T, B>,
+    serial: impl IntoIterator<Item = (R, W)>,
+    button: Btn,
+    reset: F,
+    info: provisioning::DeviceInfo,
+    serve: S,
+) where
+    S: FnOnce(Stack<'static>) -> SF,
+    SF: core::future::Future<Output = ()>,
+    T: WifiTransport<NetworkHandle = Stack<'static>>,
+    T::Address: Display,
+    B: ConfigBackend,
+    B::Error: Debug,
+    Btn: Wait,
+    R: Read,
+    W: Write,
+    F: FnMut(),
+{
+    setup::set_setup(false);
+    status::system_maintenance();
+    ota::touch(embassy_time::Instant::now().as_secs() as u32);
+    let reset = core::cell::RefCell::new(reset);
+    let network = provisioning::NetworkSignal::new();
+    let (readers, ports) = provisioning::take_ports(serial);
+    let wifi = join(
+        provisioning::wifi_task(manager, ports, &network, info, &boot),
+        provisioning::readers(readers),
+    );
+    let recovery = provisioning::recovery_watch(button, &boot, || (reset.borrow_mut())());
+    let idle = async {
+        loop {
+            embassy_time::Timer::after_secs(10).await;
+            if ota::idle_expired(embassy_time::Instant::now().as_secs() as u32) {
+                log::info!("maintenance: no request for a while, back to the normal start");
+                (reset.borrow_mut())();
+            }
+        }
+    };
+    let server = async { serve(network.wait().await).await };
+    join3(join(wifi, server), recovery, idle).await;
 }

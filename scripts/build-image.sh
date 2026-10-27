@@ -23,11 +23,13 @@ $BUILD_CMD
 
 mkdir -p "$OUT"
 cp "$ELF_SRC" "$OUT/$NAME.elf"
+echo "== second stage and initial otadata (OTA layout, #3)"
+scripts/build-bootloader.sh "$OUT"
 echo "== flashable image"
-IMAGE_CMD="python3 tools/package_image.py $ELF_SRC $OUT/$NAME.bin"
+IMAGE_CMD="python3 tools/package_image.py $ELF_SRC $OUT/$NAME.bin --bootloader $OUT/bootloader.bin --otadata $OUT/otadata.bin"
 $IMAGE_CMD
 python3 tools/inspect_firmware_elf.py "$ELF_SRC" > "$OUT/firmware-layout.json"
-( cd "$OUT" && sha256sum "$NAME.bin" "$NAME.elf" > SHA256SUMS )
+( cd "$OUT" && sha256sum "$NAME.bin" "$NAME-ota.bin" "$NAME.elf" bootloader.bin otadata.bin > SHA256SUMS )
 
 {
   echo "source:            $(git rev-parse HEAD)${FEATURES:+  (features: $FEATURES)}"

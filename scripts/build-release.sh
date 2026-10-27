@@ -17,7 +17,7 @@ source "$ROOT_DIR/scripts/build-env.sh"
 DIST="$ROOT_DIR/dist"
 
 CORE_CMD="cargo +stable test -p streambewi-core -p streambewi --locked --target x86_64-unknown-linux-gnu"
-IMAGE_CMD="python3 tools/package_image.py $ELF_SRC $DIST/$NAME.bin"
+IMAGE_CMD="python3 tools/package_image.py $ELF_SRC $DIST/$NAME.bin --bootloader $DIST/bootloader.bin --otadata $DIST/otadata.bin"
 
 echo "== host tests"
 $CORE_CMD

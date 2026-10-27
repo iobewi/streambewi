@@ -884,11 +884,11 @@ mod tests {
         });
     }
 
-    struct Pages64;
-    impl ekv::flash::Flash for Pages64 {
+    struct Pages128;
+    impl ekv::flash::Flash for Pages128 {
         type Error = core::convert::Infallible;
         fn page_count(&self) -> usize {
-            64
+            128
         }
         async fn erase(&mut self, _: ekv::flash::PageID) -> Result<(), Self::Error> {
             Ok(())
@@ -913,9 +913,9 @@ mod tests {
 
     #[test]
     fn spaces_fit_the_config_partition() {
-        // Admission arithmetic of the shipped 64-page config partition, with the `log` space.
+        // Admission arithmetic of the shipped 128-page config partition (OTA layout), with the `log` space.
         let store =
-            iobewi_config_space::storage::Store::new(Pages64, 1, crate::boot_policy::SPACES);
+            iobewi_config_space::storage::Store::new(Pages128, 1, crate::boot_policy::SPACES);
         assert!(store.is_ok(), "{:?}", store.err());
         assert!(
             crate::boot_policy::SPACES

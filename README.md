@@ -41,7 +41,7 @@ Saving credentials does not switch USB in the current boot. BOOT held for three
 seconds saves provisioning mode, clears credentials, then requests a broad RTC
 system reset. The logger captures to RAM without writing on Improv transports.
 
-The target reserves an 80 KiB heap plus a 72 KiB second region in the DRAM the bootloader frees (see [HTTPS streaming](docs/https-streaming.md)), five network sockets (STA; SNTP needs the fifth) and a minimum 36 KiB
+The target reserves a 68 KiB heap plus a 72 KiB second region in the DRAM the bootloader frees (see [HTTPS streaming](docs/https-streaming.md)), five network sockets (STA; SNTP needs the fifth) and a minimum 36 KiB
 linker stack (boot assertion; a local UI request peaks around 31 KiB on the S3). The ELF inspection gate reports actual product TaskPool storage and
 linker stack reservation; these are not runtime stack high-water measurements.
 
@@ -212,7 +212,7 @@ the protocol ESP Web Tools speaks after flashing.
 - NVS and EKV formats differ. There is no automatic migration of old credentials.
   Use the product partition table on a backed-up development board and provision
   again when starting from a fresh configuration region. A merged factory image
-  spans the config region and replaces it with blank bytes: provision again after
+  spans the config region (4 MiB, OTA layout) and replaces it with blank bytes: provision again after
   flashing that image. Do not erase the entire
   board as an implicit recovery procedure.
 - During provisioning the native port serves JTAG and no OTG driver is created.
@@ -290,9 +290,10 @@ scripts/build-release.sh
 
 Runs host tests, the release build (real link), and `tools/package_image.py`
 with `targets/esp32/partitions.csv` and a 4 MB image header. The standalone development
-layout is config 0x9000/256 KiB and factory 0x50000/1536 KiB; it does not replace
-or migrate an existing OTA layout. Back up a populated board before selecting a new layout.
-Regenerates `dist/`.
+layout is the OTA layout of system A (`docs/ota.md`): otadata 0xd000, ota_0 0x20000 and ota_1 0x1D0000
+(1.6875 MiB each), config 0x380000/512 KiB, second stage of `rust-mcu-libs`. The merged image is a first
+install of the board: it replaces the whole configuration with blank bytes. Later updates are OTA. The
+earlier layout (config 0x9000, factory 0x50000) is abandoned, with no migration. Regenerates `dist/`.
 
 `SOURCE_DATE_EPOCH` is the date of the last commit touching the sources, excluding
 both delivery directories. This also avoids the old false "uncommitted changes" report

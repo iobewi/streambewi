@@ -18,6 +18,8 @@ jobs:
         run: node tools/qual/check-catalog.cjs && node --check app/src/ui.js
       - run: cargo +stable clippy -p streambewi-core -p streambewi --locked --target x86_64-unknown-linux-gnu --all-targets -- -D warnings
       - run: cargo +stable test -p streambewi-core -p streambewi --locked --target x86_64-unknown-linux-gnu
+      - name: OTA partition layout (table, alignments, slots, EKV pages)
+        run: python3 tools/package_image.py --check-layout
 
   esp32s3:
     runs-on: ubuntu-latest
@@ -42,7 +44,10 @@ jobs:
           tool: espflash@4.6.0
       - name: Install image merge tool
         run: python3 -m pip install esptool==5.5.0
-      # The same command and options as the release script (scripts/build-release.sh).
+      # The same command and options as the release script (scripts/build-release.sh). The OTA layout (#3): the
+      # second stage is built from the pinned rust-mcu-libs revision (scripts/build-bootloader.sh), the image
+      # is validated against both slots by the library's own validator. No OTA token or TLS identity here: the
+      # image builds and does not offer the OTA.
       - name: Release image (real link, product descriptor, flashable image)
         run: scripts/build-image.sh ci-out
       - name: USB debug build and layout
