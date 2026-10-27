@@ -13,7 +13,8 @@ const FALSE: &[u8] = b"USB1\x00";
 const TRUE: &[u8] = b"USB1\x01";
 pub const CONFIG_BUDGET: Budget = Budget::new(TRUE.len());
 /// Every ConfigSpace of the product, as admitted by the store. Adding a space is admission arithmetic
-/// only (the store is not reformatted); `spaces_fit_the_config_partition` keeps it within the 64-page layout.
+/// only (the store is not reformatted); `the_spaces_fit_the_partition_to_the_page` keeps it within the 128-page
+/// `config` partition of the OTA layout (`targets/esp32/partitions.csv`).
 pub const SPACES: &[iobewi_config_space::storage::SpaceSpec] = &[
     iobewi_config_space::storage::SpaceSpec::new(
         crate::stations::SPACE,
@@ -25,13 +26,19 @@ pub const SPACES: &[iobewi_config_space::storage::SpaceSpec] = &[
         crate::diag::SPACE,
         crate::diag::CONFIG_BUDGET.max_bytes(),
     ),
-    // Last, so that the spaces above keep their place. With it the manifest admits 48 of the 48
-    // reservable pages of the 64-page `config` partition: the next space needs more room.
+    // After these, so that the spaces above keep their place.
     iobewi_config_space::storage::SpaceSpec::new(
         crate::settings::SPACE,
         crate::settings::CONFIG_BUDGET.max_bytes(),
     ),
+    // The OTM1 records of the system A OTA (`iobewi-firmware-update`). The budget is the reference
+    // composition's; OTM1 itself is at most 512 bytes. With it the manifest admits 60 of the 112
+    // reservable pages of the 128-page `config` partition.
+    iobewi_config_space::storage::SpaceSpec::new(OTA_SPACE, OTA_CONFIG_BUDGET.max_bytes()),
 ];
+/// The space of the OTA metadata, and its budget (as in `examples/firmware/ota-system`).
+pub const OTA_SPACE: &str = "ota";
+pub const OTA_CONFIG_BUDGET: Budget = Budget::new(2048);
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BootMode {
     Provisioning,
@@ -110,6 +117,16 @@ impl<B: ConfigBackend> BootPolicy<B> {
         manager.claim(crate::stations::SPACE, crate::stations::CONFIG_BUDGET)?;
         manager.claim(crate::diag::SPACE, crate::diag::CONFIG_BUDGET)?;
         manager.claim(crate::settings::SPACE, crate::settings::CONFIG_BUDGET)
+    }
+    /// The OTA metadata space, after the spaces above in the same claim order.
+    pub fn claim_ota(backend: B) -> Result<ConfigSpace<B>, ClaimError> {
+        let mut manager = ConfigManager::new(backend);
+        manager.claim("wifi", WIFI_CONFIG_BUDGET)?;
+        manager.claim(SPACE, CONFIG_BUDGET)?;
+        manager.claim(crate::stations::SPACE, crate::stations::CONFIG_BUDGET)?;
+        manager.claim(crate::diag::SPACE, crate::diag::CONFIG_BUDGET)?;
+        manager.claim(crate::settings::SPACE, crate::settings::CONFIG_BUDGET)?;
+        manager.claim(OTA_SPACE, OTA_CONFIG_BUDGET)
     }
     pub fn mode(&self) -> BootMode {
         self.mode

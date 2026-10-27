@@ -455,6 +455,30 @@ fn publishing_before_init_does_nothing_and_init_registers_once() {
     );
 }
 
+#[test]
+fn maintenance_is_orange_pulsing_and_yields_to_faults_and_the_wifi_link() {
+    let (reg, sources) = product();
+    sources.system_maintenance();
+    assert_eq!(name(reg, &sources), "orange pulsing");
+    sources.wifi_connecting();
+    assert_eq!(
+        name(reg, &sources),
+        "blue blinking slowly",
+        "the link is told first"
+    );
+    sources.wifi_connected();
+    assert_eq!(name(reg, &sources), "orange pulsing");
+    sources.usb_error();
+    assert_eq!(name(reg, &sources), "red blinking");
+    sources.usb_ready();
+    sources.system_started(BootMode::MassStorage);
+    assert_ne!(
+        name(reg, &sources),
+        "orange pulsing",
+        "a normal start leaves maintenance"
+    );
+}
+
 // --- Health -------------------------------------------------------------------------------------
 
 fn words(reg: &Reg, sources: &Sources<'_>) -> [&'static str; 4] {

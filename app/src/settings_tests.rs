@@ -260,7 +260,10 @@ mod partition {
     #[test]
     fn the_manifest_names_the_four_spaces_in_place_then_the_settings() {
         let names: Vec<&str> = SPACES.iter().map(|s| s.name).collect();
-        assert_eq!(names, ["stations", "wifi", "usb_boot", "log", "settings"]);
+        assert_eq!(
+            names,
+            ["stations", "wifi", "usb_boot", "log", "settings", "ota"]
+        );
         assert_eq!(BEFORE.len(), 4);
         // The USB boot format is the one it was: 5 bytes, not touched by the settings.
         assert_eq!(SPACES[2].max_bytes, 5);
@@ -269,16 +272,19 @@ mod partition {
     }
 
     #[test]
-    fn the_five_spaces_fit_the_partition_to_the_page() {
-        // 64 pages, 16 kept in reserve: 48 reservable; the manifest uses exactly 48.
+    fn the_spaces_fit_the_partition_to_the_page() {
+        // The `config` partition of the OTA layout has 128 pages, 16 kept in reserve: 112 reservable.
         let flash = Shared(Rc::new(RefCell::new(MemFlash::new())));
         let pages = flash.page_count();
-        assert!(pages >= 64, "{pages}");
+        assert!(pages >= 128, "{pages}");
         let reserve =
             |spec: &SpaceSpec| 4 * ((16 + spec.name.len() + spec.max_bytes).div_ceil(2048) + 1);
-        assert_eq!(SPACES.iter().map(reserve).sum::<usize>(), 48);
+        let total = SPACES.iter().map(reserve).sum::<usize>();
+        assert_eq!(total, 60, "the six spaces, with the OTA metadata");
+        assert!(total + 16 <= 128, "within the 128-page partition");
         assert_eq!(BEFORE.iter().map(reserve).sum::<usize>(), 40);
         assert_eq!(reserve(&SPACES[4]), 8, "the settings reserve the minimum");
+        assert_eq!(reserve(&SPACES[5]), 12, "the OTA metadata");
     }
 
     /// Writes a distinct value in each of the four earlier spaces, as the earlier firmware would have.

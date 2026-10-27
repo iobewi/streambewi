@@ -42,6 +42,8 @@ iobewi-fat16 = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "f9a2a9a
 iobewi-usb-msc = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "f9a2a9a4099dd43c3e9eb0b1410fc3a523286f53" }
 iobewi-wifi-core = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "f9a2a9a4099dd43c3e9eb0b1410fc3a523286f53" }
 iobewi-wifi-manager = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "f9a2a9a4099dd43c3e9eb0b1410fc3a523286f53" }
+# The image digest format of the OTA request (`sha256:<hex>`).
+iobewi-firmware-image = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "f9a2a9a4099dd43c3e9eb0b1410fc3a523286f53" }
 
 
 [dev-dependencies]

@@ -4,7 +4,7 @@
 //!
 //! | Source | Flags it publishes |
 //! | --- | --- |
-//! | System | `Booting`, `Configuring`, `Running` |
+//! | System | `Booting`, `Configuring`, `Running`, `Maintenance` |
 //! | Wi-Fi | `Unconfigured`, `Connecting`, `Connected`, `Reconnecting` |
 //! | Stream | `Connecting`, `Connected`, `Ready`, `Reconnecting`, `Busy`, `Warning` |
 //! | UsbMsc | `Initializing`, `Ready`, `Unavailable`, `Error` |
@@ -112,6 +112,11 @@ impl<'a> Sources<'a> {
             BootMode::MassStorage => State::Running,
         };
         self.system.replace(Flags::of(&[state]));
+    }
+
+    /// The product started in maintenance (#3): the OTA server alone, no stream and no disk.
+    pub fn system_maintenance(&self) {
+        self.system.replace(Flags::of(&[State::Maintenance]));
     }
 
     // --- Wi-Fi ------------------------------------------------------------------------------
@@ -230,6 +235,9 @@ fn with(f: impl FnOnce(&Sources<'static>)) {
 
 pub fn system_started(mode: BootMode) {
     with(|s| s.system_started(mode));
+}
+pub fn system_maintenance() {
+    with(|s| s.system_maintenance());
 }
 pub fn wifi_unconfigured() {
     with(|s| s.wifi_unconfigured());
@@ -404,9 +412,10 @@ const fn look_of(pattern: Pattern, name: &'static str) -> Look {
 /// 3. Provisioning (`Configuring`) or `Unconfigured`: blue blinking.
 /// 4. The Wi-Fi is connecting or reconnecting: blue blinking slowly.
 /// 5. `Booting`: white steady.
-/// 6. The Wi-Fi is connected **and** the stream is ready: green steady.
-/// 7. The Wi-Fi is connected, the stream is not ready yet: green pulsing slowly.
-/// 8. Anything else: off.
+/// 6. `Maintenance` (the OTA server alone, #3): orange pulsing slowly.
+/// 7. The Wi-Fi is connected **and** the stream is ready: green steady.
+/// 8. The Wi-Fi is connected, the stream is not ready yet: green pulsing slowly.
+/// 9. Anything else: off.
 ///
 /// `Busy` (station change) and `Unavailable` (disk off the bus) have no rule of their own. A
 /// station change only makes the stream not ready, so rule 7 shows; the disk leaving the bus changes
@@ -428,6 +437,12 @@ pub fn look(snapshot: &Snap, ids: &Ids) -> Look {
         look_of(blink(BLUE, SLOW), "blue blinking slowly")
     } else if any.contains(State::Booting) {
         look_of(Pattern::Solid(WHITE), "white steady")
+    } else if any.contains(State::Maintenance) {
+        let pulse = Pattern::Pulse {
+            color: ORANGE,
+            period_ms: PULSE_PERIOD,
+        };
+        look_of(pulse, "orange pulsing")
     } else if wifi.contains(State::Connected) && stream.contains(State::Ready) {
         look_of(Pattern::Solid(GREEN), "green steady")
     } else if wifi.contains(State::Connected) {

@@ -138,8 +138,9 @@ A bad value counts as absent (the default applies), a record that is not a `SET1
 writes and nothing is erased. `usb_boot`, `wifi`, `stations` and `log` are not changed, nor their budgets.
 
 **Admission**: a space reserves at least 8 pages whatever its size. With `settings` the manifest reserves 48 of the 48 pages
-the 64-page `config` partition can admit (`stations` 16, `wifi` 8, `usb_boot` 8, `log` 8, `settings` 8): **there is no room
-left for another space**. The partition table is not changed.
+the 64-page `config` partition can admit (`stations` 16, `wifi` 8, `usb_boot` 8, `log` 8, `settings` 8): **there was no room
+left for another space** (the OTA layout, `docs/ota.md`, gives `config` 128 pages and adds the `ota` space). The
+partition table of that time is not changed in this paragraph.
 
 **Compatibility** (tested over a real EKV store): a partition that holds the four earlier spaces mounts with the five-space
 manifest without formatting or writing, and every byte of the earlier spaces is kept. **The other way is not possible**: once

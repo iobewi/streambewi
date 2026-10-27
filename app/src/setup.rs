@@ -314,6 +314,34 @@ struct StationForm {
 struct IdForm {
     id: u32,
 }
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct MaintenanceForm {
+    confirm: heapless::String<16>,
+}
+/// Asks for a restart into maintenance (the OTA server alone). Normal start only: the setup network has no
+/// OTA. The restart is the existing one; nothing is stopped here, the reset detaches the disk. Anyone on the
+/// local network can ask for it (like every other route of this page), which costs the radio until the
+/// maintenance start ends (ten quiet minutes or a power cycle) and installs nothing: the OTA itself needs
+/// its token over TLS.
+fn maintenance(confirm: &str) -> (StatusCode, &'static str) {
+    if in_setup() {
+        (
+            StatusCode::CONFLICT,
+            "Indisponible pendant la configuration",
+        )
+    } else if !crate::ota::available() {
+        (
+            StatusCode::NOT_IMPLEMENTED,
+            "Mise à jour non prévue dans ce firmware",
+        )
+    } else if confirm != "maintenance" {
+        (StatusCode::BAD_REQUEST, "Confirmation manquante")
+    } else {
+        crate::ota::request_maintenance();
+        (StatusCode::ACCEPTED, "Redémarrage en mode maintenance")
+    }
+}
 fn mutation(
     action: &'static str,
     result: Result<bool, crate::stations::Error>,
@@ -600,6 +628,10 @@ fn app<'a, B: ConfigBackend>(
                 }
                 (StatusCode::ACCEPTED, "Recherche en cours")
             }),
+        )
+        .route(
+            "/api/maintenance",
+            post(|Form(value): Form<MaintenanceForm>| async move { maintenance(&value.confirm) }),
         )
         .route(
             "/api/logs",
@@ -1185,6 +1217,34 @@ mod routing_tests {
                     "{key}: {word}"
                 );
             }
+        });
+    }
+
+    /// `POST /api/maintenance`: refused without its confirmation, accepted in the normal start (the process-wide setup flag is not
+    /// touched here: other tests read it), where it asks for the existing restart and for a maintenance start after it.
+    #[test]
+    fn the_maintenance_route_asks_for_a_maintenance_restart_in_the_normal_start_only() {
+        embassy_futures::block_on(async {
+            let (radio, diag) = fixtures().await;
+            let router = app(&radio, &diag);
+            // A firmware without OTA credentials does not restart into a maintenance it cannot serve.
+            crate::ota::set_available(false);
+            assert_eq!(
+                call(&router, "POST", "/api/maintenance", "confirm=maintenance").0,
+                501
+            );
+            crate::ota::set_available(true);
+            for body in ["", "confirm=yes", "confirm=", "other=maintenance"] {
+                let status = call(&router, "POST", "/api/maintenance", body).0;
+                assert!((400..500).contains(&status), "{body}: {status}");
+            }
+            assert_eq!(call(&router, "GET", "/api/maintenance", "").0, 405);
+            assert_eq!(
+                call(&router, "POST", "/api/maintenance", "confirm=maintenance").0,
+                202
+            );
+            assert!(crate::ota::maintenance_pending());
+            assert!(RESTART.signaled(), "the existing restart");
         });
     }
 

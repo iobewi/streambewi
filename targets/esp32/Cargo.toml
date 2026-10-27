@@ -16,6 +16,9 @@ board-s3-zero = ["dep:iobewi-esp-ws2812"]
 usb-debug = ["streambewi/usb-debug"]
 # Debug build: driver traces, stack/heap high-water probe. The operating log (Info/Warn on UART0) is
 # always on; this adds the debug detail. Off by default; CI compiles both.
+# Qualification faults of the OTA self-check (rollback tests on the bench); never in a release image.
+ota-reject-self-check = []
+ota-hang-self-check = []
 qual = ["usb-debug", "esp-alloc/internal-heap-stats", "streambewi/qual"]
 
 [dependencies]
@@ -45,3 +48,16 @@ iobewi-tls-roots = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "f9a
 iobewi-ntp = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "f9a2a9a4099dd43c3e9eb0b1410fc3a523286f53" }
 iobewi-time = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "f9a2a9a4099dd43c3e9eb0b1410fc3a523286f53" }
 iobewi-esp-ws2812 = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "f9a2a9a4099dd43c3e9eb0b1410fc3a523286f53", features = ["esp32s3"], optional = true }
+# OTA of system A (#3): the reference composition of rust-mcu-libs (`examples/firmware/ota-system`), not a second engine.
+iobewi-esp-firmware-a = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "f9a2a9a4099dd43c3e9eb0b1410fc3a523286f53", features = ["runtime", "esp32s3"] }
+iobewi-esp-firmware-storage = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "f9a2a9a4099dd43c3e9eb0b1410fc3a523286f53" }
+iobewi-esp-watchdog = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "f9a2a9a4099dd43c3e9eb0b1410fc3a523286f53", features = ["esp32s3"] }
+iobewi-esp-boot = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "f9a2a9a4099dd43c3e9eb0b1410fc3a523286f53", features = ["esp32s3"] }
+iobewi-firmware-update = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "f9a2a9a4099dd43c3e9eb0b1410fc3a523286f53", features = ["runtime", "config-space"] }
+iobewi-firmware-image = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "f9a2a9a4099dd43c3e9eb0b1410fc3a523286f53" }
+iobewi-firmware-slots = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "f9a2a9a4099dd43c3e9eb0b1410fc3a523286f53" }
+iobewi-crypto-mbedtls = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "f9a2a9a4099dd43c3e9eb0b1410fc3a523286f53" }
+iobewi-http-server = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "f9a2a9a4099dd43c3e9eb0b1410fc3a523286f53" }
+embassy-sync = "0.8"
+embedded-storage = "0.3.1"
+sha2 = { version = "0.10.9", default-features = false }
