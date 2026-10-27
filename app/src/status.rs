@@ -297,6 +297,95 @@ pub fn disk() -> Option<Disk<'static>> {
     })
 }
 
+/// What each of the four sources says of itself, as the text `GET /api/state` serves under `health`.
+///
+/// Every value is one of a fixed set of ASCII words (see [`health`]); `"none"` is a source that has
+/// published nothing yet and `"unknown"` one that cannot be read or holds a set this table does not know.
+/// There is no overall verdict: the four are independent.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Health {
+    pub system: &'static str,
+    pub wifi: &'static str,
+    pub stream: &'static str,
+    pub usb: &'static str,
+}
+
+pub const HEALTH_NONE: &str = "none";
+pub const HEALTH_UNKNOWN: &str = "unknown";
+
+/// The word of the first state of `table` that `flags` holds, so the table is a precedence list.
+fn word(flags: Option<Flags>, table: &[(State, &'static str)]) -> &'static str {
+    match flags {
+        None => HEALTH_UNKNOWN,
+        Some(flags) if flags.is_empty() => HEALTH_NONE,
+        Some(flags) => table
+            .iter()
+            .find(|(state, _)| flags.contains(*state))
+            .map_or(HEALTH_UNKNOWN, |(_, word)| word),
+    }
+}
+
+/// The four sources of `snapshot`, read apart. A source that is not in the snapshot is `"unknown"`.
+///
+/// `Ready` of the stream means the prebuffer was delivered, not that the player listens; `Ready` of
+/// the disk means it is on the bus, not that the host reads it. The stream's `Warning` (selection not
+/// saved) is not part of its link and stays out: `/api/state` already says it as `persisted`.
+pub fn health(snapshot: &Snap, ids: &Ids) -> Health {
+    let stream = snapshot.of(ids.stream).map(|f| f.without(State::Warning));
+    Health {
+        system: word(
+            snapshot.of(ids.system),
+            &[
+                (State::Booting, "booting"),
+                (State::Configuring, "configuring"),
+                (State::Running, "running"),
+            ],
+        ),
+        wifi: word(
+            snapshot.of(ids.wifi),
+            &[
+                (State::Unconfigured, "unconfigured"),
+                (State::Reconnecting, "reconnecting"),
+                (State::Connecting, "connecting"),
+                (State::Connected, "connected"),
+            ],
+        ),
+        stream: word(
+            stream,
+            &[
+                (State::Busy, "busy"),
+                (State::Reconnecting, "reconnecting"),
+                (State::Connecting, "connecting"),
+                (State::Ready, "ready"),
+                (State::Connected, "connected"),
+            ],
+        ),
+        usb: word(
+            snapshot.of(ids.usb),
+            &[
+                (State::Error, "error"),
+                (State::Unavailable, "unavailable"),
+                (State::Initializing, "initializing"),
+                (State::Ready, "ready"),
+            ],
+        ),
+    }
+}
+
+/// [`health`] of the registry now: one instantaneous read, no observer. Everything is `"unknown"`
+/// before [`init`].
+pub fn current_health() -> Health {
+    match SOURCES_CELL.try_get() {
+        Some(sources) => health(&STATE.snapshot(), &sources.ids()),
+        None => Health {
+            system: HEALTH_UNKNOWN,
+            wifi: HEALTH_UNKNOWN,
+            stream: HEALTH_UNKNOWN,
+            usb: HEALTH_UNKNOWN,
+        },
+    }
+}
+
 /// A look: the pattern and a name for the log.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Look {

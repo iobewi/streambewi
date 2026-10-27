@@ -58,6 +58,28 @@ Le suivi en direct est fait **par le navigateur** : il interroge le serveur exis
 
 **Sécurité.** Mêmes droits de lecture que `/api/logs`, aucune route d'écriture, aucun en-tête CORS. Le HTTP du réseau local n'est pas chiffré, et un fichier exporté peut contenir des informations techniques (adresses, noms de stations) même après l'assainissement, qui est lexical. DNS rebinding, `Host` et `Origin` sont traités pour tout le serveur dans l'issue #37.
 
+## États du système (`health`)
+
+`GET /api/state` porte une clé `health` en plus de ses champs habituels, qui ne changent pas. Elle donne l'état de chacune des quatre sources du registre `iobewi-state` : une seule source de vérité, celle qui pilote déjà la LED (`app/src/status.rs`). Aucun verdict global : les quatre sont indépendantes.
+
+```json
+"health": { "system": "running", "wifi": "connected", "stream": "ready", "usb": "ready" }
+```
+
+| Clé | Mots |
+|---|---|
+| `system` | `booting`, `configuring`, `running` |
+| `wifi` | `unconfigured`, `connecting`, `connected`, `reconnecting` |
+| `stream` | `connecting`, `connected`, `ready`, `reconnecting`, `busy` |
+| `usb` | `initializing`, `ready`, `unavailable`, `error` |
+
+Deux mots valent pour les quatre : `none` (la source n'a encore rien publié) et `unknown` (registre non initialisé, source absente ou ensemble de drapeaux que la table ne connaît pas : jamais un état nominal inventé).
+
+- **Lecture :** `status::current_health()` fait une lecture instantanée (`Registry::snapshot`), sous le verrou, une seule fois par requête. Elle ne prend aucune place d'observateur (trois sur trois restent à la LED, à l'enregistreur de réglages et à la réserve) et ne crée ni tâche, ni connexion, ni stockage.
+- **Cohérence :** les quatre mots viennent d'un même instantané. `reading` et `ready` (compteurs du flux) sont lus à un autre instant : ils peuvent différer très brièvement de `health.stream`.
+- **Sens :** `stream: ready` veut dire que le prébuffer a été livré, pas que le lecteur écoute. `usb: ready` veut dire que le disque est sur le bus, pas que l'hôte le lit. `usb: unavailable` (disque retiré du bus volontairement) reste distinct de `usb: error`. L'avertissement « sélection non enregistrée » du flux n'est pas dans `health` : il reste `persisted: false`.
+- **Navigateur :** Réglages → Diagnostic affiche les quatre mots en français, avec la lecture de `/api/state` qui existe déjà (toutes les 2 s, aucune requête ni minuterie de plus). Un mot inconnu de la page s'affiche « État inconnu », jamais en clair. Au premier échec de lecture, les quatre lignes passent à « Appareil injoignable » : aucun ancien état n'est laissé comme certain.
+
 ## Limitation des messages répétitifs
 
 - **Relances du flux.** Quand une station ne répond pas, chaque tentative produisait plusieurs lignes (« connecting attempt », « connect … failed », « HTTP status=404 »…). Les trois premiers échecs de suite sont journalisés, puis un sur dix, chacun avec son numéro (`(failure 11)`). Le premier échec et le retour à la normale sont **toujours** écrits (`stream: back after N failed attempts` dès la première réponse 200 après trois échecs ou plus). Le compteur se remet à zéro à un changement de station. Ni l'adresse de la station ni son chemin ne sont journalisés (voir « Console UART0 »).

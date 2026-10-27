@@ -94,14 +94,23 @@
     }
     if(s.setup&&!s.online&&!bootPrompted) { bootPrompted=true;open('wifi-panel');scan(); }
   }
+  // What `health` of /api/state says, in words. A word this page does not know is shown as unknown, never as the raw text.
+  const HEALTH={system:{booting:'Démarrage',configuring:'Configuration en cours',running:'En fonctionnement'},wifi:{unconfigured:'Non configuré',connecting:'Connexion…',connected:'Connecté',reconnecting:'Reconnexion…'},stream:{connecting:'Connexion…',connected:'Réception en cours',ready:'Prêt',reconnecting:'Reconnexion…',busy:'Changement de station'},usb:{initializing:'Initialisation',ready:'Disque présenté',unavailable:'Temporairement indisponible',error:'Erreur'}};
+  // `health` is null when the device could not be read: nothing older is kept on screen.
+  function renderHealth(health) {
+    Object.keys(HEALTH).forEach(k=>{
+      const word=health===null?null:(health&&typeof health[k]==='string'?health[k]:undefined);
+      $('health-'+k).textContent=health===null?'Appareil injoignable':word==='none'?'Pas encore actif':(Object.hasOwn(HEALTH[k],word)?HEALTH[k][word]:'État inconnu');
+    });
+  }
   let refreshBusy=false;
   async function refresh() {
     if(refreshBusy)return;refreshBusy=true;
     try {
       const next=await request('/api/state');
       if(rebooting&&!next.restarting) { rebooting=false;if(next.persisted===false)message('notice','Station active, mais non enregistrée : l’ancienne reviendra au redémarrage.',true);else message('notice','Votre station est choisie. Bonne écoute !'); }
-      state=next;failures=0;render(next);renderLed(next.led);
-    } catch(_) { failures++;if(failures>2&&!rebooting) { $('play-label').textContent='Connexion à votre radio…'; $('play-state').classList.remove('reading'); } }
+      state=next;failures=0;render(next);renderLed(next.led);renderHealth(next.health);
+    } catch(_) { renderHealth(null);failures++;if(failures>2&&!rebooting) { $('play-label').textContent='Connexion à votre radio…'; $('play-state').classList.remove('reading'); } }
     finally {refreshBusy=false;}
   }
   async function scan() { try { await request('/api/scan',{}); await refresh(); } catch(_) { message('wifi-result','Recherche indisponible. Vous pouvez saisir le nom du réseau.',true); } }

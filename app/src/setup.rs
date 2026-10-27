@@ -418,6 +418,11 @@ fn led_save(brightness: &Brightness, percent: u8) -> JsonReply {
         Err(brightness::Invalid) => led_invalid(),
     }
 }
+/// The four sources of the registry, read at once (`status::health`).
+fn health_json() -> serde_json::Value {
+    let h = crate::status::current_health();
+    serde_json::json!({"system":h.system, "wifi":h.wifi, "stream":h.stream, "usb":h.usb})
+}
 async fn state<B: ConfigBackend>(
     radio: &Radio<B>,
 ) -> ([(&'static str, &'static str); 1], Typed<String>) {
@@ -436,6 +441,7 @@ async fn state<B: ConfigBackend>(
             "restarting":RESTARTING.load(Ordering::Relaxed) != 0, "persisted":!radio.is_unsaved(),
             "wifi_message":status_message(), "wifi_status":STATUS.load(Ordering::Relaxed),
             "led":led_json(&BRIGHTNESS.status(Instant::now())),
+            "health":health_json(),
         }).to_string()),
     )
 }
@@ -1124,6 +1130,61 @@ mod routing_tests {
                 assert_eq!(status.1, raw.1, "{method} {path}: answer");
             }
             assert_eq!(radio.snapshot().await, reference_radio.snapshot().await);
+        });
+    }
+
+    /// `health` is added to `/api/state`: every field the page read before is still there, and the four
+    /// words come from the fixed set of `status::health`.
+    #[test]
+    fn the_state_keeps_its_fields_and_adds_the_four_health_words() {
+        embassy_futures::block_on(async {
+            let (radio, diag) = fixtures().await;
+            let router = app(&radio, &diag);
+            let (status, body) = call(&router, "GET", "/api/state", "");
+            assert_eq!(status, 200);
+            let json = body
+                .split_once("\r\n\r\n")
+                .map_or(body.as_str(), |(_, b)| b);
+            let state: serde_json::Value = serde_json::from_str(json).expect("JSON");
+            for key in [
+                "catalog",
+                "online",
+                "ssid",
+                "ip",
+                "networks",
+                "scanning",
+                "setup",
+                "reading",
+                "ready",
+                "restarting",
+                "persisted",
+                "wifi_message",
+                "wifi_status",
+                "led",
+            ] {
+                assert!(state.get(key).is_some(), "`{key}` is still served: {body}");
+            }
+            let health = state["health"].as_object().expect("health is an object");
+            assert_eq!(health.len(), 4, "{body}");
+            let allowed: [(&str, &[&str]); 4] = [
+                ("system", &["booting", "configuring", "running"]),
+                (
+                    "wifi",
+                    &["unconfigured", "connecting", "connected", "reconnecting"],
+                ),
+                (
+                    "stream",
+                    &["connecting", "connected", "ready", "reconnecting", "busy"],
+                ),
+                ("usb", &["initializing", "ready", "unavailable", "error"]),
+            ];
+            for (key, words) in allowed {
+                let word = health[key].as_str().expect("a word");
+                assert!(
+                    words.contains(&word) || word == "none" || word == "unknown",
+                    "{key}: {word}"
+                );
+            }
         });
     }
 
