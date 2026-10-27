@@ -107,6 +107,16 @@ contrôle : `ota-reject-self-check` et `ota-hang-self-check`. Jamais dans une im
 - `POST /api/maintenance` est ouvert à tout le réseau local, comme les autres routes de la page : il peut priver
   la carte de radio pendant dix minutes, il n'installe rien (l'OTA exige le jeton sur TLS).
 - Le chiffrement de la flash et Secure Boot ne sont pas utilisés.
+- **Disponibilité : le délai d'inactivité est actualisé avant l'authentification.** Le serveur OTA remet à zéro le
+  délai de dix minutes (`touch`) dès qu'une requête atteint `/ota/upload` ou `/ota/activate`, **avant** de vérifier le
+  jeton. Un client du réseau local qui a établi une connexion TLS peut donc, avec des requêtes non authentifiées
+  (refusées en 401), **prolonger la maintenance sans limite**. Il peut aussi **occuper l'unique connexion** du serveur
+  jusqu'à 120 s (durée maximale d'une requête). Conséquence : **indisponibilité prolongée du streaming et du MSC**,
+  tant que la maintenance dure (la carte ne revient en démarrage normal que par une coupure de courant ou une
+  activation). **Ce n'est pas un moyen d'installer un firmware** : l'upload et l'activation exigent toujours le jeton, et
+  une requête non authentifiée ne modifie ni la flash ni OTM1. Cette réserve de disponibilité est acceptée pour la
+  qualification sur banc, **non qualifiée face à un client hostile** (aucun essai n'a été fait dans ce sens) et sera
+  traitée dans un chantier de sécurisation distinct.
 
 ## Première installation d'une carte (sur autorisation du propriétaire de la carte)
 
