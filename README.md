@@ -41,7 +41,7 @@ Saving credentials does not switch USB in the current boot. BOOT held for three
 seconds saves provisioning mode, clears credentials, then requests a broad RTC
 system reset. The logger captures to RAM without writing on Improv transports.
 
-The target reserves an 80 KiB heap plus a 72 KiB second region in the DRAM the bootloader frees (see [HTTPS streaming](docs/https-streaming.md)), five network sockets (STA; SNTP needs the fifth) and a minimum 36 KiB
+The target reserves a 64 KiB heap plus a 72 KiB second region in the DRAM the bootloader frees (see [HTTPS streaming](docs/https-streaming.md)), five network sockets (STA; SNTP needs the fifth) and a minimum 36 KiB
 linker stack (boot assertion; a local UI request peaks around 31 KiB on the S3). The ELF inspection gate reports actual product TaskPool storage and
 linker stack reservation; these are not runtime stack high-water measurements.
 

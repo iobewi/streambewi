@@ -101,7 +101,11 @@ const AP_SOCKETS: usize = 3; // embassy-net's internal DNS socket, DHCP and one 
 const SOCKETS: usize = 5;
 // Measured on the S3 (qual image): heap peak ~60 KiB with the local UI; each HTTP request costs ~10 KiB of
 // stack (peak ~31 KiB). 96 KiB of heap left a 26.6 KiB stack and every request overflowed it.
-const HEAP_BYTES: usize = 80 * 1024;
+// The OTA (#3) puts a TLS *server* handshake (mbedtls, ~35 KiB of stack in the reference's measure) under the product
+// task's frames in the maintenance start: with 80 KiB the stack kept ~1 to 3 KiB over the static bound of that path.
+// 64 KiB of main heap (136 KiB with the reclaimed region) gives the stack 16 KiB more. The maintenance start has the
+// heap to itself (the OTA peaks at ~100 KiB in the reference); the normal start peaked at ~77 KiB of 152.
+const HEAP_BYTES: usize = 64 * 1024;
 const MIN_STACK_BYTES: usize = 36 * 1024;
 /// How long the disk stays off the USB bus before a software reset. Measured on the Metronic over 10
 /// restarts each: 0 resumed after the bare RTC reset, 10 resumed with this detach (first read 0.8 to 1.1 s
