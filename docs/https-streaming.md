@@ -38,7 +38,7 @@ de réponse de plus de 2 048 octets, un `Transfer-Encoding` autre qu'un seul `ch
 
 ## Mémoire et réseau (ESP32-S3)
 
-- Le tas principal est de 64 KiB (80 KiB avant l'OTA, `docs/ota.md`) ; la DRAM libérée par le bootloader de 2ᵉ étage (`dram2_seg`, 73 744 octets)
+- Le tas principal est de 68 KiB (80 KiB avant l'OTA, `docs/ota.md`) ; la DRAM libérée par le bootloader de 2ᵉ étage (`dram2_seg`, 73 744 octets)
   devient une **seconde région** `esp-alloc` (`#[esp_hal::ram(reclaimed)]`, bornes données par l'éditeur de
   liens), sans PSRAM. L'anneau audio (96 KiB statique) et la pile ne changent pas.
 - Cinq sockets réseau en STA : DHCP, DNS, flux, interface locale, SNTP. Le mode AP de configuration garde ses
