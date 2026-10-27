@@ -104,9 +104,12 @@ const SOCKETS: usize = 5;
 // The OTA (#3) puts a TLS *server* handshake (mbedtls) under the product task's frames in the maintenance start.
 // With 80 KiB the stack kept ~1 to 3 KiB over the static bound of that path: 64 KiB gave it 16 KiB more, and the
 // board measured (`qual`, maintenance, full upload then validation and OTM1 publication) a stack margin of
-// 16 952 B but only 15 012 B of free heap, under the 16 KiB asked. 68 KiB moves 4 KiB back to the heap: about
-// 19.1 KiB of heap and 12.9 KiB of stack margin expected, both over their thresholds (8 192 B of stack). The
-// maintenance start has the heap to itself; the normal start measured 67 056 B free at its minimum.
+// 16 952 B but only 15 012 B of free heap, under the 16 KiB asked. 68 KiB moves 4 KiB back to the heap. Measured
+// on the board with the `qual` image at 68 KiB, in the maintenance start (full upload, validation, OTM1
+// publication): 17 400 B of free heap at its minimum (threshold 16 384 B, so 1 016 B of margin) and 12 856 B of
+// stack margin (threshold 8 192 B). The normal start measured 71 620 B of free heap and 26 528 B of stack margin.
+// The nominal image has no probe: these are the qual figures. Anything that adds memory to the OTA path needs
+// a new measurement (`docs/ota-qualification.md`).
 const HEAP_BYTES: usize = 68 * 1024;
 const MIN_STACK_BYTES: usize = 36 * 1024;
 /// How long the disk stays off the USB bus before a software reset. Measured on the Metronic over 10

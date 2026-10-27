@@ -108,15 +108,62 @@ contrôle : `ota-reject-self-check` et `ota-hang-self-check`. Jamais dans une im
   la carte de radio pendant dix minutes, il n'installe rien (l'OTA exige le jeton sur TLS).
 - Le chiffrement de la flash et Secure Boot ne sont pas utilisés.
 
-## Première installation d'une carte (à exécuter sur autorisation)
+## Première installation d'une carte (sur autorisation du propriétaire de la carte)
 
 Après sauvegarde des régions utiles : écrire `streambewi-esp32s3.bin` à `0x0` (4 Mio : cela remplace le second étage,
 la table, `otadata`, l'application, et laisse `config` **vierge**). Provisionner le Wi-Fi (Improv). Le premier
 démarrage doit journaliser `ota: running ota_0 status Stable`. Pour la suite : entrer en maintenance, téléverser
-`streambewi-esp32s3-ota.bin`, activer, vérifier `ota: confirmed` au démarrage suivant. Procédure matérielle détaillée
-et critères : `docs/ota-qualification.md`.
+`streambewi-esp32s3-ota.bin`, activer, vérifier `ota: confirmed` au démarrage suivant. Bilan de la qualification matérielle et
+procédures : `docs/ota-qualification.md`.
 
-## Mesures (voir la PR)
+## Réserves acceptées de cette première version
 
-Taille de l'image, profondeur de pile statique (`tools/stack_depth.py`) et budgets du tas sont comparés à la
-référence de `main` dans la description de la PR ; la marge de pile nominale reste estimée, pas mesurée.
+La qualification matérielle (`docs/ota-qualification.md`) a réussi l'OTA nominale `ota_0` → `ota_1` et deux retours
+arrière (rejet explicite, expiration à 15 s). Ces limites restent **connues et non résolues** :
+
+### Mémoire
+
+La marge de tas libre minimale mesurée en maintenance est de **17 400 octets**, sur l'image `qual` à 68 Kio de tas
+principal, contre un seuil de 16 384 octets (**1 016 octets de marge**) ; la marge de pile mesurée est de 12 856
+octets (seuil 8 192). Le pic de tas varie d'un essai à l'autre. L'image nominale n'a pas de sonde : sa marge n'est pas
+mesurée. **Toute évolution qui ajoute une charge mémoire au chemin OTA** (tampons TLS, taille des requêtes, tâches,
+dépendances, piles) **impose une nouvelle mesure** avec l'image `qual` avant d'être acceptée. Les tampons TLS du serveur
+(`targets/esp32/src/ota.rs`) sont le premier levier si la marge doit croître. Le budget de tas ne se règle pas dans ce
+document : voir `HEAP_BYTES` dans `targets/esp32/src/main.rs`.
+
+### Probation
+
+Le succès du self-check minimal (la configuration se relit) **ne garantit ni le Wi-Fi, ni le streaming, ni le MSC**.
+Un candidat qui démarre et relit sa configuration mais dont le flux ou l'USB sont cassés est confirmé, et le
+retour arrière ne se produit pas. Le rollback n'a été qualifié que pour un autocontrôle qui échoue (R1) ou qui ne
+se termine pas (R2).
+
+### Sécurité : image de banc et image de release
+
+- **Image de banc :** construite avec un jeton et une identité TLS jetables fournis par l'environnement de
+  construction (`IOBEWI_OTA_TOKEN`, `IOBEWI_TLS_CERT_PEM`, `IOBEWI_TLS_KEY_PEM`), non versionnés. C'est ce qui a été
+  qualifié.
+- **Image de release :** les workflows et `scripts/build-release.sh` ne fournissent aucun identifiant. L'image compile
+  alors **sans OTA** : `POST /api/maintenance` répond `501`, rien ne redémarre en maintenance et **l'OTA n'est pas
+  opérationnelle**. Produire une release avec OTA suppose de définir comment les identifiants sont générés, conservés et
+  fournis à la construction ; ce n'est pas fait.
+- Limites connues, non résolues : identifiants **intégrés au binaire** (donc à la flash, communs aux cartes construites
+  avec les mêmes variables) ; jeton **comparé sans temps constant** ; **aucune signature d'image** (un SHA-256 prouve
+  l'intégrité, pas l'émetteur) ; `POST /api/maintenance` **ouvert à tout le réseau local** ; ni chiffrement de la
+  flash ni Secure Boot.
+
+### Pannes non qualifiées
+
+Aucun essai n'a été fait pour : une **coupure d'alimentation pendant la programmation** de la flash (ou l'effacement, la
+publication, l'activation, la confirmation) ; une **corruption d'image** autre qu'un mauvais digest (409) ; la
+**récupération par le bouton BOOT**, y compris le **geste BOOT en maintenance** (destructif : efface le Wi-Fi et le
+drapeau USB) ; la **reprise après interruption EKV** (défaut #70, qui concerne `config` et `ota`). Le second étage
+iobewi n'a pas de qualification de coupures d'alimentation (réserve de la bibliothèque). Ces points ne sont pas
+résolus par la PR.
+
+## Mesures (voir la PR et `docs/ota-qualification.md`)
+
+Taille de l'image, profondeur de pile statique (`tools/stack_depth.py`) et budgets du tas sont comparés à la référence de
+`main` dans la description de la PR. Les marges de pile et de tas mesurées sur carte (image `qual`) sont dans
+`docs/ota-qualification.md`, section 2. La profondeur statique est une borne basse : elle ne suit pas les appels par
+vtable (futures de l'OTA).
