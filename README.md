@@ -163,6 +163,12 @@ P3 hardware acceptance:
   appears and playback starts from the current stream window rather than expired offset 0;
 - no repeated `stream data expired` appears in normal forward playback.
 
+## Development container
+
+Open this repository in VS Code with the Dev Containers extension and select **Dev Containers: Reopen in Container**. The configuration uses the shared `ghcr.io/iobewi/rust-dev:latest` image from [rust_dev](https://github.com/iobewi/rust_dev); no local Dockerfile is needed. Project sources remain mounted on the host, and the project installs its pinned `esptool==5.5.0` packaging dependency when the container is created. If the stable Rust toolchain alias is absent, it is installed for the existing `cargo +stable` commands.
+
+The image currently contains ESP Rust 1.97.0.0 and espflash 4.7.0, whereas firmware CI uses ESP Rust 1.98.1.0 and espflash 4.6.0. The container is for development; the existing CI remains authoritative for release builds until toolchain parity is verified. For exact release reproduction use the CI tool versions. If GHCR requires authentication, sign in with an authorized package-read token before opening the container. USB is not passed through; use the independent [IDLab](https://github.com/iobewi/idlab) for hardware operations or the existing host-side flashing workflow.
+
 ## Build
 
 From the repository root:
