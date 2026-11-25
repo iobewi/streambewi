@@ -1,0 +1,33 @@
+{
+    "name": "StreamBeWI — Rust ESP32-S3",
+    "workspaceFolder": "/workspace",
+    "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind",
+    "mounts": [
+        "source=iobewi-claude-state,target=/root/.claude,type=volume"
+    ],
+    "containerEnv": {
+        "RUST_BACKTRACE": "1"
+    },
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "rust-lang.rust-analyzer",
+                "tamasfe.even-better-toml"
+            ],
+            "settings": {
+                "rust-analyzer.check.command": "check",
+                "rust-analyzer.cargo.target": "xtensa-esp32s3-none-elf",
+                "rust-analyzer.cargo.extraEnv": {
+                    "RUSTUP_TOOLCHAIN": "esp"
+                }
+            }
+        }
+    },
+    "remoteUser": "root",
+    "image": "ghcr.io/iobewi/rust-dev:latest",
+    "postCreateCommand": [
+        "bash",
+        "-lc",
+        "if ! rustup run stable rustc --version >/dev/null 2>&1; then rustup toolchain install stable --profile minimal --component rustfmt,clippy; fi && python3 -m pip install --no-cache-dir esptool==5.5.0"
+    ]
+}
