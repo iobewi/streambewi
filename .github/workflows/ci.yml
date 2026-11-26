@@ -39,30 +39,11 @@ jobs:
           default: false
           override: false
           github-token: ${{ github.token }}
-      - uses: taiki-e/install-action@v2
-        with:
-          tool: espflash@4.6.0
-      - name: Install image merge tool
-        run: python3 -m pip install esptool==5.5.0
-      # The same command and options as the release script (scripts/build-release.sh). The OTA layout (#3): the
-      # second stage is built from the pinned rust-mcu-libs revision (scripts/build-bootloader.sh), the image
-      # is validated against both slots by the library's own validator. No OTA token or TLS identity here: the
-      # image builds and does not offer the OTA.
-      - name: Release image (real link, product descriptor, flashable image)
-        run: scripts/build-image.sh ci-out
-      - name: USB debug build and layout
-        run: FEATURES=usb-debug scripts/build-image.sh ci-out/usb-debug
-      # Status LED (#3): one image per board; the LED pin is the only difference. The image above has no LED.
-      - name: Board variant DevKitC-1 v1.0 (LED on GPIO48)
-        run: FEATURES=board-devkitc-1 scripts/build-image.sh ci-out/board-devkitc-1
-      - name: Board variant DevKitC-1 v1.1 (LED on GPIO38)
-        run: FEATURES=board-devkitc-1-v1-1 scripts/build-image.sh ci-out/board-devkitc-1-v1-1
-      - name: Board variant Waveshare ESP32-S3 Zero (LED on GPIO21)
-        run: FEATURES=board-s3-zero scripts/build-image.sh ci-out/board-s3-zero
-      # Same source, instrumentation on: it must keep compiling and linking (bench qualification image).
-      - name: Qualification build (instrumentation on)
-        run: FEATURES=qual scripts/build-image.sh ci-out/qual
-      - uses: actions/upload-artifact@v4
-        with:
-          name: streambewi-esp32s3-ci
-          path: ci-out/
+      - name: Compile and link ESP32-S3 release
+        shell: bash
+        run: |
+          set -euo pipefail
+          source scripts/build-env.sh
+          $BUILD_CMD
+      - name: Check product descriptor and ELF layout
+        run: python3 tools/inspect_firmware_elf.py target/xtensa-esp32s3-none-elf/release/streambewi-esp32

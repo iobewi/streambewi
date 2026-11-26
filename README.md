@@ -167,7 +167,7 @@ P3 hardware acceptance:
 
 Open this repository in VS Code with the Dev Containers extension and select **Dev Containers: Reopen in Container**. The configuration uses the shared `ghcr.io/iobewi/rust-dev:latest` image from [rust_dev](https://github.com/iobewi/rust_dev); no local Dockerfile is needed. Project sources remain mounted on the host, and the project installs its pinned `esptool==5.5.0` packaging dependency when the container is created. If the stable Rust toolchain alias is absent, it is installed for the existing `cargo +stable` commands.
 
-The image currently contains ESP Rust 1.97.0.0 and espflash 4.7.0, whereas firmware CI uses ESP Rust 1.98.1.0 and espflash 4.6.0. The container is for development; the existing CI remains authoritative for release builds until toolchain parity is verified. For exact release reproduction use the CI tool versions. If GHCR requires authentication, sign in with an authorized package-read token before opening the container. USB is not passed through; use the independent [IDLab](https://github.com/iobewi/idlab) for hardware operations or the existing host-side flashing workflow.
+The image currently contains ESP Rust 1.97.0.0 and espflash 4.7.0, whereas firmware CI uses ESP Rust 1.98.1.0 and espflash 4.6.0. The container is for development; the manual Build firmware workflow remains authoritative for release builds until toolchain parity is verified. For exact release reproduction use the workflow tool versions. If GHCR requires authentication, sign in with an authorized package-read token before opening the container. USB is not passed through; use the independent [IDLab](https://github.com/iobewi/idlab) for hardware operations or the existing host-side flashing workflow.
 
 ## Build
 
@@ -361,3 +361,7 @@ exposes 1 GiB (about 18 h 38 min at the measured ~128 kbit/s). A new USB session
 the file to the current live window. The rolling RAM window remains 96 KiB, so very large
 backward seeks are intentionally unsupported; the measured Metronic access pattern is
 forward-only.
+
+### GitHub Actions
+
+Automatic CI runs host tests and checks, and links one generic ESP32-S3 release ELF. It does not package or upload firmware. To generate a flashable image, select **Actions → Build firmware → Run workflow**, choose the board and profile, and download the resulting artifact. The manual workflow uses the existing reproducible packaging script, including bootloader, OTA image validation and checksums. Board-specific and instrumented builds are no longer checked automatically on each PR.
