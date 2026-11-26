@@ -6,6 +6,9 @@ use iobewi_state::{Flags, State};
 
 use crate::brightness::{Brightness, SaveError};
 use crate::settings::SettingsStore;
+use crate::stream_policy::{
+    PREBUFFER_BYTES, Resume, Stream, StreamFile, is_ready, new_stream, progress,
+};
 
 use crate::fetch::{Chain, TcpConnector, is_redirect, origin};
 use alloc::string::String;
@@ -16,9 +19,6 @@ use embassy_time::{Duration, Instant, Timer, with_timeout};
 use iobewi_fat16::{FileSource, ReadStatus, SECTOR_SIZE};
 use iobewi_http_client::{HeadError, Target, get, read_head};
 use iobewi_net_io::{Close, Connector, ErrorType};
-use crate::stream_policy::{
-    PREBUFFER_BYTES, Resume, Stream, StreamFile, is_ready, new_stream, progress,
-};
 
 /// Bind the offset a host resumes at to the live edge (see `crate::stream_policy::Resume`). `false` restores the
 /// previous policy exactly.
