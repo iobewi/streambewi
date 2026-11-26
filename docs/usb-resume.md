@@ -6,7 +6,7 @@ read. A live stream cannot serve it: a position in the past has left the window,
 not exist yet. Waiting makes the host reset the bus after about 3 s and ask again (a re-enumeration loop);
 answering zeroes makes it give up.
 
-`streambewi_core::Resume` (always on in the product, `RESUME_REBASE` in `app/src/stream.rs`) therefore fixes the
+`streambewi::stream_policy::Resume` (always on in the product, `RESUME_REBASE` in `app/src/stream.rs`) therefore fixes the
 origin of an MSC session once, on its first audio read, when the stream could not serve that read.
 
 | Event | Rule |

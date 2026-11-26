@@ -13,8 +13,6 @@ usb-debug = ["embassy-usb/log", "iobewi-usb-msc/usb-debug"]
 qual = []
 
 [dependencies]
-streambewi-core = { path = "../core" }
-
 embassy-futures = "0.1.2"
 embassy-net = { version = "0.9.0", features = ["dhcpv4", "medium-ethernet", "tcp", "dns"] }
 embassy-sync = "0.8.0"
@@ -39,6 +37,7 @@ iobewi-log-config = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "f9
 iobewi-http-client = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "f9a2a9a4099dd43c3e9eb0b1410fc3a523286f53" }
 iobewi-net-io = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "f9a2a9a4099dd43c3e9eb0b1410fc3a523286f53" }
 iobewi-fat16 = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "f9a2a9a4099dd43c3e9eb0b1410fc3a523286f53" }
+iobewi-rolling-stream = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "f9a2a9a4099dd43c3e9eb0b1410fc3a523286f53" }
 iobewi-usb-msc = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "f9a2a9a4099dd43c3e9eb0b1410fc3a523286f53" }
 iobewi-wifi-core = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "f9a2a9a4099dd43c3e9eb0b1410fc3a523286f53" }
 iobewi-wifi-manager = { git = "https://github.com/iobewi/rust-mcu-libs", rev = "f9a2a9a4099dd43c3e9eb0b1410fc3a523286f53" }

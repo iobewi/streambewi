@@ -27,6 +27,7 @@ pub mod setup;
 pub mod stations;
 pub mod status;
 pub mod stream;
+pub mod stream_policy;
 pub mod usb;
 
 use core::fmt::{Debug, Display};
