@@ -1,5 +1,3 @@
-#![cfg_attr(not(test), no_std)]
-
 //! StreamBeWI product policy on top of the IOBEWI USB radio framework: the 1 GiB virtual
 //! `RADIO.MP3` geometry, the live-stream window and the far-ahead probe policy. FAT layout,
 //! rolling window and USB MSC themselves live in `iobewi-fat16`, `iobewi-rolling-stream` and

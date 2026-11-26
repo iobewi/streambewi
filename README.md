@@ -28,7 +28,7 @@ stream.
   recovery reset and resource reservations. No Board/entry framework dependency.
 - `app`: product provisioning/recovery policy, HTTP/HTTPS producer, bounded
   shared stream and USB radio composition. Its APIs accept prepared resources.
-- `core`: pure product policy, including 1 GiB RADIO.MP3, 96 KiB window,
+- `app/src/stream_policy.rs`: pure product policy, including 1 GiB RADIO.MP3, 96 KiB window,
   64 KiB prebuffer, 80 KiB maximum lead and far-ahead zero probes, and a one-time rebase for a host that resumes at a remembered offset (docs/usb-resume.md).
 - `rust-mcu-libs`: ConfigSpace/EKV, logging, Improv, Wi-Fi mechanics, rolling,
   virtual FAT16, MSC and ESP adaptations. All Git dependencies are pinned to the
@@ -54,7 +54,7 @@ The [former Board migration](docs/board-entry-migration.md) and
 
 ### P0 — virtual FAT16 model
 
-The pure `streambewi-core` crate implements a deterministic read-only FAT16 disk:
+The `stream_policy` module defines the product policy for a deterministic read-only FAT16 disk:
 
 - 512-byte sectors;
 - 4 MiB virtual medium;
@@ -175,7 +175,7 @@ From the repository root:
 
 ```sh
 # (already at the repository root)
-cargo +stable test -p streambewi-core -p streambewi --locked --target x86_64-unknown-linux-gnu
+cargo +stable test -p streambewi --locked --target x86_64-unknown-linux-gnu
 
 cargo +esp build -p streambewi-esp32 --release \
   -Z build-std=core,alloc \

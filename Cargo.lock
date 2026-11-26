@@ -3319,6 +3319,7 @@ dependencies = [
  "iobewi-log",
  "iobewi-log-config",
  "iobewi-net-io",
+ "iobewi-rolling-stream",
  "iobewi-state",
  "iobewi-usb-msc",
  "iobewi-wifi-core",
@@ -3328,16 +3329,7 @@ dependencies = [
  "serde",
  "serde_json",
  "static_cell",
- "streambewi-core",
  "tokio",
-]
-
-[[package]]
-name = "streambewi-core"
-version = "0.1.0"
-dependencies = [
- "iobewi-fat16",
- "iobewi-rolling-stream",
 ]
 
 [[package]]

@@ -16,11 +16,11 @@ use embassy_time::{Duration, Instant, Timer, with_timeout};
 use iobewi_fat16::{FileSource, ReadStatus, SECTOR_SIZE};
 use iobewi_http_client::{HeadError, Target, get, read_head};
 use iobewi_net_io::{Close, Connector, ErrorType};
-use streambewi_core::{
+use crate::stream_policy::{
     PREBUFFER_BYTES, Resume, Stream, StreamFile, is_ready, new_stream, progress,
 };
 
-/// Bind the offset a host resumes at to the live edge (see `streambewi_core::Resume`). `false` restores the
+/// Bind the offset a host resumes at to the live edge (see `crate::stream_policy::Resume`). `false` restores the
 /// previous policy exactly.
 const RESUME_REBASE: bool = true;
 

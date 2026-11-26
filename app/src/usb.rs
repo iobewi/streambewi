@@ -11,7 +11,7 @@ use embassy_usb::Handler;
 use embassy_usb::{Builder, driver::Driver};
 use iobewi_fat16::{ReadStatus, VirtualFat16};
 use iobewi_usb_msc::{InquiryIdentity, MscClass, ReadAction, ReadPolicy, State as MscState};
-use streambewi_core::{FAT16_CONFIG, PREBUFFER_BYTES};
+use crate::stream_policy::{FAT16_CONFIG, PREBUFFER_BYTES};
 
 use crate::provisioning;
 use crate::stream::{STREAM, SharedStream, SharedStreamSource};
