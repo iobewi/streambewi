@@ -4,7 +4,7 @@
     IDLAB_URL=... IDLAB_BOARD=... IDLAB_BOARD_TOKEN=... python3 tools/qual/msc_capture.py OUT_DIR
 
 Writes OUT_DIR/uart.log (raw bytes), OUT_DIR/chunks.tsv (host time in ms, offset and size of each chunk,
-which ties the device clock of the `msct` lines to the host clock) and OUT_DIR/events.log (sessions, errors,
+which gives the host arrival time of each chunk, which for buffered bytes is not the time they were written) and OUT_DIR/events.log (sessions, errors,
 bytes dropped by the server). Stops when OUT_DIR/stop exists. It never resets, flashes or writes to the board.
 """
 import os
@@ -31,7 +31,8 @@ def main(out_dir):
     while not os.path.exists(stop):
         try:
             with IDLabClient(token="").control(name, token) as board:
-                # The server buffer predates the session: it is skipped, not taken as evidence.
+                # Only the first chunk of the server buffer is skipped: older bytes can still follow. Nothing in
+                # this file is evidence for a test by its mere presence: delimit with the device times.
                 old, cursor, _ = board.read_uart()
                 event(f"session open, skipped {len(old)} buffered bytes")
                 while not os.path.exists(stop):

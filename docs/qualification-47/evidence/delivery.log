@@ -1,0 +1,15 @@
+16:44:02 token accepted, mode console generation 04cd3211f2d9404c84fd2cc19803a8fa
+16:44:03 chip esp32s3 mac <mac-carte> flash 16777216 mode loader
+16:44:26 config BEFORE d716e9ed8e2291ecf97ab5a1570086b71b7c0f83508ecc3ec01c9a06888fd147
+16:44:29 0x0..0x9000 matches image: True
+16:46:18 installed app 2a80a3398e7f6f3526beb1d9400ab4718eb954a5aae482eaea10cc33c4ed357f
+16:49:18 program_flash single block 180s state Terminée
+16:51:10 READBACK app 0ea65cfabbb813b2e936f50426b6a37233b15bc5ba7fc3c1bb9464511d14f0ec PASS
+16:51:14 0x0..0x9000 UNCHANGED
+16:51:37 config AFTER  d716e9ed8e2291ecf97ab5a1570086b71b7c0f83508ecc3ec01c9a06888fd147 UNCHANGED
+16:51:37 DELIVERY PASS
+16:51:37 mode now: loader
+16:51:37 back to console: console
+16:51:37 console.reset sent (single)
+16:52:17 boot capture bytes 22546
+exit 0

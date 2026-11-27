@@ -1,6 +1,7 @@
 # Caractérisation de l'activité MSC du Metronic 477144 (#47)
 
-Statut : firmware de diagnostic compilé, **non livré**. Aucune mesure matérielle.
+Statut : campagne M0 à M6 exécutée le 27 novembre 2026, arrêtée sur l'échec de reprise de M6. Résultats :
+[results.md](results.md).
 
 ## Ce que les diagnostics existants ne montraient pas
 
@@ -64,18 +65,16 @@ Le reste (OTA, démarrage, Wi-Fi) diffère.
 - Metronic sur le port USB natif de la carte, IDLab sur l'UART.
 - Station HTTP Icecast sélectionnée (scénario de #47).
 - Collecte : `tools/qual/msc_capture.py OUT`, lecture seule, arrêt en créant `OUT/stop`.
-- Actions : l'opérateur ouvre `tools/qual/msc-marker.html` et clique en appuyant sur la touche du Metronic.
-  Le rapprochement avec la carte passe par l'heure du PC et `chunks.tsv` (heure d'arrivée côté hôte). Précision
-  attendue de l'ordre de la seconde, à condition que les deux horloges soient synchronisées : leur écart est
-  vérifié avant M0 et noté. Un délai action → MSC inférieur à cette précision est `NOT_MEASURED`.
+- Les gestes de l'opérateur ne sont pas horodatés : le délai entre un appui et la réaction MSC est
+  `NOT_MEASURED`. Les durées citées sont les silences des READ(10) sur l'horloge de la carte.
 
 ## Recette
 
 Avant M0 : capture ouverte, lecture établie depuis au moins 60 s.
 
-| Test | Gestes (chacun marqué) | Observation après reprise |
+| Test | Gestes | Observation après reprise |
 |---|---|---|
-| M0 | Début, au moins 60 s de lecture sans geste, Fin | porte ci-dessous ; cadence et plus long silence en lecture |
+| M0 | au moins 60 s de lecture sans geste | porte ci-dessous ; cadence et plus long silence en lecture |
 | M1 | PAUSE, 5 s, PLAY | 30 s au moins |
 | M2 | PAUSE, 10 s, PLAY | 30 s au moins |
 | M3 | PAUSE, 20 s, PLAY | 30 s au moins |
@@ -83,9 +82,8 @@ Avant M0 : capture ouverte, lecture établie depuis au moins 60 s.
 | M5 | STOP, 5 s, PLAY | 30 s au moins |
 | M6 | STOP, 60 s, PLAY | 30 s au moins |
 
-Pour chaque test, l'opérateur note : délai ressenti avant le silence et avant le retour du son, position de
-reprise à l'oreille (direct, reprise, redémarrage), anomalie, affichage du Metronic. Il clique « Son revenu »
-quand le son revient. Si le son ne revient pas en 60 s, il le signale avant tout autre geste.
+Après chaque test, l'opérateur dit si le son est revenu. S'il ne revient pas en 60 s, il le signale avant tout
+autre geste.
 
 Arrêt de la campagne : `lost` non nul ou `DROPPED` (trace incomplète : test à refaire), perte du banc, ou lecture
 qui ne revient pas. Aucun reset sans nouvel accord.
@@ -118,7 +116,7 @@ est sans effet sur la cadence des commandes.
 | `live`, `consumed` | `msct S`, chaque seconde |
 | Commande en attente de données | `msct S open=…+âge`, `svc` |
 | REBASE, `IncompleteBody`, ZEROFILL | lignes produit existantes |
-| Délai action → changement MSC | marqueur et `chunks.tsv` |
+| Délai action → changement MSC | `NOT_MEASURED` |
 | Position de reprise | dernier LBA avant le silence comparé au premier après |
 
 Critère de décision, fixé avant les mesures. Un état n'est dit **distinguable** que si une signature le sépare
