@@ -36,8 +36,11 @@ commence à 25 s. Pas de requête à `/api/logs` pendant les essais (tas).
 2. A : STOP 5 s, PLAY, 90 s.
 3. B : STOP 60 s, PLAY, 90 s.
 
-L'opérateur dit seulement si le son est revenu. **Borne :** si B reprend, au plus deux répétitions de B (trois B au
-total), puis arrêt, reproduit ou non. Au premier refus : arrêt après l'export, sans autre geste.
+L'opérateur dit seulement si le son est revenu. **Règles, fixées par l'opérateur avant la livraison :** trois essais
+de STOP prolongé au plus. Après un premier refus : un deuxième essai seulement si ce refus montre une anomalie MP3
+absente des scénarios acceptés ; sinon la campagne se termine en documentant les limites de l'observation, ce qui ne
+réfute pas globalement l'hypothèse. La consommation mémoire et l'export UART sont surveillés au passage. Cette
+recette clôt l'investigation de #47.
 
 Arrêt aussi si la trace est incomplète (`lost`, `DROPPED`, secteur exporté incomplet ou CRC faux) : l'essai ne
 compte pas.
