@@ -15,6 +15,7 @@ board-devkitc-1-v1-1 = ["dep:iobewi-esp-ws2812"]
 board-s3-zero = ["dep:iobewi-esp-ws2812"]
 usb-debug = ["streambewi/usb-debug"]
 msc-trace = ["usb-debug", "streambewi/msc-trace"]
+mp3-capture = ["msc-trace", "streambewi/mp3-capture"]
 # Debug build: driver traces, stack/heap high-water probe. The operating log (Info/Warn on UART0) is
 # always on; this adds the debug detail. Off by default; CI compiles both.
 qual = ["usb-debug", "esp-alloc/internal-heap-stats", "streambewi/qual"]

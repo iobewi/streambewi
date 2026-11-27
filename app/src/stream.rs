@@ -169,6 +169,13 @@ impl SharedStream {
         self.inner.lock(|cell| is_ready(&cell.borrow()))
     }
 
+    /// Base of the current session's window, for the diagnostic capture.
+    #[cfg(feature = "mp3-capture")]
+    pub(crate) fn window_base(&self) -> Option<u64> {
+        self.inner
+            .lock(|cell| cell.borrow().session().map(|s| s.base))
+    }
+
     pub fn progress(&self) -> (u64, u64) {
         self.inner.lock(|cell| progress(&cell.borrow()))
     }

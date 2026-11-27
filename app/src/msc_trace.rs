@@ -358,6 +358,8 @@ impl Cost {
 pub(crate) async fn run(progress: impl Fn() -> (u64, u64)) -> ! {
     let mut window = now();
     let mut cost = Cost::default();
+    #[cfg(feature = "mp3-capture")]
+    let mut turn = false;
     loop {
         Timer::after_millis(POLL_MS).await;
         let t = now();
@@ -368,6 +370,14 @@ pub(crate) async fn run(progress: impl Fn() -> (u64, u64)) -> ! {
         }
         while let Some(line) = with(|trace| trace.pop()) {
             cost.measure(|| log::info!("{line}"));
+        }
+        // At most one line of the audio capture every other poll: its cost is part of `tx_us`.
+        #[cfg(feature = "mp3-capture")]
+        {
+            turn = !turn;
+            if turn && let Some(line) = crate::mp3_capture::next_line() {
+                cost.measure(|| log::info!("{line}"));
+            }
         }
         if tick {
             let (live, consumed) = progress();
