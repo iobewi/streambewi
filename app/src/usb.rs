@@ -9,11 +9,11 @@ use embassy_time::{Duration, Instant, Timer};
 #[cfg(feature = "usb-debug")]
 use embassy_usb::Handler;
 use embassy_usb::{Builder, driver::Driver};
-use iobewi_fat16::{ReadStatus, VirtualFat16};
+use iobewi_fat16::{ReadOnlyBlockDevice, ReadStatus, SECTOR_SIZE, VirtualFat16};
 use iobewi_usb_msc::{InquiryIdentity, MscClass, ReadAction, ReadPolicy, State as MscState};
 
 use crate::provisioning;
-use crate::stream::{STREAM, SharedStream, SharedStreamSource};
+use crate::stream::{CONSUMER_IDLE_LIMIT, STREAM, SharedStream, SharedStreamSource};
 use crate::stream_policy::{FAT16_CONFIG, PREBUFFER_BYTES};
 
 /// Longest total wait for stream data inside one READ(10) command (not per sector): a host aborts
@@ -223,6 +223,70 @@ impl LinkSupervisor {
     }
 }
 
+/// Exact metadata-to-file-head sequence observed on the Metronic after STOP (#47).
+/// It is an open hint, not a SCSI PLAY command. A bare head re-read is not a new open.
+#[derive(Default)]
+struct OpenProbe(u8);
+
+impl OpenProbe {
+    fn observe(&mut self, lba: u32, root: u32, head: u32) -> bool {
+        let (step, opened) = match (self.0, lba) {
+            (1, iobewi_fat16::RESERVED_SECTORS) => (2, false),
+            (2, lba) if lba == root => (3, false),
+            (3, lba) if lba == head => (0, true),
+            (_, lba) if lba == root => (1, false),
+            _ => (0, false),
+        };
+        self.0 = step;
+        opened
+    }
+}
+
+/// Keep product-specific open recognition outside the generic FAT and MSC libraries.
+struct StreamDisk {
+    volume: VirtualFat16<SharedStreamSource>,
+    source: SharedStreamSource,
+    probe: OpenProbe,
+    retry_after: Duration,
+}
+
+impl StreamDisk {
+    fn new(stream: &'static SharedStream, retry_after: Duration) -> Self {
+        let source = SharedStreamSource::new(stream);
+        Self {
+            volume: VirtualFat16::new(source, FAT16_CONFIG).expect("valid FAT16 config"),
+            source,
+            probe: OpenProbe::default(),
+            retry_after,
+        }
+    }
+}
+
+impl ReadOnlyBlockDevice for StreamDisk {
+    fn last_lba(&self) -> u32 {
+        self.volume.last_lba()
+    }
+
+    fn begin_session(&mut self) {
+        self.probe = OpenProbe::default();
+        self.volume.begin_session();
+    }
+
+    fn end_session(&mut self) {
+        self.probe = OpenProbe::default();
+        self.volume.end_session();
+    }
+
+    fn read_sector(&mut self, lba: u32, out: &mut [u8; SECTOR_SIZE]) -> ReadStatus {
+        let geometry = self.volume.geometry();
+        let root = geometry.data_start_lba - geometry.root_sectors;
+        if self.probe.observe(lba, root, geometry.data_start_lba) {
+            self.source.retry_head_after_idle(self.retry_after);
+        }
+        self.volume.read_sector(lba, out)
+    }
+}
+
 /// Logs USB bus lifecycle events to show how far a host's enumeration gets (`usb-debug`).
 #[cfg(feature = "usb-debug")]
 struct BusLog;
@@ -316,8 +380,7 @@ where
 
     let mut msc = MscClass::new(&mut builder, msc_state, MSC_IDENTITY);
     let mut usb_device = builder.build();
-    let mut disk = VirtualFat16::new(SharedStreamSource::new(&STREAM), FAT16_CONFIG)
-        .expect("valid FAT16 config");
+    let mut disk = StreamDisk::new(&STREAM, CONSUMER_IDLE_LIMIT);
 
     let device_fut = usb_device.run();
     let msc_fut = async {
@@ -343,6 +406,54 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn explicit_open_pattern_excludes_bare_head_rereads() {
+        let mut probe = OpenProbe::default();
+        for lba in [261, 261, 259, 261, 259, 1, 259] {
+            assert!(!probe.observe(lba, 259, 261));
+        }
+        assert!(probe.observe(261, 259, 261));
+        assert!(!probe.observe(261, 259, 261));
+    }
+
+    #[test]
+    fn head_only_retry_after_idle_can_advance_origin_but_active_reads_cannot() {
+        let stream: &'static SharedStream = Box::leak(Box::new(SharedStream::new()));
+        for tag in 0..160u8 {
+            assert_eq!(stream.push(&[tag; SECTOR_SIZE]), SECTOR_SIZE);
+        }
+        let mut disk = StreamDisk::new(stream, Duration::from_millis(20));
+        disk.begin_session();
+        let mut sector = [0; SECTOR_SIZE];
+        for lba in [259, 1, 259, 261] {
+            assert_eq!(disk.read_sector(lba, &mut sector), ReadStatus::Ready);
+        }
+        let first = sector;
+        for _ in 0..33 {
+            stream.push(&[0xF1; SECTOR_SIZE]);
+        }
+        assert_eq!(disk.read_sector(261, &mut sector), ReadStatus::Ready);
+        assert_eq!(sector, first);
+        embassy_futures::block_on(Timer::after(Duration::from_millis(30)));
+        // A bare re-read must keep its mapping even after the idle limit.
+        assert_eq!(disk.read_sector(261, &mut sector), ReadStatus::Ready);
+        assert_eq!(sector, first);
+        embassy_futures::block_on(Timer::after(Duration::from_millis(30)));
+        for lba in [259, 1, 259, 261] {
+            assert_eq!(disk.read_sector(lba, &mut sector), ReadStatus::Ready);
+        }
+        assert_ne!(sector, first);
+        let reopened = sector;
+        assert_eq!(disk.read_sector(261, &mut sector), ReadStatus::Ready);
+        assert_eq!(sector, reopened);
+        assert_eq!(disk.read_sector(262, &mut sector), ReadStatus::Ready);
+        embassy_futures::block_on(Timer::after(Duration::from_millis(30)));
+        for lba in [259, 1, 259, 261] {
+            assert_eq!(disk.read_sector(lba, &mut sector), ReadStatus::Ready);
+        }
+        assert_eq!(sector, reopened);
+    }
 
     #[test]
     fn pending_waits_within_the_command_budget_then_zero_fills() {
@@ -475,7 +586,7 @@ mod tests {
         assert_eq!(stream.writable(), 0);
         // The producer waits for room for a long time (the host reads ahead of the stream, or not at
         // all): that is not silence of the stream.
-        embassy_futures::block_on(embassy_futures::join::join(stream.wait_for_room(), async {
+        embassy_futures::block_on(embassy_futures::join::join(stream.wait_for_room(CONSUMER_IDLE_LIMIT), async {
             Timer::after(Duration::from_millis(120)).await;
             assert!(stream.producer_idle() < Duration::from_millis(40));
             assert!(!is_stall(ReadStatus::Pending, stream.producer_idle()));

@@ -133,6 +133,28 @@ impl<'a> StreamFile<'a> {
         }
     }
 
+    /// An explicit new open after a head-only attempt may choose a newer retained origin.
+    /// The disk wrapper is responsible for recognizing the metadata pattern and idle gap.
+    /// Never change an active playback mapping, or rebase to the same origin.
+    pub(crate) fn retry_head(&mut self) -> bool {
+        let Some(session) = self.stream.session() else {
+            return false;
+        };
+        if self.resume.as_ref().is_some_and(|r| r.shift != 0)
+            || session.read_end != session.base.saturating_add(SECTOR_SIZE as u64)
+            || self
+                .stream
+                .written()
+                .saturating_sub(PREBUFFER_BYTES)
+                .saturating_sub(session.base)
+                < SECTOR_SIZE as u64
+        {
+            return false;
+        }
+        self.begin_session();
+        true
+    }
+
     /// As `new`, with the resume policy of the session (`Resume::new(false)` changes nothing).
     pub fn with_resume(stream: &'a mut Stream, resume: &'a mut Resume) -> Self {
         Self {

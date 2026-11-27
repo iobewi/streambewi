@@ -30,6 +30,8 @@ pub static STREAM: SharedStream = SharedStream::new();
 
 /// Largest chunk read from the network and pushed into the window at once.
 const CHUNK_BYTES: usize = 2048;
+/// A continuously full window for this long means the consumer is not making progress.
+pub(crate) const CONSUMER_IDLE_LIMIT: Duration = Duration::from_secs(2);
 
 /// Longest the producer waits for the next bytes of the stream while it wants them.
 ///
@@ -134,8 +136,8 @@ pub struct SharedStream {
     hold: AtomicBool,
     /// Incremented by every station change; a USB stall cycle started before it must not act after it.
     generation: AtomicU32,
-    /// Ticks of the last accepted push (0: nothing pushed yet); a critical section, since the target
-    /// has no 64-bit atomics.
+    /// Ticks of the last producer activity (push, deliberate throttling or drain read).
+    /// A critical section, since the target has no 64-bit atomics.
     last_push: Mutex<CriticalSectionRawMutex, Cell<u64>>,
 }
 
@@ -181,28 +183,33 @@ impl SharedStream {
     pub(crate) fn push(&self, input: &[u8]) -> usize {
         let pushed = self.inner.lock(|cell| cell.borrow_mut().push(input));
         if pushed > 0 {
-            let now = Instant::now().as_ticks().max(1);
-            self.last_push.lock(|last| last.set(now));
+            self.note_producer_activity();
         }
         pushed
     }
 
-    /// Wait until the window has room for the producer (the reader is behind).
-    ///
-    /// A producer held back by a slow or absent reader is throttled, not starved by the network: it
-    /// counts as active while it waits, so that `producer_idle` measures silence of the stream only.
-    /// Otherwise a host that reads ahead of the live edge, or does not read at all, would make the
-    /// producer look dead and the device would leave the bus and never come back (a fresh prebuffer
-    /// cannot be written into a full window).
-    pub(crate) async fn wait_for_room(&self) {
-        while self.writable() == 0 {
-            let now = Instant::now().as_ticks().max(1);
-            self.last_push.lock(|last| last.set(now));
-            Timer::after(Duration::from_millis(5)).await;
-        }
+    fn note_producer_activity(&self) {
+        let now = Instant::now().as_ticks().max(1);
+        self.last_push.lock(|last| last.set(now));
     }
 
-    /// How long the producer has delivered nothing; `Duration::MAX` before the first byte.
+    /// Wait for room, but never stop consuming the HTTP body indefinitely (#47).
+    /// A single producer owns the window: while it is full, any real forward read
+    /// frees room. Duplicate reads and metadata probes do not.
+    /// Return false if the window stayed full for the whole limit.
+    pub(crate) async fn wait_for_room(&self, limit: Duration) -> bool {
+        let started = Instant::now();
+        while self.writable() == 0 {
+            if started.elapsed() >= limit {
+                return false;
+            }
+            self.note_producer_activity();
+            Timer::after(Duration::from_millis(5)).await;
+        }
+        true
+    }
+
+    /// Time since producer activity; `Duration::MAX` before the first byte.
     pub fn producer_idle(&self) -> Duration {
         match self.last_push.lock(|last| last.get()) {
             0 => Duration::MAX,
@@ -262,6 +269,19 @@ pub struct SharedStreamSource {
 impl SharedStreamSource {
     pub const fn new(stream: &'static SharedStream) -> Self {
         Self { stream }
+    }
+
+    /// Called only by the disk wrapper on an explicit metadata-to-head open pattern.
+    /// A rapid re-read is not a new open.
+    pub(crate) fn retry_head_after_idle(&self, limit: Duration) -> bool {
+        if !matches!(self.stream.since_last_read(), Some(elapsed) if elapsed >= limit) {
+            return false;
+        }
+        let reopened = self.with_file(|file| file.retry_head());
+        if reopened {
+            log::info!("stream: REBASE on explicit head retry");
+        }
+        reopened
     }
 
     fn with_file<R>(&self, f: impl FnOnce(&mut StreamFile<'_>) -> R) -> R {
@@ -895,8 +915,21 @@ async fn pump<R: embedded_io_async::Read>(stream: &'static SharedStream, body: &
 where
     R::Error: core::fmt::Debug,
 {
+    pump_with_limits(stream, body, CONSUMER_IDLE_LIMIT, READ_TIMEOUT).await;
+}
+
+async fn pump_with_limits<R: embedded_io_async::Read>(
+    stream: &'static SharedStream,
+    body: &mut R,
+    idle_limit: Duration,
+    read_limit: Duration,
+) where
+    R::Error: core::fmt::Debug,
+{
     let mut buf = [0u8; CHUNK_BYTES];
     let mut last_progress_log = Instant::now();
+    let mut draining = false;
+    let mut discarded = 0u64;
     // Bytes this connection delivered: the stream is ready for the status LED once it passed the
     // prebuffer. A local counter, one comparison per chunk; the registry is touched once.
     let mut delivered = 0u64;
@@ -909,14 +942,26 @@ where
         if qual_drop_due(stream, started) {
             break;
         }
-        stream.wait_for_room().await;
+        if draining && stream.writable() > 0 {
+            draining = false;
+            log::info!("stream: consumer active, discarded={} bytes", discarded);
+            discarded = 0;
+        }
+        if !draining && !stream.wait_for_room(idle_limit).await {
+            draining = true;
+            log::info!("stream: consumer inactive, draining HTTP body");
+        }
 
-        let want = core::cmp::min(stream.writable(), buf.len());
+        let want = if draining {
+            buf.len()
+        } else {
+            stream.writable().min(buf.len())
+        };
         if want == 0 {
             continue;
         }
 
-        match read_bounded(body, &mut buf[..want], READ_TIMEOUT).await {
+        match read_bounded(body, &mut buf[..want], read_limit).await {
             Err(ReadStop::Closed) => {
                 log::info!("stream: server closed connection");
                 break;
@@ -926,11 +971,22 @@ where
                 // and let the reconnection open a new one.
                 log::warn!(
                     "stream: no data for {} s, abandoning the connection",
-                    READ_TIMEOUT.as_secs()
+                    read_limit.as_secs()
                 );
                 break;
             }
             Ok(n) => {
+                if draining {
+                    // Do not overwrite any retained sector or advance virtual offsets.
+                    // If the consumer resumed during this read, at most this one chunk
+                    // is discarded before the next iteration starts retaining again.
+                    stream.note_producer_activity();
+                    discarded = discarded.saturating_add(n as u64);
+                    // A ready body may complete reads immediately (e.g. a TCP backlog).
+                    // Yield so USB and station changes can make progress.
+                    Timer::after(Duration::from_millis(1)).await;
+                    continue;
+                }
                 let before = stream.progress().0;
                 let pushed = stream.push(&buf[..n]);
                 let (written, consumed) = stream.progress();
@@ -964,6 +1020,9 @@ where
                 break;
             }
         }
+    }
+    if draining {
+        log::info!("stream: drain ended, discarded={} bytes", discarded);
     }
 }
 
@@ -1085,7 +1144,7 @@ mod tests {
                 }
             };
             let producing = async {
-                stream.wait_for_room().await;
+                assert!(stream.wait_for_room(CONSUMER_IDLE_LIMIT).await);
                 let mut buf = [0u8; 64];
                 read_bounded(
                     &mut Body::After(Duration::from_millis(20), 5),
@@ -1098,6 +1157,98 @@ mod tests {
         });
         assert_eq!(out, Ok(5));
         assert!(took >= std::time::Duration::from_millis(110), "{took:?}");
+    }
+
+    fn saturated() -> (&'static SharedStream, SharedStreamSource) {
+        let stream = fresh();
+        let mut source = SharedStreamSource::new(stream);
+        let data = [0x55; CHUNK_BYTES];
+        for _ in 0..40 {
+            assert_eq!(stream.push(&data), data.len());
+        }
+        source.begin_session();
+        while stream.push(&data) > 0 {}
+        assert_eq!(stream.writable(), 0);
+        (stream, source)
+    }
+
+    #[test]
+    fn inactive_consumer_drains_body_without_moving_the_window() {
+        let (stream, mut source) = saturated();
+        let before = stream.progress();
+        let mut conn = MockConn {
+            script: &Script::default(),
+            data: payload(257),
+            pos: 0,
+            request: alloc::vec::Vec::new(),
+        };
+        run(pump_with_limits(
+            stream,
+            &mut conn,
+            Duration::from_millis(15),
+            Duration::from_millis(100),
+        ));
+        assert_eq!(conn.pos, conn.data.len());
+        assert_eq!(stream.progress(), before);
+        let mut sector = [0; SECTOR_SIZE];
+        assert_eq!(source.read_file_sector(0, &mut sector), ReadStatus::Ready);
+        assert_eq!(sector, [0x55; SECTOR_SIZE]);
+        assert_eq!(source.read_file_sector(0, &mut sector), ReadStatus::Ready);
+        assert_eq!(sector, [0x55; SECTOR_SIZE]);
+    }
+
+    #[test]
+    fn inactive_consumer_still_observes_network_timeout() {
+        let (stream, _) = saturated();
+        let before = stream.progress();
+        let (_, took) = run(pump_with_limits(
+            stream,
+            &mut Body::Silent,
+            Duration::from_millis(20),
+            Duration::from_millis(60),
+        ));
+        assert!(took >= std::time::Duration::from_millis(70), "{took:?}");
+        assert!(took < std::time::Duration::from_secs(2), "{took:?}");
+        assert_eq!(stream.progress(), before);
+    }
+
+    #[test]
+    fn room_after_drain_allows_sequential_append_without_rebase() {
+        let (stream, mut source) = saturated();
+        let (written, _) = stream.progress();
+        let mut skipped = MockConn {
+            script: &Script::default(),
+            data: alloc::vec![0x77; 52],
+            pos: 0,
+            request: alloc::vec::Vec::new(),
+        };
+        run(pump_with_limits(
+            stream,
+            &mut skipped,
+            Duration::from_millis(10),
+            Duration::from_millis(100),
+        ));
+        let base = stream.inner.lock(|c| c.borrow().session().unwrap().base);
+        let mut sector = [0; SECTOR_SIZE];
+        assert_eq!(source.read_file_sector(0, &mut sector), ReadStatus::Ready);
+        assert_eq!(sector, [0x55; SECTOR_SIZE]);
+        let mut next = MockConn {
+            script: &Script::default(),
+            data: alloc::vec![0x99; SECTOR_SIZE],
+            pos: 0,
+            request: alloc::vec::Vec::new(),
+        };
+        run(pump_with_limits(
+            stream,
+            &mut next,
+            Duration::from_millis(10),
+            Duration::from_millis(100),
+        ));
+        assert_eq!(stream.progress().0, written + SECTOR_SIZE as u64);
+        assert_eq!(stream.inner.lock(|c| c.borrow().session().unwrap().base), base);
+        let appended = ((written - base) / SECTOR_SIZE as u64) as u32;
+        assert_eq!(source.read_file_sector(appended, &mut sector), ReadStatus::Ready);
+        assert_eq!(sector, [0x99; SECTOR_SIZE]);
     }
 
     /// What a client of the window sees: sectors from the start of the session, until one is not ready.
