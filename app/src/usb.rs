@@ -153,7 +153,7 @@ impl ReadPolicy for StreamReadPolicy {
     }
 
     fn unavailable(&mut self, status: ReadStatus, _sector_elapsed: Duration) -> ReadAction {
-        if is_stall(status, self.stream.producer_idle()) {
+        if is_stall(status, self.stream.producer_idle()) && self.stream.recovery_start().is_some() {
             self.stall.signal(());
         }
         let action = decide(status, self.command_start.elapsed());
@@ -193,7 +193,11 @@ impl LinkSupervisor {
 
     async fn cycle(&self) {
         self.stall.wait().await;
-        let (written_at_stall, _) = self.stream.progress();
+        // A far-ahead request can be Pending even with a full window. Do not
+        // disconnect a held session that cannot accept the recovery prebuffer.
+        let Some(written_at_stall) = self.stream.recovery_start() else {
+            return;
+        };
         let generation = self.stream.generation();
         log::info!("usb: stream stalled, leaving the bus");
         log::debug!(
@@ -586,17 +590,20 @@ mod tests {
         assert_eq!(stream.writable(), 0);
         // The producer waits for room for a long time (the host reads ahead of the stream, or not at
         // all): that is not silence of the stream.
-        embassy_futures::block_on(embassy_futures::join::join(stream.wait_for_room(CONSUMER_IDLE_LIMIT), async {
-            Timer::after(Duration::from_millis(120)).await;
-            assert!(stream.producer_idle() < Duration::from_millis(40));
-            assert!(!is_stall(ReadStatus::Pending, stream.producer_idle()));
-            // The reader catches up: there is room again.
-            let mut sector = [0u8; iobewi_fat16::SECTOR_SIZE];
-            let mut index = 0;
-            while source.read_file_sector(index, &mut sector) == ReadStatus::Ready {
-                index += 1;
-            }
-        }));
+        embassy_futures::block_on(embassy_futures::join::join(
+            stream.wait_for_room(CONSUMER_IDLE_LIMIT),
+            async {
+                Timer::after(Duration::from_millis(120)).await;
+                assert!(stream.producer_idle() < Duration::from_millis(40));
+                assert!(!is_stall(ReadStatus::Pending, stream.producer_idle()));
+                // The reader catches up: there is room again.
+                let mut sector = [0u8; iobewi_fat16::SECTOR_SIZE];
+                let mut index = 0;
+                while source.read_file_sector(index, &mut sector) == ReadStatus::Ready {
+                    index += 1;
+                }
+            },
+        ));
         assert!(stream.writable() > 0);
     }
 

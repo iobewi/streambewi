@@ -180,6 +180,15 @@ impl SharedStream {
             .lock(|cell| cell.borrow().writable().min(CHUNK_BYTES))
     }
 
+    /// A held-session USB recovery must be able to write a complete fresh prebuffer
+    /// without depending on further reads from the disconnected host.
+    pub(crate) fn recovery_start(&self) -> Option<u64> {
+        self.inner.lock(|cell| {
+            let stream = cell.borrow();
+            (stream.writable() as u64 >= PREBUFFER_BYTES).then(|| stream.written())
+        })
+    }
+
     pub(crate) fn push(&self, input: &[u8]) -> usize {
         let pushed = self.inner.lock(|cell| cell.borrow_mut().push(input));
         if pushed > 0 {
@@ -1212,43 +1221,81 @@ mod tests {
         assert_eq!(stream.progress(), before);
     }
 
+    /// The host resumes inside the first drain read. Only that in-flight read
+    /// is dropped; the following read must be retained on the same connection.
+    struct ResumeDuringDrain {
+        source: SharedStreamSource,
+        reads: usize,
+    }
+
+    impl ErrorType for ResumeDuringDrain {
+        type Error = Infallible;
+    }
+
+    impl Read for ResumeDuringDrain {
+        async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Infallible> {
+            self.reads += 1;
+            match self.reads {
+                1 => {
+                    assert_eq!(buf.len(), CHUNK_BYTES);
+                    let mut sector = [0; SECTOR_SIZE];
+                    assert_eq!(
+                        self.source.read_file_sector(0, &mut sector),
+                        ReadStatus::Ready
+                    );
+                    assert_eq!(sector, [0x55; SECTOR_SIZE]);
+                    buf[..SECTOR_SIZE].fill(0x77);
+                    Ok(SECTOR_SIZE)
+                }
+                2 => {
+                    assert_eq!(buf.len(), SECTOR_SIZE);
+                    buf.fill(0x99);
+                    Ok(SECTOR_SIZE)
+                }
+                _ => Ok(0),
+            }
+        }
+    }
+
     #[test]
     fn room_after_drain_allows_sequential_append_without_rebase() {
         let (stream, mut source) = saturated();
         let (written, _) = stream.progress();
-        let mut skipped = MockConn {
-            script: &Script::default(),
-            data: alloc::vec![0x77; 52],
-            pos: 0,
-            request: alloc::vec::Vec::new(),
-        };
+        let base = stream.inner.lock(|c| c.borrow().session().unwrap().base);
+        let mut body = ResumeDuringDrain { source, reads: 0 };
         run(pump_with_limits(
             stream,
-            &mut skipped,
+            &mut body,
             Duration::from_millis(10),
             Duration::from_millis(100),
         ));
-        let base = stream.inner.lock(|c| c.borrow().session().unwrap().base);
+        assert_eq!(body.reads, 3);
+        assert_eq!(stream.progress().0, written + SECTOR_SIZE as u64);
+        assert_eq!(
+            stream.inner.lock(|c| c.borrow().session().unwrap().base),
+            base
+        );
         let mut sector = [0; SECTOR_SIZE];
         assert_eq!(source.read_file_sector(0, &mut sector), ReadStatus::Ready);
         assert_eq!(sector, [0x55; SECTOR_SIZE]);
-        let mut next = MockConn {
-            script: &Script::default(),
-            data: alloc::vec![0x99; SECTOR_SIZE],
-            pos: 0,
-            request: alloc::vec::Vec::new(),
-        };
-        run(pump_with_limits(
-            stream,
-            &mut next,
-            Duration::from_millis(10),
-            Duration::from_millis(100),
-        ));
-        assert_eq!(stream.progress().0, written + SECTOR_SIZE as u64);
-        assert_eq!(stream.inner.lock(|c| c.borrow().session().unwrap().base), base);
         let appended = ((written - base) / SECTOR_SIZE as u64) as u32;
-        assert_eq!(source.read_file_sector(appended, &mut sector), ReadStatus::Ready);
+        assert_eq!(
+            source.read_file_sector(appended, &mut sector),
+            ReadStatus::Ready
+        );
         assert_eq!(sector, [0x99; SECTOR_SIZE]);
+    }
+
+    #[test]
+    fn saturated_window_cannot_start_held_session_recovery() {
+        let (stream, mut source) = saturated();
+        assert_eq!(stream.recovery_start(), None);
+        let mut sector = [0; SECTOR_SIZE];
+        let mut index = 0;
+        while source.read_file_sector(index, &mut sector) == ReadStatus::Ready {
+            index += 1;
+        }
+        assert_eq!(stream.recovery_start(), Some(stream.progress().0));
     }
 
     /// What a client of the window sees: sectors from the start of the session, until one is not ready.

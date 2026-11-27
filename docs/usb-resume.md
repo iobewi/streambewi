@@ -40,7 +40,9 @@ such sequence after at least two seconds without a file read can restart a **hea
 at least a sector. Immediate or isolated re-reads keep the same bytes, and a session that progressed
 beyond the head cannot use this retry rule. Existing expired-sector-zero reopening is unchanged.
 This is a bounded-memory recovery opportunity, not a guarantee that a reader accepts the new content.
-No USB detach is requested by either policy.
+No USB detach is requested by either policy. The existing starvation recovery is only eligible when
+the held session has enough free space for the complete recovery prebuffer; a far-ahead pending
+read against a full window must not initiate an unrecoverable disconnect.
 
 Not addressed here, tracked in #31: the host stopping after its first 16 audio sectors (also seen without a
 rebase, with valid MP3 data and correct answers), and the rare absence of enumeration.

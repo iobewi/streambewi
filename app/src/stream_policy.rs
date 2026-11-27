@@ -140,7 +140,7 @@ impl<'a> StreamFile<'a> {
         let Some(session) = self.stream.session() else {
             return false;
         };
-        if self.resume.as_ref().is_some_and(|r| r.shift != 0)
+        if !self.resume.as_ref().is_some_and(|r| r.enabled && r.shift == 0)
             || session.read_end != session.base.saturating_add(SECTOR_SIZE as u64)
             || self
                 .stream
