@@ -26,5 +26,5 @@ SOURCE_DATE_EPOCH="$(git -C "$ROOT_DIR" log -1 --format=%ct -- . ':(exclude)dist
 export SOURCE_DATE_EPOCH
 
 # The instrumented builds keep the `debug!` and `trace!` traces that the production firmware compiles out.
-case ",${FEATURES:-}," in *,usb-debug,*|*,qual,*|*,msc-trace,*) CEILING=" --no-default-features" ;; *) CEILING="" ;; esac
+case ",${FEATURES:-}," in *,usb-debug,*|*,qual,*|*,msc-trace,*|*,mp3-capture,*) CEILING=" --no-default-features" ;; *) CEILING="" ;; esac
 BUILD_CMD="cargo +esp build -p $PKG --release --locked -Z build-std=core,alloc --target $TARGET${CEILING}${FEATURES:+ --features $FEATURES}"
