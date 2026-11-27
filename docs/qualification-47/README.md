@@ -23,33 +23,41 @@ de `rust-mcu-libs`. Les octets, leur ordre, la politique de lecture, le tampon e
 Sans la feature, le module n'est pas compilé dans le firmware. Le format des lignes `msct` est décrit en tête du
 module. Les temps sont en millisecondes depuis le démarrage, sur l'horloge de la carte.
 
-**Effet de l'observation, non mesuré.** L'écriture sur UART0 (115 200 bauds) est bloquante et partage
-l'exécuteur avec l'USB : une ligne d'environ 120 octets l'occupe environ 10 ms. Les lignes sont agrégées par
-fenêtre de 1 s. M0 sert de témoin : `lost=0`, aucun `DROPPED`, aucun ZEROFILL, son jugé normal par l'opérateur.
+**Effet de l'observation, à mesurer en M0.** L'écriture sur UART0 (115 200 bauds) est bloquante et partage
+l'exécuteur avec l'USB : une ligne d'environ 120 octets pourrait l'occuper jusqu'à environ 10 ms (estimation). Les lignes sont agrégées par
+fenêtre de 1 s, et chaque ligne `S` donne le coût mesuré (`lines`, `tx_us`, `txmax_us`).
 La résolution des silences est celle des temps `msct` (1 ms) ; l'ordre entre une ligne `msct` et une ligne
 produit (REBASE, `IncompleteBody`) n'est garanti qu'à environ 1 s.
 
-## Artefacts
+## Artefact à livrer
 
-Configuration commune : `FEATURES=usb-debug,msc-trace,board-devkitc-1 scripts/build-image.sh OUT`
-(`--no-default-features`, donc sans le plafond `release_max_level_info`), rustc esp 1.97.0-nightly,
-espflash 4.7.0, `rust-mcu-libs@f9a2a9a4099dd43c3e9eb0b1410fc3a523286f53`.
+Instrumentation portée sur le candidat Wi-Fi #113 installé sur la carte (`2f0d3e5`, application `2a80a339…`).
 
-| Variante | Source | Artefact | SHA-256 |
-|---|---|---|---|
-| `main` (format OTA) | `259c965` sur `e0c192c` | `streambewi-esp32s3.bin` (4 Mio, première installation) | `1e3634590b372247a0a74daca3a82936352c9ad1294dc74a04c664c93b4d0264` |
-| `main` (format OTA) | idem | `streambewi-esp32s3-ota.bin` | `3a84b31f46f34a92fa4f53b0d7c2671228afbfeb071d76d9f36b26de1f5d31d9` |
-| classique | `d99a5e6` sur `8c54266` | application seule, `0x50000`, 1 272 432 o | `757c44b5961b75efc26085c3be0fd76e57572e1a39390d6c4a513f283fbbb14d` |
-| classique | idem | image complète, 1 600 112 o | `b06db3ed83ccad3ffa7d813859d082c65dfaafc7a43cc7103bef4a9349e25286` |
+| | |
+|---|---|
+| Source | `e2c530fabdfcf94d11a3e5fe0e94fc55f3456a4d` (branche `diag/47-msc-activity-wifi113`) |
+| `rust-mcu-libs` | `876d1404d2bdb70dfdc68684867fea70a3e87620`, non modifiée |
+| Configuration | `FEATURES=usb-debug,msc-trace,board-devkitc-1 scripts/build-image.sh OUT` (`--no-default-features`) |
+| Outils | rustc esp 1.97.0-nightly (8ea53bcd7 2026-07-08), espflash 4.7.0 |
+| Application seule | `0x50000`, 1 272 432 o, SHA-256 `0ea65cfabbb813b2e936f50426b6a37233b15bc5ba7fc3c1bb9464511d14f0ec` |
+| Image complète (**à ne pas écrire** : son remplissage couvre `config`) | `b20f25a7c3e6beae71bcbd2271cee9bb1a7a09d3811f503c4ebfb93f50d6ad6b` |
+| ELF | `95ecfe2046e2c4abbcb93e54f7ed85bc4b14d00d1f46a532284f88c3d365ff18` |
 
-La carte est au format classique. L'image `main` change la table de partitions et déplace `config` de `0x9000`
-vers `0x380000`, vierge dans l'image : le Wi-Fi et les stations seraient à ressaisir. La variante classique
-s'écrit sur l'application seule (secteurs `0x50000` à `0x187000`, fin de partition `0x1D0000`) et ne touche pas
-`config` (`0x9000` à `0x49000`).
+Secteurs écrits : `0x50000` à `0x187000` (fin de la partition : `0x1D0000`). `config` (`0x9000` à `0x49000`) n'est
+pas touchée. Les octets `0x0` à `0x9000` de l'image sont identiques à ceux du candidat #113.
 
-**Équivalence du chemin audio.** Entre `8c54266` et `main`, `usb.rs` et `stream.rs` ne diffèrent que par des
-chemins d'import et un commentaire ; `stream_policy.rs` est l'ancien `core/src/lib.rs` sans son attribut
-`no_std`. La révision de `rust-mcu-libs` est la même. Le reste du firmware (OTA, démarrage) diffère.
+Écart avec ce candidat : `app/Cargo.toml`, `app/src/lib.rs`, `app/src/msc_trace.rs`, `app/src/usb.rs`,
+`scripts/build-env.sh`, `targets/esp32/Cargo.toml`. `Cargo.lock` est inchangé. Le build de diagnostic diffère
+aussi par `usb-debug` : le plafond `release_max_level_info` est retiré et les traces `debug!` sont compilées,
+filtrées à l'exécution.
+
+Branches antérieures, non destinées à la carte : `diag/47-msc-activity` (`main`, format OTA, `259c965`) et
+`diag/47-msc-activity-classic` (`d99a5e6`, ancienne `rust-mcu-libs`). Elles n'ont pas la mesure du coût UART.
+
+**Équivalence du chemin audio avec `main`.** Entre `8c54266` et `main`, `usb.rs` et `stream.rs` ne diffèrent que
+par des chemins d'import et un commentaire ; `stream_policy.rs` est l'ancien `core/src/lib.rs` sans son attribut
+`no_std`. `main` épingle `rust-mcu-libs@f9a2a9a` ; les crates USB, FAT16 et tampon sont identiques en `876d140`.
+Le reste (OTA, démarrage, Wi-Fi) diffère.
 
 ## Montage et collecte
 
@@ -67,7 +75,7 @@ Avant M0 : capture ouverte, lecture établie depuis au moins 60 s.
 
 | Test | Gestes (chacun marqué) | Observation après reprise |
 |---|---|---|
-| M0 | Début, 60 s de lecture sans geste, Fin | témoin : cadence et plus long silence en lecture |
+| M0 | Début, au moins 60 s de lecture sans geste, Fin | porte ci-dessous ; cadence et plus long silence en lecture |
 | M1 | PAUSE, 5 s, PLAY | 30 s au moins |
 | M2 | PAUSE, 10 s, PLAY | 30 s au moins |
 | M3 | PAUSE, 20 s, PLAY | 30 s au moins |
@@ -81,6 +89,24 @@ quand le son revient. Si le son ne revient pas en 60 s, il le signale avant tout
 
 Arrêt de la campagne : `lost` non nul ou `DROPPED` (trace incomplète : test à refaire), perte du banc, ou lecture
 qui ne revient pas. Aucun reset sans nouvel accord.
+
+## Porte M0 : effet des traces sur le MSC
+
+M1 à M6 ne commencent qu'après un M0 réussi et l'accord de l'opérateur. Contrôle :
+`tools/qual/msc_m0_check.py OUT DEBUT_MS FIN_MS` (temps de la carte). Seuils fixés avant la mesure :
+
+| Contrôle | Seuil |
+|---|---|
+| Trace complète | `lost=0`, aucun `DROPPED`, aucune erreur de session, lignes `S` espacées de 1,5 s au plus |
+| MSC intact | aucun ZEROFILL, retrait du bus, événement de bus, commande en échec ou abandonnée |
+| Débit lu par l'hôte | `consumed` à 16 000 o/s (128 kbit/s) ± 5 % |
+| Coût UART | au plus 100 ms par fenêtre de 1 s, 20 ms pour la plus longue écriture |
+| Son | normal, jugé par l'opérateur seul |
+
+**Limite.** Sans la trace, l'activité MSC n'est pas observable : il n'y a pas de comparaison A/B à ce niveau.
+La référence sans trace est W3 de #113 (`docs/qualification-113/`) : 10 min sans coupure, `consumed` à environ
+16 000 o/s, station HTTPS. Un M0 réussi montre que les indicateurs disponibles sont nominaux, pas que la trace
+est sans effet sur la cadence des commandes.
 
 ## Exploitation
 
