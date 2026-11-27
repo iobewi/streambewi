@@ -1,0 +1,9 @@
+15:07:42 catalog BEFORE {"selected": 1, "stations": [{"id": 1, "logo": "", "name": "Mon petit France Inter", "url": "http://icecast.radiofrance.fr/monpetitfranceinter-midfi.mp3"}, {"id": 2, "logo": "https://upload.wikimedia.org/wikipedia/fr/3/39/France_Inter_logo.svg", "name": "France Inter La musique d'Inter", "url": "https://icecast.radiofrance.fr/franceinterlamusiqueinter-midfi.mp3"}], "version": 1}
+15:07:43 select 2 -> 200
+15:07:44 ready after select: {'stream': 'ready', 'system': 'running', 'usb': 'ready', 'wifi': 'connected'} 2s
+15:17:44 window done
+15:17:45 select 1 -> 200
+15:17:50 catalog AFTER {"selected": 1, "stations": [{"id": 1, "logo": "", "name": "Mon petit France Inter", "url": "http://icecast.radiofrance.fr/monpetitfranceinter-midfi.mp3"}, {"id": 2, "logo": "https://upload.wikimedia.org/wikipedia/fr/3/39/France_Inter_logo.svg", "name": "France Inter La musique d'Inter", "url": "https://icecast.radiofrance.fr/franceinterlamusiqueinter-midfi.mp3"}], "version": 1} RESTORED
+15:17:50 RESULT {"bytes": 1281, "connect_attempts": 1, "http200": 1, "boots": 0, "warn": 0, "error": 0, "e12309": 0, "disassoc": 0, "panic": 0, "stall": 0, "zerofill": 0, "expired": 0, "pending": 0, "msc": 0, "counter_lines": 9, "last": ["10205696", "10123776", "81920"], "first": ["2505728", "2423808", "81920"], "max_lead": 81920, "bad_health_samples": 0, "api_unreachable": 0}
+15:17:50 RESTORE True
+exit 0

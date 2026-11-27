@@ -1,0 +1,14 @@
+14:12:14 chip esp32s3 mac <mac-carte> flash 16777216 mode loader
+14:12:37 config BEFORE 23s sha256 f0ae287579fb357ec323000c11d3204b28321d7b612736c8a57c9e1647b5c2b5
+14:14:26 old app (first 1231904 B) 109s sha256 bac4a153d8094dc5f431eed2ed78c5768597631c0274a9585bd7bc80d0dedbac
+14:14:26 plan {'plan_id': '<plan>'}
+14:17:21 program_flash single block 174s -> {'id': '784004a24f504ff6a20a18aa9f8b2f6e', 'device': 'board_1', 'command': 'flash.program', 'state': 'Terminée', 'startedAt': '2026-11-27T14:14:27.013271+00:00', 'source': 'python', 'session_id': '6d1783341a8b', 'images': [{'address': 327680, 'size': 1232800, 'sha256': '2a80a3398e7f6f3526beb1d9400ab4718eb954a5aae482eaea10cc33c4ed357f'}], 'size': 1232800, 'address': 327680, 'generation': '1da494a9f
+14:19:10 READBACK app 109s sha256 2a80a3398e7f6f3526beb1d9400ab4718eb954a5aae482eaea10cc33c4ed357f PASS
+14:19:14 READBACK 0x0..0x9000 UNCHANGED
+14:19:37 config AFTER sha256 f0ae287579fb357ec323000c11d3204b28321d7b612736c8a57c9e1647b5c2b5 UNCHANGED
+14:19:37 W0 DELIVERY PASS
+14:19:37 mode now: loader
+14:19:37 back to console: console
+14:19:37 console.reset sent
+14:20:02 boot capture bytes 2164 dropped 0
+exit 0

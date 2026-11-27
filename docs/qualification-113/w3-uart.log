@@ -1,0 +1,17 @@
+INFO - streambewi::stream: station: switching, disk off the bus (live=1075200)
+INFO - streambewi::stream: station: selection persisted=true in 40 ms
+INFO - streambewi::stream: stream: connecting attempt=2 to https://icecast.radiofrance.fr
+INFO - streambewi::status: status: LED green pulsing (state rev 16)
+INFO - streambewi::stream: stream: HTTP status=200 content_length=None chunked=true
+INFO - streambewi::status: status: LED green steady (state rev 18)
+INFO - streambewi::stream: station: disk back after 1508 ms (live=1155072)
+INFO - streambewi::stream: stream: session start live=1951744
+INFO - streambewi::stream: stream: live=2505728 consumed=2423808 lead=81920
+INFO - streambewi::stream: stream: live=3468800 consumed=3386880 lead=81920
+INFO - streambewi::stream: stream: live=4430336 consumed=4348416 lead=81920
+INFO - streambewi::stream: stream: live=5392896 consumed=5310976 lead=81920
+INFO - streambewi::stream: stream: live=6355968 consumed=6274048 lead=81920
+INFO - streambewi::stream: stream: live=7318016 consumed=7236096 lead=81920
+INFO - streambewi::stream: stream: live=8281600 consumed=8199680 lead=81920
+INFO - streambewi::stream: stream: live=9243136 consumed=9161216 lead=81920
+INFO - streambewi::stream: stream: live=10205696 consumed=10123776 lead=81920

@@ -1,0 +1,17 @@
+15:04:35 #1 before: api {'stream': 'ready', 'system': 'running', 'usb': 'ready', 'wifi': 'connected'}
+15:04:35 #1 console.reset sent
+15:05:01 {"n": 1, "boots": 1, "rst": ["rst:0x1 (POWERON)"], "loaded": true, "got_ip": true, "attempt1": true, "http200": true, "msc": true, "ready_s": 17.1, "bad": [], "health": {"stream": "ready", "system": "running", "usb": "ready", "wifi": "connected"}, "bytes": 2075}
+15:05:11 #2 before: api {'stream': 'ready', 'system': 'running', 'usb': 'ready', 'wifi': 'connected'}
+15:05:11 #2 console.reset sent
+15:05:24 {"n": 2, "boots": 1, "rst": ["rst:0x1 (POWERON)"], "loaded": true, "got_ip": true, "attempt1": true, "http200": true, "msc": true, "ready_s": 5.1, "bad": [], "health": {"stream": "ready", "system": "running", "usb": "ready", "wifi": "connected"}, "bytes": 1996}
+15:05:34 #3 before: api {'stream': 'ready', 'system': 'running', 'usb': 'ready', 'wifi': 'connected'}
+15:05:34 #3 console.reset sent
+15:05:50 {"n": 3, "boots": 1, "rst": ["rst:0x1 (POWERON)"], "loaded": true, "got_ip": true, "attempt1": true, "http200": true, "msc": true, "ready_s": 6.9, "bad": [], "health": {"stream": "ready", "system": "running", "usb": "ready", "wifi": "connected"}, "bytes": 1996}
+15:06:00 #4 before: api {'stream': 'ready', 'system': 'running', 'usb': 'ready', 'wifi': 'connected'}
+15:06:00 #4 console.reset sent
+15:06:13 {"n": 4, "boots": 1, "rst": ["rst:0x1 (POWERON)"], "loaded": true, "got_ip": true, "attempt1": true, "http200": true, "msc": true, "ready_s": 5.1, "bad": [], "health": {"stream": "ready", "system": "running", "usb": "ready", "wifi": "connected"}, "bytes": 1996}
+15:06:23 #5 before: api {'stream': 'ready', 'system': 'running', 'usb': 'ready', 'wifi': 'connected'}
+15:06:24 #5 console.reset sent
+15:06:49 {"n": 5, "boots": 1, "rst": ["rst:0x1 (POWERON)"], "loaded": true, "got_ip": true, "attempt1": true, "http200": true, "msc": true, "ready_s": 17.4, "bad": [], "health": {"stream": "ready", "system": "running", "usb": "ready", "wifi": "connected"}, "bytes": 2075}
+15:06:59 SUMMARY [{"n": 1, "boots": 1, "rst": ["rst:0x1 (POWERON)"], "loaded": true, "got_ip": true, "attempt1": true, "http200": true, "msc": true, "ready_s": 17.1, "bad": [], "health": {"stream": "ready", "system": "running", "usb": "ready", "wifi": "connected"}, "bytes": 2075}, {"n": 2, "boots": 1, "rst": ["rst:0x1 (POWERON)"], "loaded": true, "got_ip": true, "attempt1": true, "http200": true, "msc": true, "ready_s": 5.1, "bad": [], "health": {"stream": "ready", "system": "running", "usb": "ready", "wifi": "connected"}, "bytes": 1996}, {"n": 3, "boots": 1, "rst": ["rst:0x1 (POWERON)"], "loaded": true, "got_ip": true, "attempt1": true, "http200": true, "msc": true, "ready_s": 6.9, "bad": [], "health": {"stream": "ready", "system": "running", "usb": "ready", "wifi": "connected"}, "bytes": 1996}, {"n": 4, "boots": 1, "rst": ["rst:0x1 (POWERON)"], "loaded": true, "got_ip": true, "attempt1": true, "http200": true, "msc": true, "ready_s": 5.1, "bad": [], "health": {"stream": "ready", "system": "running", "usb": "ready", "wifi": "connected"}, "bytes": 1996}, {"n": 5, "boots": 1, "rst": ["rst:0x1 (POWERON)"], "loaded": true, "got_ip": true, "attempt1": true, "http200": true, "msc": true, "ready_s": 17.4, "bad": [], "health": {"stream": "ready", "system": "running", "usb": "ready", "wifi": "connected"}, "bytes": 2075}]
+exit 0

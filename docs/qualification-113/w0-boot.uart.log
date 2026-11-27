@@ -1,0 +1,41 @@
+b0
+load:0x403c8700,len:0xd74
+load:0x403cb700,len:0x2ef8
+entry 0x403c88f4
+I (29) boot: ESP-IDF v6.1-829-g9a97f6c54ec 2nd stage bootloader
+I (29) boot: chip revisio�ESP-ROM:esp32s3-20210327
+Build:Mar 27 2021
+rst:0x1 (POWERON),boot:0x8 (SPI_FAST_FLASH_BOOT)
+SPIWP:0xee
+mode:DIO, clock div:2
+load:0x3fce2820,len:0x13b0
+load:0x403c8700,len:0xd74
+load:0x403cb700,len:0x2ef8
+entry 0x403c88f4
+I (29) boot: ESP-IDF v6.1-829-g9a97f6c54ec 2nd stage bootloader
+I (29) boot: chip revision: v0.2
+I (30) boot.esp32s3: Boot SPI Speed : 40MHz
+I (30) boot.esp32s3: SPI Mode       : DIO
+I (34) boot.esp32s3: SPI Flash Size : 4MB
+I (38) boot: Partition Table:
+I (40) boot: ## Label            Usage          Type ST Offset   Length
+I (47) boot:  0 config           Unknown data     01 40 00009000 00040000
+I (53) boot:  1 factory          factory app      00 00 00050000 00180000
+I (60) esp_image: segment 0: paddr=00050020 vaddr=3c000020 size=2cc18h (183320) map
+I (113) esp_image: segment 1: paddr=0007cc40 vaddr=3fc928a0 size=033d8h ( 13272) load
+I (118) esp_image: segment 2: paddr=00080020 vaddr=42030020 size=da1b4h (893364) map
+I (343) esp_image: segment 3: paddr=0015a1dc vaddr=3fc95c78 size=184f4h ( 99572) load
+I (371) esp_image: segment 4: paddr=001726d8 vaddr=40378000 size=0a8a0h ( 43168) load
+I (394) boot: Loaded app from partition at offset 0x50000
+INFO - streambewi::usb: provisioning: CONFIGURED
+INFO - streambewi::usb: stream: waiting for the prebuffer written=0 consumed=0
+INFO - streambewi::status: status: LED blue blinking slowly (state rev 8)
+INFO - streambewi::provisioning: wifi: ready
+INFO - streambewi::stream: net: got IP <ip-carte>/24
+INFO - streambewi::stream: stream: connecting attempt=1 to http://icecast.radiofrance.fr
+INFO - streambewi::status: status: LED green pulsing (state rev 10)
+INFO - streambewi::stream: stream: HTTP status=200 content_length=None chunked=true
+INFO - streambewi::stream: stream: live=65536 consumed=0 lead=65536
+INFO - streambewi::status: status: LED green steady (state rev 12)
+INFO - streambewi::usb: stream: prebuffer bytes=92160
+INFO - streambewi::usb: usb: enabling MSC for Metronic

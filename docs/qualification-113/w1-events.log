@@ -1,0 +1,30 @@
+14:59:05 session open, cursor 2227 buffered 2227 dropped 0
+14:59:05 api up {"stream": "ready", "system": "running", "usb": "ready", "wifi": "connected"}
+14:59:33 session err IDLabHTTPError HTTP 401: authentication_required
+14:59:36 api down
+14:59:47 api up {"stream": "connecting", "system": "running", "usb": "initializing", "wifi": "connected"}
+14:59:49 session open, cursor 1996 buffered 1996 dropped 0
+14:59:49 api up {"stream": "ready", "system": "running", "usb": "ready", "wifi": "connected"}
+15:00:39 session err IDLabHTTPError HTTP 401: authentication_required
+15:00:44 session open, cursor 1996 buffered 1996 dropped 0
+15:01:25 session err IDLabHTTPError HTTP 401: authentication_required
+15:01:27 api down
+15:01:49 api up {"stream": "connecting", "system": "running", "usb": "initializing", "wifi": "connected"}
+15:01:49 session open, cursor 1831 buffered 1831 dropped 0
+15:01:50 api up {"stream": "ready", "system": "running", "usb": "initializing", "wifi": "connected"}
+15:01:52 api up {"stream": "ready", "system": "running", "usb": "ready", "wifi": "connected"}
+15:02:12 api down
+15:02:12 session err IDLabHTTPError HTTP 401: authentication_required
+15:02:22 api up {"stream": "connecting", "system": "running", "usb": "initializing", "wifi": "connected"}
+15:02:24 api up {"stream": "ready", "system": "running", "usb": "ready", "wifi": "connected"}
+15:02:25 session open, cursor 1996 buffered 1996 dropped 0
+15:03:15 session err IDLabHTTPError HTTP 401: authentication_required
+15:03:15 api up {"stream": "connecting", "system": "running", "usb": "initializing", "wifi": "connected"}
+15:03:17 api up {"stream": "ready", "system": "running", "usb": "ready", "wifi": "connected"}
+15:03:20 session open, cursor 2075 buffered 2075 dropped 0
+15:03:34 session err IDLabHTTPError HTTP 401: authentication_required
+15:03:36 api down
+15:03:46 api up {"stream": "connecting", "system": "running", "usb": "initializing", "wifi": "connected"}
+15:03:49 session open, cursor 1996 buffered 1996 dropped 0
+15:03:49 api up {"stream": "ready", "system": "running", "usb": "ready", "wifi": "connected"}
+15:03:58 stop
