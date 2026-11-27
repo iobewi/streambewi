@@ -25,5 +25,22 @@ origin of an MSC session once, on its first audio read, when the stream could no
 Invariants of a session: at most one rebase; the offset-to-stream mapping never changes after the first audio
 read; a sector already served answers the same bytes; no byte of a sector before the origin is presented as audio.
 
+## Inactive consumer and head-only retry (#47)
+
+The network pump waits for room for at most two seconds of continuous saturation. It then reads and
+discards HTTP body bytes while the window remains full. The retained bytes and virtual offsets do not
+move. On forward consumer progress, normal writes resume (at most one in-flight drain chunk can be
+discarded). This is a live radio, not a time-shift recorder: audio received during prolonged inactivity
+is skipped, and the next append may introduce an MP3 discontinuity. Hardware playback qualification
+is required. Genuine EOF, body errors and read timeout remain visible during drain.
+
+The product disk wrapper recognizes the observed Metronic root/FAT/root/file-head sequence. A new
+such sequence after at least two seconds without a file read can restart a **head-only** session
+(exactly its first sector consumed, no shifted origin), only if the retained origin can move forward by
+at least a sector. Immediate or isolated re-reads keep the same bytes, and a session that progressed
+beyond the head cannot use this retry rule. Existing expired-sector-zero reopening is unchanged.
+This is a bounded-memory recovery opportunity, not a guarantee that a reader accepts the new content.
+No USB detach is requested by either policy.
+
 Not addressed here, tracked in #31: the host stopping after its first 16 audio sectors (also seen without a
 rebase, with valid MP3 data and correct answers), and the rare absence of enumeration.
