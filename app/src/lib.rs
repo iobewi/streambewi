@@ -20,6 +20,8 @@ pub mod brightness;
 pub mod diag;
 pub mod fetch;
 pub mod logging;
+#[cfg(any(test, feature = "msc-trace"))]
+pub mod msc_trace;
 pub mod provisioning;
 pub mod settings;
 pub mod setup;
