@@ -14,8 +14,11 @@
 //! - `msct C op=0xNN cdb=.. t=A-B n=N gap=G svc=S st=K`: N identical commands other than READ(10).
 //!   START STOP UNIT and PREVENT ALLOW MEDIUM REMOVAL are never aggregated.
 //! - `msct B t=A <event>`: USB bus event.
-//! - `msct S t=A live=L consumed=C open=.. lost=N`: once per window; `open` is a command that has no status
-//!   yet (opcode, first sector, age), `lost` the lines dropped because the queue was full.
+//! - `msct S t=A live=L consumed=C open=.. lost=N lines=N tx_us=T txmax_us=M`: once per window; `open` is
+//!   a command that has no status yet (opcode, first sector, age), `lost` the lines dropped because the
+//!   queue was full. `lines`, `tx_us` and `txmax_us` are the cost of the trace itself: the `msct` lines
+//!   written since the previous `S` line (that one included), the total and the longest time spent in the
+//!   blocking write, during which the executor serves nothing else, the USB included.
 //!
 //! `st` is the CSW status (0 passed, 1 failed) or `abort` when the next command arrived without a status.
 
@@ -327,10 +330,34 @@ pub(crate) fn bus(event: &'static str, value: u32) {
     with(|t| t.bus(now(), event, value));
 }
 
+/// The time the trace spends writing its own lines.
+#[derive(Default)]
+struct Cost {
+    lines: u32,
+    total_us: u64,
+    max_us: u64,
+}
+
+impl Cost {
+    fn add(&mut self, us: u64) {
+        self.lines = self.lines.saturating_add(1);
+        self.total_us = self.total_us.saturating_add(us);
+        self.max_us = self.max_us.max(us);
+    }
+
+    /// Runs `write` and counts the time it took.
+    fn measure(&mut self, write: impl FnOnce()) {
+        let before = Instant::now();
+        write();
+        self.add(before.elapsed().as_micros());
+    }
+}
+
 /// Writes the lines on the operating log. `progress` gives the bytes received and consumed of the stream.
 /// The console write blocks: lines are written one at a time, between two polls.
 pub(crate) async fn run(progress: impl Fn() -> (u64, u64)) -> ! {
     let mut window = now();
+    let mut cost = Cost::default();
     loop {
         Timer::after_millis(POLL_MS).await;
         let t = now();
@@ -340,19 +367,34 @@ pub(crate) async fn run(progress: impl Fn() -> (u64, u64)) -> ! {
             with(|trace| trace.flush());
         }
         while let Some(line) = with(|trace| trace.pop()) {
-            log::info!("{line}");
+            cost.measure(|| log::info!("{line}"));
         }
         if tick {
             let (live, consumed) = progress();
             let (pending, lost) = with(|trace| (trace.pending(t), trace.lost()));
-            match pending {
-                Some((op, lba, age)) => log::info!(
-                    "msct S t={t} live={live} consumed={consumed} open=0x{op:02x}@{lba}+{age}ms lost={lost}"
-                ),
-                None => {
-                    log::info!("msct S t={t} live={live} consumed={consumed} open=none lost={lost}")
-                }
-            }
+            let Cost {
+                lines,
+                total_us,
+                max_us,
+            } = core::mem::take(&mut cost);
+            let open = Open(pending);
+            cost.measure(|| {
+                log::info!(
+                    "msct S t={t} live={live} consumed={consumed} open={open} lost={lost} lines={lines} tx_us={total_us} txmax_us={max_us}"
+                )
+            });
+        }
+    }
+}
+
+/// The command in flight, as written on the `S` line.
+struct Open(Option<(u8, u32, u64)>);
+
+impl fmt::Display for Open {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.0 {
+            Some((op, lba, age)) => write!(f, "0x{op:02x}@{lba}+{age}ms"),
+            None => f.write_str("none"),
         }
     }
 }
@@ -535,6 +577,20 @@ mod tests {
         trace.sent(&[0u8; 64], 2);
         trace.bus(3, "suspended", 1);
         assert_eq!(lines(&mut trace), ["msct B t=3 suspended=1"]);
+    }
+
+    #[test]
+    fn the_cost_keeps_the_total_and_the_longest_write() {
+        let mut cost = Cost::default();
+        for us in [900, 12_000, 700] {
+            cost.add(us);
+        }
+        assert_eq!(
+            (cost.lines, cost.total_us, cost.max_us),
+            (3, 13_600, 12_000)
+        );
+        assert_eq!(Open(None).to_string(), "none");
+        assert_eq!(Open(Some((READ_10, 500, 40))).to_string(), "0x28@500+40ms");
     }
 
     #[test]
