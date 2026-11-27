@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="fr">
+<meta charset="utf-8">
+<title>Marqueur MSC #47</title>
+<style>
+  body{font:16px system-ui;margin:16px}
+  button{font-size:22px;padding:16px 22px;margin:4px}
+  textarea{width:100%;height:50vh;font:13px monospace}
+</style>
+<p>Cliquez au moment exact où vous appuyez sur la touche du Metronic. Choisissez d'abord le test.</p>
+<p><label>Test <select id="test"></select></label></p>
+<button data-a="PAUSE">PAUSE</button>
+<button data-a="PLAY">PLAY</button>
+<button data-a="STOP">STOP</button>
+<button data-a="DEBUT">Début du test</button>
+<button data-a="FIN">Fin du test</button>
+<button data-a="SON_OK">Son revenu</button>
+<p><button id="copy">Copier le journal</button></p>
+<textarea id="log" readonly></textarea>
+<script>
+  const test = document.getElementById("test"), log = document.getElementById("log");
+  for (let i = 0; i <= 6; i++) test.add(new Option("M" + i));
+  try { log.value = localStorage.getItem("msc47") || ""; } catch (e) {}
+  for (const b of document.querySelectorAll("button[data-a]")) {
+    b.addEventListener("pointerdown", () => {
+      const t = Date.now();
+      log.value += `${t}\t${new Date(t).toISOString()}\t${test.value}\t${b.dataset.a}\n`;
+      try { localStorage.setItem("msc47", log.value); } catch (e) {}
+    });
+  }
+  document.getElementById("copy").onclick = () => { log.select(); document.execCommand("copy"); };
+</script>
+</html>
