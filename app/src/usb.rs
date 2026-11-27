@@ -230,18 +230,28 @@ struct BusLog;
 #[cfg(feature = "usb-debug")]
 impl Handler for BusLog {
     fn enabled(&mut self, enabled: bool) {
+        #[cfg(feature = "msc-trace")]
+        crate::msc_trace::bus("enabled", u32::from(enabled));
         log::info!("usb: enabled={}", enabled);
     }
     fn reset(&mut self) {
+        #[cfg(feature = "msc-trace")]
+        crate::msc_trace::bus("reset", 1);
         log::info!("usb: bus reset");
     }
     fn addressed(&mut self, addr: u8) {
+        #[cfg(feature = "msc-trace")]
+        crate::msc_trace::bus("addressed", u32::from(addr));
         log::info!("usb: addressed={}", addr);
     }
     fn configured(&mut self, configured: bool) {
+        #[cfg(feature = "msc-trace")]
+        crate::msc_trace::bus("configured", u32::from(configured));
         log::info!("usb: configured={}", configured);
     }
     fn suspended(&mut self, suspended: bool) {
+        #[cfg(feature = "msc-trace")]
+        crate::msc_trace::bus("suspended", u32::from(suspended));
         log::info!("usb: suspended={}", suspended);
     }
 }
@@ -252,6 +262,8 @@ where
     D: Driver<'static>,
 {
     let UsbPort { driver, link } = port;
+    #[cfg(feature = "msc-trace")]
+    let driver = crate::msc_trace::Traced(driver);
     // UNCONFIGURED (no Wi-Fi network saved): no stream is possible, MSC stays off.
     while !provisioning::is_configured() {
         log::info!("provisioning: UNCONFIGURED, MSC off (waiting for Improv)");
@@ -337,7 +349,10 @@ where
         hold: DISCONNECT_HOLD,
         poll: RECONNECT_POLL,
     };
-    join3(device_fut, msc_fut, supervisor.run()).await;
+    let product = join3(device_fut, msc_fut, supervisor.run());
+    #[cfg(feature = "msc-trace")]
+    let product = embassy_futures::join::join(product, crate::msc_trace::run(|| STREAM.progress()));
+    product.await;
 }
 
 #[cfg(test)]
