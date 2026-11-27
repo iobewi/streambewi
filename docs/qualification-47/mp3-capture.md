@@ -61,3 +61,6 @@ début au milieu d'une trame n'est un défaut que s'il distingue les épisodes r
 d'une autre à 128 kbit/s. La continuité des trames d'un refus ne sera alors vérifiable que sur ces octets, et
 « réfutée » ne porterait que sur eux : la capture ne montre pas ce que le Metronic n'a pas demandé. #33 a déjà
 observé des arrêts avec des trames valides sur les 6 à 8 Kio servis (autre station).
+
+**Exécution :** [mp3-results.md](mp3-results.md). Après les deux premiers essais longs, l'opérateur a remplacé la borne
+de trois essais par des essais libres jusqu'au premier refus ; les critères de conclusion sont inchangés.

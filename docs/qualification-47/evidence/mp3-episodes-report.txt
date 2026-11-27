@@ -1,0 +1,132 @@
+== episode 1: t=14113 base=Some(141312) replaced=0
+   summary: reads=20 unrecorded=0 differs=0 notready=0 stored=0xffff
+   reads in order (sector:same, ms after the first): 0:first@0 0:yes@16 1:first@27 0:yes@42 0:yes@153 1:yes@161 2:first@165 3:first@173 4:first@188 5:first@195 6:first@199 7:first@203 8:first@224 9:first@229 10:first@235 11:first@243 12:first@260 13:first@269 14:first@272 15:first@282
+   rereads: 4, differing: 0, CRC agrees with the verdicts: True
+   verified contiguous bytes from the start of the file: 8192 (16 sectors); other sectors: []
+   first 16 bytes: fffb9444a200226620d9f9e62b604944 | all zero: False
+   first confirmed frame at byte 0 ; 22 headers in sequence, chain reaches the end of the data
+   stream: [('MPEG-1', 48000, 128, 'nocrc', 'mode1')]
+   frame offsets/lengths: [(0, 384), (384, 384), (768, 384), (1152, 384), (1536, 384), (1920, 384), (2304, 384), (2688, 384), (3072, 384), (3456, 384), (3840, 384), (4224, 384), (4608, 384), (4992, 384), (5376, 384), (5760, 384), (6144, 384), (6528, 384), (6912, 384), (7296, 384), (7680, 384), (8064, 384)]
+   main_data_begin of the first frames: [324, 376, 419, 477, 469, 464, 466, 468]
+== episode 2: t=168952 base=Some(2537472) replaced=0
+   summary: reads=20 unrecorded=0 differs=0 notready=0 stored=0xffff
+   reads in order (sector:same, ms after the first): 0:first@0 0:yes@37 1:first@70 0:yes@110 0:yes@208 1:yes@215 2:first@218 3:first@223 4:first@232 5:first@238 6:first@242 7:first@254 8:first@267 9:first@272 10:first@276 11:first@284 12:first@301 13:first@306 14:first@313 15:first@321
+   rereads: 4, differing: 0, CRC agrees with the verdicts: True
+   verified contiguous bytes from the start of the file: 8192 (16 sectors); other sectors: []
+   first 16 bytes: fffb9464568002d02959630c19e03f03 | all zero: False
+   first confirmed frame at byte 0 ; 22 headers in sequence, chain reaches the end of the data
+   stream: [('MPEG-1', 48000, 128, 'nocrc', 'mode1')]
+   frame offsets/lengths: [(0, 384), (384, 384), (768, 384), (1152, 384), (1536, 384), (1920, 384), (2304, 384), (2688, 384), (3072, 384), (3456, 384), (3840, 384), (4224, 384), (4608, 384), (4992, 384), (5376, 384), (5760, 384), (6144, 384), (6528, 384), (6912, 384), (7296, 384), (7680, 384), (8064, 384)]
+   main_data_begin of the first frames: [173, 224, 268, 317, 363, 404, 444, 474]
+== episode 3: t=338505 base=Some(4290560) replaced=0
+   summary: reads=25 unrecorded=0 differs=0 notready=0 stored=0xffff
+   reads in order (sector:same, ms after the first): 0:first@0 0:yes@27 1:first@54 2:first@76 0:yes@135 1:yes@145 2:yes@159 0:yes@171 1:yes@186 0:yes@283 1:yes@291 2:yes@294 3:first@298 4:first@309 5:first@322 6:first@327 7:first@331 8:first@341 9:first@350 10:first@357 11:first@362 12:first@376 13:first@393 14:first@401 15:first@408
+   rereads: 9, differing: 0, CRC agrees with the verdicts: True
+   verified contiguous bytes from the start of the file: 8192 (16 sectors); other sectors: []
+   first 16 bytes: b2284882994e8b1040c740cf0fbb0a39 | all zero: False
+   first confirmed frame at byte 256 ; 21 headers in sequence, chain reaches the end of the data
+   stream: [('MPEG-1', 48000, 128, 'nocrc', 'mode1')]
+   frame offsets/lengths: [(256, 384), (640, 384), (1024, 384), (1408, 384), (1792, 384), (2176, 384), (2560, 384), (2944, 384), (3328, 384), (3712, 384), (4096, 384), (4480, 384), (4864, 384), (5248, 384), (5632, 384), (6016, 384), (6400, 384), (6784, 384), (7168, 384), (7552, 384), (7936, 384)]
+   main_data_begin of the first frames: [476, 477, 489, 508, 475, 477, 467, 463]
+== episode 4: t=485061 base=Some(5691392) replaced=0
+   summary: reads=20 unrecorded=0 differs=0 notready=0 stored=0xffff
+   reads in order (sector:same, ms after the first): 0:first@0 0:yes@26 1:first@70 1:yes@99 0:yes@233 1:yes@240 2:first@243 3:first@247 4:first@256 5:first@267 6:first@281 7:first@290 8:first@300 9:first@304 10:first@308 11:first@316 12:first@331 13:first@340 14:first@344 15:first@347
+   rereads: 4, differing: 0, CRC agrees with the verdicts: True
+   verified contiguous bytes from the start of the file: 8192 (16 sectors); other sectors: []
+   first 16 bytes: a55fef4c30e1a9e8c1c69829a77411ca | all zero: False
+   first confirmed frame at byte 128 ; 21 headers in sequence, chain reaches the end of the data
+   stream: [('MPEG-1', 48000, 128, 'nocrc', 'mode1')]
+   frame offsets/lengths: [(128, 384), (512, 384), (896, 384), (1280, 384), (1664, 384), (2048, 384), (2432, 384), (2816, 384), (3200, 384), (3584, 384), (3968, 384), (4352, 384), (4736, 384), (5120, 384), (5504, 384), (5888, 384), (6272, 384), (6656, 384), (7040, 384), (7424, 384), (7808, 384)]
+   main_data_begin of the first frames: [460, 468, 462, 460, 458, 465, 461, 478]
+== episode 6: t=645091 base=Some(8013824) replaced=36
+   summary: None
+   sector 4 (first): INCOMPLETE export, 2/8 chunks
+   reads in order (sector:same, ms after the first): 0:first@0 0:yes@33 1:first@64 1:yes@86 0:yes@193 1:yes@198 2:first@202 3:first@206 4:first@214 5:first@223 6:first@229 7:first@237 8:first@252 9:first@260 10:first@271 11:first@275 12:first@286 13:first@301 14:first@309 15:first@316
+   rereads: 4, differing: 0, CRC agrees with the verdicts: True
+   verified contiguous bytes from the start of the file: 2048 (4 sectors); other sectors: []
+   first 16 bytes: ffa373adfffebffeb27b089162b0e7e9 | all zero: False
+   first confirmed frame at byte 128 ; 5 headers in sequence, chain reaches the end of the data
+   stream: [('MPEG-1', 48000, 128, 'nocrc', 'mode1')]
+   frame offsets/lengths: [(128, 384), (512, 384), (896, 384), (1280, 384), (1664, 384)]
+   main_data_begin of the first frames: [260, 304, 348, 375, 377]
+== episode 7: t=681500 base=Some(8153088) replaced=12
+   summary: None
+   sector 12 (first): INCOMPLETE export, 6/8 chunks
+   reads in order (sector:same, ms after the first): 0:first@0 0:yes@29 1:first@55 2:first@89 0:yes@111 1:yes@120 0:yes@225 1:yes@228 2:yes@233 3:first@237 4:first@254 5:first@258 6:first@267 7:first@274 8:first@290 9:first@296 10:first@299 11:first@312 12:first@324 13:first@329 14:first@332 15:first@347
+   rereads: 6, differing: 0, CRC agrees with the verdicts: True
+   verified contiguous bytes from the start of the file: 6144 (12 sectors); other sectors: []
+   first 16 bytes: fbe646c55f78f635c51ec5ed3b3074dd | all zero: False
+   first confirmed frame at byte 256 ; 16 headers in sequence, chain reaches the end of the data
+   stream: [('MPEG-1', 48000, 128, 'nocrc', 'mode1')]
+   frame offsets/lengths: [(256, 384), (640, 384), (1024, 384), (1408, 384), (1792, 384), (2176, 384), (2560, 384), (2944, 384), (3328, 384), (3712, 384), (4096, 384), (4480, 384), (4864, 384), (5248, 384), (5632, 384), (6016, 384)]
+   main_data_begin of the first frames: [193, 20, 61, 111, 153, 201, 252, 293]
+== episode 9: t=754464 base=Some(8415232) replaced=36
+   summary: None
+   sector 9 (first): INCOMPLETE export, 7/8 chunks
+   reads in order (sector:same, ms after the first): 0:first@0 0:yes@26 1:first@52 0:yes@86 0:yes@200 1:yes@204 2:first@207 3:first@216 4:first@232 5:first@238 6:first@242 7:first@245 8:first@266 9:first@271 10:first@276 11:first@279 12:first@297 13:first@302 14:first@306 15:first@313
+   rereads: 4, differing: 0, CRC agrees with the verdicts: True
+   verified contiguous bytes from the start of the file: 4608 (9 sectors); other sectors: []
+   first 16 bytes: fffb9464d90002e7595a79e61340388a | all zero: False
+   first confirmed frame at byte 0 ; 12 headers in sequence, chain reaches the end of the data
+   stream: [('MPEG-1', 48000, 128, 'nocrc', 'mode1')]
+   frame offsets/lengths: [(0, 384), (384, 384), (768, 384), (1152, 384), (1536, 384), (1920, 384), (2304, 384), (2688, 384), (3072, 384), (3456, 384), (3840, 384), (4224, 384)]
+   main_data_begin of the first frames: [434, 480, 470, 476, 477, 487, 478, 511]
+== episode 11: t=811087 base=Some(8886272) replaced=38
+   summary: reads=25 unrecorded=0 differs=0 notready=0 stored=0xffff
+   reads in order (sector:same, ms after the first): 0:first@0 0:yes@26 2:first@52 3:first@73 0:yes@120 1:first@129 1:yes@142 0:yes@152 1:yes@164 0:yes@266 1:yes@269 2:yes@273 3:yes@276 4:first@285 5:first@301 6:first@310 7:first@313 8:first@325 9:first@336 10:first@346 11:first@349 12:first@361 13:first@370 14:first@375 15:first@379
+   rereads: 9, differing: 0, CRC agrees with the verdicts: True
+   verified contiguous bytes from the start of the file: 8192 (16 sectors); other sectors: []
+   first 16 bytes: e05d4a43f58c36b1bd5b8dc3eaa09c4b | all zero: False
+   first confirmed frame at byte 128 ; 21 headers in sequence, chain reaches the end of the data
+   stream: [('MPEG-1', 48000, 128, 'nocrc', 'mode1')]
+   frame offsets/lengths: [(128, 384), (512, 384), (896, 384), (1280, 384), (1664, 384), (2048, 384), (2432, 384), (2816, 384), (3200, 384), (3584, 384), (3968, 384), (4352, 384), (4736, 384), (5120, 384), (5504, 384), (5888, 384), (6272, 384), (6656, 384), (7040, 384), (7424, 384), (7808, 384)]
+   main_data_begin of the first frames: [329, 375, 418, 456, 456, 410, 354, 327]
+== episode 12: t=882547 base=Some(9275392) replaced=0
+   summary: None
+   sector 3 (first): INCOMPLETE export, 6/8 chunks
+   reads in order (sector:same, ms after the first): 0:first@0 0:yes@30 1:first@58 0:yes@78 1:yes@113 1:yes@132 0:yes@144 1:yes@154 0:yes@249 1:yes@253 2:first@256 3:first@260 4:first@271 5:first@280 6:first@287 7:first@291 8:first@308 9:first@324 10:first@333 11:first@336 12:first@348 13:first@357 14:first@363 15:first@367
+   rereads: 8, differing: 0, CRC agrees with the verdicts: True
+   verified contiguous bytes from the start of the file: 1536 (3 sectors); other sectors: []
+   first 16 bytes: 1a0cbc5f56c200b9303f30509aca7b0f | all zero: False
+   first confirmed frame at byte 128 ; 4 headers in sequence, chain reaches the end of the data
+   stream: [('MPEG-1', 48000, 128, 'nocrc', 'mode1')]
+   frame offsets/lengths: [(128, 384), (512, 384), (896, 384), (1280, 384)]
+   main_data_begin of the first frames: [483, 492, 511, 495]
+== episode 13: t=918931 base=Some(9607168) replaced=13
+   summary: None
+   sector 4 (first): INCOMPLETE export, 5/8 chunks
+   reads in order (sector:same, ms after the first): 0:first@0 0:yes@38 1:first@70 2:first@102 0:yes@119 1:yes@130 0:yes@268 1:yes@273 2:yes@277 3:first@284 4:first@296 5:first@304 6:first@313 7:first@317 8:first@330 9:first@341 10:first@351 11:first@355 12:first@365 13:first@370 14:first@379 15:first@389
+   rereads: 6, differing: 0, CRC agrees with the verdicts: True
+   verified contiguous bytes from the start of the file: 2048 (4 sectors); other sectors: []
+   first 16 bytes: aa8597cdd1468ed553225ed15b3e1973 | all zero: False
+   first confirmed frame at byte 256 ; 5 headers in sequence, chain reaches the end of the data
+   stream: [('MPEG-1', 48000, 128, 'nocrc', 'mode1')]
+   frame offsets/lengths: [(256, 384), (640, 384), (1024, 384), (1408, 384), (1792, 384)]
+   main_data_begin of the first frames: [425, 501, 451, 511, 453]
+== episode 14: t=956150 base=Some(9807872) replaced=12
+   summary: reads=20 unrecorded=0 differs=0 notready=0 stored=0xffff
+   reads in order (sector:same, ms after the first): 0:first@0 0:yes@29 1:first@59 0:yes@111 0:yes@212 1:yes@216 2:first@219 3:first@223 4:first@236 5:first@243 6:first@251 7:first@258 8:first@273 9:first@284 10:first@287 11:first@303 12:first@315 13:first@320 14:first@324 15:first@338
+   rereads: 4, differing: 0, CRC agrees with the verdicts: True
+   verified contiguous bytes from the start of the file: 8192 (16 sectors); other sectors: []
+   first 16 bytes: fffb9464ea0203634856eb8913742720 | all zero: False
+   first confirmed frame at byte 0 ; 22 headers in sequence, chain reaches the end of the data
+   stream: [('MPEG-1', 48000, 128, 'nocrc', 'mode1')]
+   frame offsets/lengths: [(0, 384), (384, 384), (768, 384), (1152, 384), (1536, 384), (1920, 384), (2304, 384), (2688, 384), (3072, 384), (3456, 384), (3840, 384), (4224, 384), (4608, 384), (4992, 384), (5376, 384), (5760, 384), (6144, 384), (6528, 384), (6912, 384), (7296, 384), (7680, 384), (8064, 384)]
+   main_data_begin of the first frames: [468, 494, 426, 511, 360, 254, 319, 378]
+== episode 16: t=1020515 base=Some(10053632) replaced=41
+   summary: reads=20 unrecorded=0 differs=0 notready=0 stored=0xffff
+   reads in order (sector:same, ms after the first): 0:first@0 0:yes@34 1:first@63 1:yes@108 0:yes@210 1:yes@216 2:first@219 3:first@224 4:first@234 5:first@247 6:first@250 7:first@254 8:first@270 9:first@276 10:first@285 11:first@290 12:first@301 13:first@312 14:first@316 15:first@318
+   rereads: 4, differing: 0, CRC agrees with the verdicts: True
+   verified contiguous bytes from the start of the file: 8192 (16 sectors); other sectors: []
+   first 16 bytes: 50e46a545c0f7a0c1d9a19d9de5b246d | all zero: False
+   first confirmed frame at byte 128 ; 21 headers in sequence, chain reaches the end of the data
+   stream: [('MPEG-1', 48000, 128, 'nocrc', 'mode1')]
+   frame offsets/lengths: [(128, 384), (512, 384), (896, 384), (1280, 384), (1664, 384), (2048, 384), (2432, 384), (2816, 384), (3200, 384), (3584, 384), (3968, 384), (4352, 384), (4736, 384), (5120, 384), (5504, 384), (5888, 384), (6272, 384), (6656, 384), (7040, 384), (7424, 384), (7808, 384)]
+   main_data_begin of the first frames: [394, 434, 465, 508, 423, 401, 450, 504]
+== episode 17: t=1091661 base=Some(10236928) replaced=0
+   summary: reads=2 unrecorded=0 differs=0 notready=0 stored=0x0001
+   reads in order (sector:same, ms after the first): 0:first@0 0:yes@25
+   rereads: 1, differing: 0, CRC agrees with the verdicts: True
+   verified contiguous bytes from the start of the file: 512 (1 sectors); other sectors: []
+   first 16 bytes: f96f869717bcfd7ffe870fafe86b6a2b | all zero: False
+   no frame confirmed by a successor; headers whose frame runs past the data: [(256, 128, 48000)]

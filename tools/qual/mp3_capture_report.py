@@ -68,9 +68,10 @@ def parse(text):
     episodes = {}
     for line in text.replace("\r", "").split("\n"):
         if m := re.search(r"mp3c E ep=(\d+) t=(\d+) base=(\S+) replaced=(\d+)", line):
-            episodes[int(m[1])] = {"t": int(m[2]), "base": m[3], "replaced": int(m[4]), "reads": [], "data": {}, "summary": None}
+            episodes[int(m[1])] = {"t": int(m[2]), "base": m[3], "replaced": int(m[4]), "reads": {}, "data": {}, "summary": None}
         elif m := re.search(r"mp3c R ep=(\d+) n=(\d+) t=(\d+) idx=(\d+) crc=([0-9a-f]{8}) same=(\w+)", line):
-            episodes[int(m[1])]["reads"].append((int(m[2]), int(m[3]), int(m[4]), int(m[5], 16), m[6]))
+            # Keyed by its number: a line present twice (joined captures) counts once.
+            episodes[int(m[1])]["reads"][int(m[2])] = (int(m[2]), int(m[3]), int(m[4]), int(m[5], 16), m[6])
         elif m := re.search(r"mp3c D ep=(\d+) idx=(\d+) v=(\w+) off=(\d+) hex=([0-9a-f]{128})\b", line):
             episodes[int(m[1])]["data"].setdefault((int(m[2]), m[3]), {})[int(m[4])] = bytes.fromhex(m[5])
         elif m := re.search(r"mp3c Z ep=(\d+) (reads=.*)", line):
@@ -81,6 +82,7 @@ def parse(text):
 def report(n, e, out_dir=None):
     print(f"== episode {n}: t={e['t']} base={e['base']} replaced={e['replaced']}")
     print(f"   summary: {e['summary']}")
+    e = dict(e, reads=[e["reads"][k] for k in sorted(e["reads"])])
     sectors = {}
     for (idx, version), chunks in sorted(e["data"].items()):
         if sorted(chunks) != list(range(0, SECTOR, 64)):
