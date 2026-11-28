@@ -55,9 +55,10 @@ is required. Genuine EOF, body errors and read timeout remain visible during dra
 The product disk wrapper recognizes the observed Metronic root/FAT/root/file-head sequence. A new
 such sequence after at least two seconds without a file read (`HEAD_REOPEN_IDLE_LIMIT`, independent of
 the saturation timeout despite the same initial value) can restart a **head-only** session
-(exactly its first sector consumed, no shifted origin), only if the retained origin can move forward by
-at least a sector. Immediate or isolated re-reads keep the same bytes, and a session that progressed
-beyond the head cannot use this retry rule. Existing expired-sector-zero reopening is unchanged.
+(one to `HEAD_SECTORS` sectors consumed, at most 4 KiB, no shifted origin), only if the
+retained origin can move forward by at least a sector. Q47-06 showed that a refused open may read
+three sectors before stopping; the previous single-sector guard prevented every subsequent retry. Immediate or isolated re-reads keep the same bytes, and a session that progressed
+beyond the recognition zone cannot use this retry rule. Existing expired-sector-zero reopening is unchanged.
 This is a bounded-memory recovery opportunity, not a guarantee that a reader accepts the new content.
 No USB detach is requested by either policy. The existing starvation recovery is only eligible when
 the held session has enough free space for the complete recovery prebuffer; a far-ahead pending
