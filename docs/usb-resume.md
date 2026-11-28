@@ -22,12 +22,30 @@ origin of an MSC session once, on its first audio read, when the stream could no
 | Later reads | Same mapping (`offset - shift`) for re-reads and multi-sector commands, until the window moves past them (`Expired`) |
 | Seeks later in a session | The unchanged policy: wait if near, zeroes beyond `FAR_AHEAD_BYTES`. The origin never moves again |
 
-Invariants of a session: at most one rebase; the offset-to-stream mapping never changes after the first audio
-read; a sector already served answers the same bytes; no byte of a sector before the origin is presented as audio.
+Invariants of a logical file session: the first audio read can commit its origin (including the remembered-offset
+rebase). Within the committed mapping, a retained sector answers the same bytes; expired sectors are not
+presented as audio. A recognized reopening starts a new logical file session, even if the USB connection
+itself stays up.
+
+Terminology:
+
+| Concept | Meaning |
+|---|---|
+| Production position (written/live) | Absolute count of bytes accepted into the rolling window, not bytes received from HTTP |
+| Consumption position (read_end/consumed) | Highest successfully read absolute byte end in the current window session |
+| File origin and shift | Mapping from logical file offsets into the rolling window |
+| MSC connection | USB attachment and protocol lifecycle; not necessarily one logical file session |
+| Reopening / REBASE | A new logical mapping under the explicit policies described here |
+| Drain | Read and discard excess network bytes without advancing the production position |
+| Starvation recovery | Detach after a pending read under a silent producer, then wait for a fresh prebuffer before reattaching |
+
+StreamBeWI is a live radio adapter, not a time-shift cache. Temporal audio continuity is not guaranteed;
+stable retained bytes within a committed mapping and recovery of the audible service are the goals.
 
 ## Inactive consumer and head-only retry (#47)
 
-The network pump waits for room for at most two seconds of continuous saturation. It then reads and
+The network pump waits for room for at most two seconds of continuous saturation
+(`CONSUMER_IDLE_LIMIT`). It then reads and
 discards HTTP body bytes while the window remains full. The retained bytes and virtual offsets do not
 move. On forward consumer progress, normal writes resume (at most one in-flight drain chunk can be
 discarded). This is a live radio, not a time-shift recorder: audio received during prolonged inactivity
@@ -35,7 +53,8 @@ is skipped, and the next append may introduce an MP3 discontinuity. Hardware pla
 is required. Genuine EOF, body errors and read timeout remain visible during drain.
 
 The product disk wrapper recognizes the observed Metronic root/FAT/root/file-head sequence. A new
-such sequence after at least two seconds without a file read can restart a **head-only** session
+such sequence after at least two seconds without a file read (`HEAD_REOPEN_IDLE_LIMIT`, independent of
+the saturation timeout despite the same initial value) can restart a **head-only** session
 (exactly its first sector consumed, no shifted origin), only if the retained origin can move forward by
 at least a sector. Immediate or isolated re-reads keep the same bytes, and a session that progressed
 beyond the head cannot use this retry rule. Existing expired-sector-zero reopening is unchanged.
