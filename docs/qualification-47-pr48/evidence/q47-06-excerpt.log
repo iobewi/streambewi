@@ -1,0 +1,164 @@
+stream: stream: live=167587328 consumed=167529984 lead=57344
+stream: stream: live=168549888 consumed=168492544 lead=57344
+stream: stream: live=169512448 consumed=169455104 lead=57344
+stream: stream: live=170475008 consumed=170417664 lead=57344
+stream: stream: live=171437568 consumed=171380224 lead=57344
+msc_trace: msct R t=11270564-11270610 n=2 lba=12125..12132 blk=4/4 gap=237 svc=41 st=0
+stream: stream: consumer inactive, draining HTTP body
+stream: stream: REBASE on read of sector 0 base Some(165596672) -> Some(171691520) live=171757056
+msc_trace: msct R t=11333424-11333424 n=1 lba=259..259 blk=1/1 gap=62814 svc=6 st=0
+msc_trace: msct R t=11333445-11333445 n=1 lba=1..1 blk=1/1 gap=21 svc=7 st=0
+stream: stream: consumer active, discarded=983040 bytes
+msc_trace: msct R t=11333466-11333466 n=1 lba=259..259 blk=1/1 gap=21 svc=5 st=0
+msc_trace: msct R t=11333486-11333486 n=1 lba=261..261 blk=1/1 gap=20 svc=20 st=0
+stream: stream: live=171759104 consumed=171692032 lead=67072
+msc_trace: msct R t=11333514-11333514 n=1 lba=261..261 blk=1/1 gap=28 svc=7 st=0
+stream: stream: consumer inactive, draining HTTP body
+stream: stream: REBASE on explicit head retry
+msc_trace: msct R t=11383944-11383944 n=1 lba=259..259 blk=1/1 gap=50430 svc=6 st=0
+msc_trace: msct R t=11383966-11383966 n=1 lba=1..1 blk=1/1 gap=22 svc=7 st=0
+msc_trace: msct R t=11383987-11383987 n=1 lba=259..259 blk=1/1 gap=21 svc=5 st=0
+msc_trace: msct R t=11384005-11384005 n=1 lba=261..261 blk=1/1 gap=18 svc=8 st=0
+msc_trace: msct R t=11384021-11384073 n=2 lba=261..262 blk=1/1 gap=52 svc=42 st=0
+msc_trace: msct R t=11384089-11384089 n=1 lba=262..262 blk=1/1 gap=16 svc=6 st=0
+stream: stream: consumer active, discarded=792576 bytes
+msc_trace: msct R t=11384107-11384175 n=2 lba=1..2 blk=1/1 gap=68 svc=19 st=0
+msc_trace: msct R t=11384203-11384287 n=4 lba=261..276 blk=4/4 gap=31 svc=26 st=0
+msc_trace: msct R t=11384329-11384379 n=3 lba=3..5 blk=1/1 gap=42 svc=6 st=0
+msc_trace: msct R t=11384420-11384529 n=3 lba=1..3 blk=1/1 gap=97 svc=6 st=0
+msc_trace: msct R t=11384544-11384588 n=2 lba=277..284 blk=4/4 gap=44 svc=40 st=0
+stream: stream: live=171927552 consumed=171868160 lead=59392
+stream: stream: live=172888064 consumed=172830720 lead=57344
+msc_trace: msct R t=11509138-11509164 n=2 lba=4173..4180 blk=4/4 gap=210 svc=20 st=0
+stream: stream: consumer inactive, draining HTTP body
+stream: stream: consumer active, discarded=929792 bytes
+stream: stream: live=173799424 consumed=173719552 lead=79872
+msc_trace: msct R t=11568785-11568814 n=2 lba=4181..4188 blk=4/4 gap=59621 svc=25 st=0
+msc_trace: msct R t=11569048-11569864 n=8 lba=4189..4220 blk=4/4 gap=260 svc=33 st=0
+msc_trace: msct R t=11570057-11570838 n=8 lba=4221..4252 blk=4/4 gap=259 svc=45 st=0
+msc_trace: msct R t=11571093-11571868 n=8 lba=4253..4284 blk=4/4 gap=255 svc=29 st=0
+msc_trace: msct R t=11572097-11572919 n=8 lba=4285..4316 blk=4/4 gap=245 svc=40 st=0
+msc_trace: msct R t=11573117-11573911 n=8 lba=4317..4348 blk=4/4 gap=251 svc=31 st=0
+msc_trace: msct R t=11574149-11574174 n=2 lba=4349..4356 blk=4/4 gap=238 svc=18 st=0
+msc_trace: msct R t=11574385-11575019 n=8 lba=4386..4417 blk=4/4 gap=263 svc=22 st=0
+msc_trace: msct R t=11575234-11576007 n=8 lba=4418..4449 blk=4/4 gap=260 svc=38 st=0
+msc_trace: msct R t=11576243-11577037 n=8 lba=4450..4481 blk=4/4 gap=262 svc=45 st=0
+msc_trace: msct R t=11577304-11578093 n=8 lba=4482..4513 blk=4/4 gap=267 svc=34 st=0
+msc_trace: msct R t=11591628-11591941 n=4 lba=4930..4945 blk=4/4 gap=261 svc=44 st=0
+stream: stream: consumer inactive, draining HTTP body
+msc_trace: msct R t=11653197-11653223 n=2 lba=4946..4953 blk=4/4 gap=61256 svc=20 st=0
+stream: stream: consumer active, discarded=962560 bytes
+stream: stream: live=174191104 consumed=174111232 lead=79872
+msc_trace: msct R t=11653447-11654266 n=8 lba=4954..4985 blk=4/4 gap=262 svc=22 st=0
+msc_trace: msct R t=11654504-11655290 n=8 lba=4986..5017 blk=4/4 gap=241 svc=34 st=0
+msc_trace: msct R t=11655511-11656303 n=8 lba=5018..5049 blk=4/4 gap=236 svc=25 st=0
+msc_trace: msct R t=11656520-11657337 n=8 lba=5050..5081 blk=4/4 gap=237 svc=35 st=0
+msc_trace: msct R t=11657563-11658362 n=8 lba=5082..5113 blk=4/4 gap=239 svc=35 st=0
+msc_trace: msct R t=11658584-11658630 n=2 lba=5114..5121 blk=4/4 gap=222 svc=40 st=0
+msc_trace: msct R t=11658671-11659277 n=8 lba=5136..5167 blk=4/4 gap=238 svc=30 st=0
+msc_trace: msct R t=11659513-11660307 n=8 lba=5168..5199 blk=4/4 gap=236 svc=28 st=0
+msc_trace: msct R t=11660545-11661326 n=8 lba=5200..5231 blk=4/4 gap=259 svc=32 st=0
+msc_trace: msct R t=11661528-11662365 n=8 lba=5232..5263 blk=4/4 gap=262 svc=39 st=0
+msc_trace: msct R t=11670769-11671562 n=8 lba=5520..5551 blk=4/4 gap=239 svc=40 st=0
+msc_trace: msct R t=11674217-11674722 n=5 lba=5552..5571 blk=4/4 gap=2655 svc=26 st=0
+msc_trace: msct R t=11674752-11675526 n=7 lba=5572..5599 blk=4/4 gap=233 svc=36 st=0
+msc_trace: msct R t=11675754-11676560 n=8 lba=5600..5631 blk=4/4 gap=234 svc=36 st=0
+msc_trace: msct R t=11676793-11677589 n=8 lba=5632..5663 blk=4/4 gap=247 svc=33 st=0
+msc_trace: msct R t=11677782-11678600 n=8 lba=5664..5695 blk=4/4 gap=236 svc=41 st=0
+msc_trace: msct R t=11678829-11679632 n=8 lba=5696..5727 blk=4/4 gap=234 svc=32 st=0
+msc_trace: msct R t=11679845-11680668 n=8 lba=5728..5759 blk=4/4 gap=231 svc=45 st=0
+msc_trace: msct R t=11680857-11681668 n=8 lba=5760..5791 blk=4/4 gap=245 svc=28 st=0
+msc_trace: msct R t=11681898-11682719 n=8 lba=5792..5823 blk=4/4 gap=238 svc=47 st=0
+msc_trace: msct R t=11682929-11683705 n=8 lba=5824..5855 blk=4/4 gap=234 svc=32 st=0
+msc_trace: msct R t=11683926-11684738 n=8 lba=5856..5887 blk=4/4 gap=247 svc=32 st=0
+stream: stream: live=175127040 consumed=175045120 lead=81920
+msc_trace: msct R t=11734891-11735687 n=8 lba=7448..7479 blk=4/4 gap=234 svc=33 st=0
+stream: stream: consumer inactive, draining HTTP body
+stream: stream: consumer active, discarded=958464 bytes
+stream: stream: live=175488512 consumed=175407104 lead=81408
+msc_trace: msct R t=11794505-11794538 n=2 lba=7480..7487 blk=4/4 gap=58818 svc=37 st=0
+msc_trace: msct R t=11794756-11795549 n=8 lba=7488..7519 blk=4/4 gap=246 svc=21 st=0
+msc_trace: msct R t=11795776-11796580 n=8 lba=7520..7551 blk=4/4 gap=254 svc=39 st=0
+msc_trace: msct R t=11796820-11797584 n=8 lba=7552..7583 blk=4/4 gap=240 svc=27 st=0
+msc_trace: msct R t=11797804-11798596 n=7 lba=7584..7611 blk=4/4 gap=263 svc=30 st=0
+msc_trace: msct R t=11798623-11799388 n=7 lba=7612..7639 blk=4/4 gap=242 svc=50 st=0
+msc_trace: msct R t=11799629-11800420 n=8 lba=7640..7671 blk=4/4 gap=245 svc=41 st=0
+msc_trace: msct R t=11800661-11801668 n=9 lba=7672..7707 blk=4/4 gap=244 svc=43 st=0
+msc_trace: msct R t=11801702-11802458 n=7 lba=7708..7735 blk=4/4 gap=254 svc=34 st=0
+msc_trace: msct R t=11802676-11803500 n=8 lba=7736..7767 blk=4/4 gap=236 svc=59 st=0
+msc_trace: msct R t=11803741-11804524 n=8 lba=7768..7799 blk=4/4 gap=252 svc=23 st=0
+msc_trace: msct R t=11808845-11809640 n=8 lba=7928..7959 blk=4/4 gap=242 svc=29 st=0
+stream: stream: consumer inactive, draining HTTP body
+stream: stream: REBASE on read of sector 0 base Some(171708416) -> Some(175666688) live=175732224
+msc_trace: msct R t=11870726-11870726 n=1 lba=259..259 blk=1/1 gap=61086 svc=22 st=0
+msc_trace: msct R t=11870760-11870760 n=1 lba=1..1 blk=1/1 gap=34 svc=6 st=0
+msc_trace: msct R t=11870783-11870783 n=1 lba=259..259 blk=1/1 gap=23 svc=8 st=0
+msc_trace: msct R t=11870802-11870802 n=1 lba=261..261 blk=1/1 gap=19 svc=22 st=0
+msc_trace: msct R t=11870834-11870861 n=3 lba=261..263 blk=1/1 gap=32 svc=8 st=0
+stream: stream: consumer active, discarded=980992 bytes
+stream: stream: live=175734272 consumed=175668224 lead=66048
+msc_trace: msct R t=11870874-11870886 n=2 lba=261..262 blk=1/1 gap=13 svc=11 st=0
+stream: stream: consumer inactive, draining HTTP body
+msc_trace: msct R t=11876950-11876950 n=1 lba=259..259 blk=1/1 gap=6064 svc=6 st=0
+msc_trace: msct R t=11876971-11876971 n=1 lba=1..1 blk=1/1 gap=21 svc=7 st=0
+msc_trace: msct R t=11876993-11876993 n=1 lba=259..259 blk=1/1 gap=22 svc=5 st=0
+msc_trace: msct R t=11877012-11877012 n=1 lba=261..261 blk=1/1 gap=19 svc=15 st=0
+msc_trace: msct R t=11877035-11877062 n=3 lba=261..263 blk=1/1 gap=23 svc=8 st=0
+msc_trace: msct R t=11877076-11877086 n=2 lba=261..262 blk=1/1 gap=14 svc=6 st=0
+msc_trace: msct R t=11885069-11885069 n=1 lba=259..259 blk=1/1 gap=7983 svc=6 st=0
+msc_trace: msct R t=11885090-11885090 n=1 lba=1..1 blk=1/1 gap=21 svc=7 st=0
+msc_trace: msct R t=11885111-11885111 n=1 lba=259..259 blk=1/1 gap=21 svc=11 st=0
+msc_trace: msct R t=11885133-11885133 n=1 lba=261..261 blk=1/1 gap=22 svc=7 st=0
+msc_trace: msct R t=11885147-11885191 n=3 lba=261..263 blk=1/1 gap=31 svc=6 st=0
+msc_trace: msct R t=11885203-11885215 n=2 lba=261..262 blk=1/1 gap=12 svc=7 st=0
+msc_trace: msct R t=12043978-12043978 n=1 lba=259..259 blk=1/1 gap=158763 svc=6 st=0
+msc_trace: msct R t=12043999-12043999 n=1 lba=1..1 blk=1/1 gap=21 svc=7 st=0
+msc_trace: msct R t=12044021-12044021 n=1 lba=259..259 blk=1/1 gap=22 svc=7 st=0
+msc_trace: msct R t=12044040-12044040 n=1 lba=261..261 blk=1/1 gap=19 svc=9 st=0
+msc_trace: msct R t=12044070-12044097 n=3 lba=261..263 blk=1/1 gap=30 svc=7 st=0
+msc_trace: msct R t=12044109-12044122 n=2 lba=261..262 blk=1/1 gap=13 svc=6 st=0
+msc_trace: msct R t=12044560-12044560 n=1 lba=259..259 blk=1/1 gap=438 svc=10 st=0
+msc_trace: msct R t=12044585-12044585 n=1 lba=1..1 blk=1/1 gap=25 svc=8 st=0
+msc_trace: msct R t=12044607-12044607 n=1 lba=259..259 blk=1/1 gap=22 svc=8 st=0
+msc_trace: msct R t=12044626-12044626 n=1 lba=261..261 blk=1/1 gap=19 svc=8 st=0
+msc_trace: msct R t=12044642-12044667 n=3 lba=261..263 blk=1/1 gap=16 svc=6 st=0
+msc_trace: msct R t=12044679-12044696 n=2 lba=261..262 blk=1/1 gap=17 svc=50 st=0
+msc_trace: msct R t=12059010-12059010 n=1 lba=259..259 blk=1/1 gap=14314 svc=6 st=0
+msc_trace: msct R t=12059031-12059031 n=1 lba=1..1 blk=1/1 gap=21 svc=7 st=0
+msc_trace: msct R t=12059052-12059052 n=1 lba=259..259 blk=1/1 gap=21 svc=10 st=0
+msc_trace: msct R t=12059073-12059073 n=1 lba=261..261 blk=1/1 gap=21 svc=7 st=0
+msc_trace: msct R t=12059088-12059115 n=3 lba=261..263 blk=1/1 gap=15 svc=9 st=0
+msc_trace: msct R t=12059132-12059142 n=2 lba=261..262 blk=1/1 gap=17 svc=6 st=0
+usb: usb: suspended=true
+msc_trace: msct B t=12116295 suspended=1
+usb: usb: suspended=false
+stream: stream: session end consumed=0 live=175750144
+usb: usb: bus reset
+usb: usb: addressed=2
+stream: stream: consumer active, discarded=4112384 bytes
+stream: stream: live=175752192 consumed=0 lead=175752192
+usb: usb: configured=true
+stream: stream: session start live=175752192
+msc_trace: msct B t=12129291 suspended=0
+msc_trace: msct B t=12129315 reset=1
+msc_trace: msct B t=12129346 addressed=2
+msc_trace: msct B t=12129362 configured=1
+msc_trace: msct R t=12129406-12129406 n=1 lba=0..0 blk=1/1 gap=70264 svc=5 st=0
+msc_trace: msct R t=12129416-12129416 n=1 lba=0..0 blk=1/1 gap=10 svc=7 st=0
+msc_trace: msct R t=12129427-12129427 n=1 lba=0..0 blk=1/1 gap=11 svc=5 st=0
+msc_trace: msct C op=0x12 cdb=120000002400 t=12129383-12129383 n=1 gap=5295499 svc=0 st=0
+msc_trace: msct C op=0x00 cdb=000000000000 t=12129389-12129389 n=1 gap=6 svc=1 st=0
+msc_trace: msct C op=0x25 cdb=25000000000000000000 t=12129398-12129398 n=1 gap=9 svc=1 st=0
+msc_trace: msct R t=12129441-12129441 n=1 lba=259..259 blk=1/1 gap=14 svc=5 st=0
+msc_trace: msct R t=12131517-12131517 n=1 lba=1..1 blk=1/1 gap=2076 svc=4 st=0
+msc_trace: msct R t=12131534-12131534 n=1 lba=259..259 blk=1/1 gap=17 svc=6 st=0
+msc_trace: msct R t=12131551-12131551 n=1 lba=261..261 blk=1/1 gap=17 svc=6 st=0
+msc_trace: msct R t=12131566-12131578 n=2 lba=261..262 blk=1/1 gap=15 svc=5 st=0
+msc_trace: msct R t=12131590-12131599 n=2 lba=261..262 blk=1/1 gap=12 svc=5 st=0
+msc_trace: msct R t=12131614-12131614 n=1 lba=262..262 blk=1/1 gap=15 svc=6 st=0
+msc_trace: msct R t=12131626-12131638 n=2 lba=261..262 blk=1/1 gap=12 svc=5 st=0
+msc_trace: msct R t=12131705-12131775 n=2 lba=1..2 blk=1/1 gap=70 svc=8 st=0
+msc_trace: msct R t=12131789-12131882 n=4 lba=261..276 blk=4/4 gap=33 svc=27 st=0
+msc_trace: msct R t=12131923-12131971 n=3 lba=3..5 blk=1/1 gap=41 svc=5 st=0
+msc_trace: msct R t=12132005-12132114 n=3 lba=1..3 blk=1/1 gap=94 svc=4 st=0
+stream: stream: live=176696832 consumed=176614912 lead=81920
