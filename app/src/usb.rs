@@ -13,7 +13,9 @@ use iobewi_fat16::{ReadOnlyBlockDevice, ReadStatus, SECTOR_SIZE, VirtualFat16};
 use iobewi_usb_msc::{InquiryIdentity, MscClass, ReadAction, ReadPolicy, State as MscState};
 
 use crate::provisioning;
-use crate::stream::{CONSUMER_IDLE_LIMIT, STREAM, SharedStream, SharedStreamSource};
+#[cfg(test)]
+use crate::stream::CONSUMER_IDLE_LIMIT;
+use crate::stream::{STREAM, SharedStream, SharedStreamSource};
 use crate::stream_policy::{FAT16_CONFIG, PREBUFFER_BYTES};
 
 /// Longest total wait for stream data inside one READ(10) command (not per sector): a host aborts
@@ -26,6 +28,8 @@ const PENDING_TIMEOUT: Duration = Duration::from_secs(5);
 const STALL_BEFORE_DROP: Duration = Duration::from_secs(2);
 /// How long the device stays off the bus, so that the host registers the removal.
 const DISCONNECT_HOLD: Duration = Duration::from_millis(1500);
+/// Minimum inactivity before an explicit metadata-to-head retry can reopen a file.
+const HEAD_REOPEN_IDLE_LIMIT: Duration = Duration::from_secs(2);
 const RECONNECT_POLL: Duration = Duration::from_millis(200);
 
 /// Soft-connect and soft-disconnect of the USB device, provided by the target (the portable
@@ -384,7 +388,7 @@ where
 
     let mut msc = MscClass::new(&mut builder, msc_state, MSC_IDENTITY);
     let mut usb_device = builder.build();
-    let mut disk = StreamDisk::new(&STREAM, CONSUMER_IDLE_LIMIT);
+    let mut disk = StreamDisk::new(&STREAM, HEAD_REOPEN_IDLE_LIMIT);
 
     let device_fut = usb_device.run();
     let msc_fut = async {

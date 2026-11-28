@@ -924,7 +924,7 @@ async fn pump<R: embedded_io_async::Read>(stream: &'static SharedStream, body: &
 where
     R::Error: core::fmt::Debug,
 {
-    pump_with_limits(stream, body, CONSUMER_IDLE_LIMIT, READ_TIMEOUT).await;
+    let _ = pump_with_limits(stream, body, CONSUMER_IDLE_LIMIT, READ_TIMEOUT).await;
 }
 
 async fn pump_with_limits<R: embedded_io_async::Read>(
@@ -932,7 +932,8 @@ async fn pump_with_limits<R: embedded_io_async::Read>(
     body: &mut R,
     idle_limit: Duration,
     read_limit: Duration,
-) where
+) -> Option<ReadStop<R::Error>>
+where
     R::Error: core::fmt::Debug,
 {
     let mut buf = [0u8; CHUNK_BYTES];
@@ -946,10 +947,10 @@ async fn pump_with_limits<R: embedded_io_async::Read>(
     #[cfg(feature = "qual")]
     let started = Instant::now();
 
-    loop {
+    let stop = loop {
         #[cfg(feature = "qual")]
         if qual_drop_due(stream, started) {
-            break;
+            break None;
         }
         if draining && stream.writable() > 0 {
             draining = false;
@@ -973,7 +974,7 @@ async fn pump_with_limits<R: embedded_io_async::Read>(
         match read_bounded(body, &mut buf[..want], read_limit).await {
             Err(ReadStop::Closed) => {
                 log::info!("stream: server closed connection");
-                break;
+                break Some(ReadStop::Closed);
             }
             Err(ReadStop::Silent) => {
                 // Half-open connection: drop it (the socket is removed and the pool slot freed)
@@ -982,7 +983,7 @@ async fn pump_with_limits<R: embedded_io_async::Read>(
                     "stream: no data for {} s, abandoning the connection",
                     read_limit.as_secs()
                 );
-                break;
+                break Some(ReadStop::Silent);
             }
             Ok(n) => {
                 if draining {
@@ -1026,13 +1027,14 @@ async fn pump_with_limits<R: embedded_io_async::Read>(
             }
             Err(ReadStop::Failed(err)) => {
                 log::info!("stream: body read error {:?}", err);
-                break;
+                break Some(ReadStop::Failed(err));
             }
         }
-    }
+    };
     if draining {
         log::info!("stream: drain ended, discarded={} bytes", discarded);
     }
+    stop
 }
 
 #[cfg(test)]
@@ -1191,12 +1193,13 @@ mod tests {
             pos: 0,
             request: alloc::vec::Vec::new(),
         };
-        run(pump_with_limits(
+        let (stop, _) = run(pump_with_limits(
             stream,
             &mut conn,
             Duration::from_millis(15),
             Duration::from_millis(100),
         ));
+        assert_eq!(stop, Some(ReadStop::Closed));
         assert_eq!(conn.pos, conn.data.len());
         assert_eq!(stream.progress(), before);
         let mut sector = [0; SECTOR_SIZE];
@@ -1210,15 +1213,78 @@ mod tests {
     fn inactive_consumer_still_observes_network_timeout() {
         let (stream, _) = saturated();
         let before = stream.progress();
-        let (_, took) = run(pump_with_limits(
+        let (stop, took) = run(pump_with_limits(
             stream,
             &mut Body::Silent,
             Duration::from_millis(20),
             Duration::from_millis(60),
         ));
+        assert_eq!(stop, Some(ReadStop::Silent));
         assert!(took >= std::time::Duration::from_millis(70), "{took:?}");
         assert!(took < std::time::Duration::from_secs(2), "{took:?}");
         assert_eq!(stream.progress(), before);
+    }
+
+    #[test]
+    fn chunked_end_and_truncation_during_drain_preserve_the_window() {
+        for (wire, truncated) in [
+            (&b"4\r\nABCD\r\n0\r\n\r\n"[..], false),
+            (&b"4\r\nABCD\r\n8\r\nXY"[..], true),
+        ] {
+            let (stream, _) = saturated();
+            let before = stream.progress();
+            let mut conn = MockConn {
+                script: &Script::default(),
+                data: wire.to_vec(),
+                pos: 0,
+                request: alloc::vec::Vec::new(),
+            };
+            let mut head = [0; 64];
+            let mut body = edge_http::io::Body::new(BodyType::Chunked, &mut head, 0, &mut conn);
+            let (stop, _) = run(pump_with_limits(
+                stream,
+                &mut body,
+                Duration::from_millis(10),
+                Duration::from_millis(100),
+            ));
+            if truncated {
+                assert!(matches!(stop, Some(ReadStop::Failed(_))));
+            } else {
+                assert!(matches!(stop, Some(ReadStop::Closed)));
+            }
+            assert_eq!(stream.progress(), before);
+            assert_eq!(conn.pos, wire.len());
+        }
+    }
+
+    #[test]
+    fn reconnect_while_full_drains_then_resumes_on_the_new_body() {
+        let (stream, source) = saturated();
+        let before = stream.progress();
+        // The old connection closes with the window still full.
+        let (stop, _) = run(pump_with_limits(
+            stream,
+            &mut Body::Closed,
+            Duration::from_millis(10),
+            Duration::from_millis(100),
+        ));
+        assert_eq!(stop, Some(ReadStop::Closed));
+        assert_eq!(stream.progress(), before);
+        // A replacement connection also starts full. Its first read occurs in
+        // drain mode and the consumer resumes during it.
+        let mut body = ResumeDuringDrain { source, reads: 0 };
+        let (stop, _) = run(pump_with_limits(
+            stream,
+            &mut body,
+            Duration::from_millis(10),
+            Duration::from_millis(100),
+        ));
+        assert_eq!(stop, Some(ReadStop::Closed));
+        assert_eq!(body.reads, 3);
+        assert_eq!(
+            stream.progress(),
+            (before.0 + SECTOR_SIZE as u64, before.1 + SECTOR_SIZE as u64)
+        );
     }
 
     /// The host resumes inside the first drain read. Only that in-flight read
@@ -1263,12 +1329,13 @@ mod tests {
         let (written, _) = stream.progress();
         let base = stream.inner.lock(|c| c.borrow().session().unwrap().base);
         let mut body = ResumeDuringDrain { source, reads: 0 };
-        run(pump_with_limits(
+        let (stop, _) = run(pump_with_limits(
             stream,
             &mut body,
             Duration::from_millis(10),
             Duration::from_millis(100),
         ));
+        assert_eq!(stop, Some(ReadStop::Closed));
         assert_eq!(body.reads, 3);
         assert_eq!(stream.progress().0, written + SECTOR_SIZE as u64);
         assert_eq!(
