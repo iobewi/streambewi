@@ -38,7 +38,8 @@ jobs:
           version: "1.98.1.0"
           default: false
           override: false
-          github-token: ${{ github.token }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
       - name: Compile and link ESP32-S3 release
         shell: bash
         run: |
