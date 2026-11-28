@@ -1,5 +1,9 @@
 # Qualification matérielle de la PR #48 (issue #47) — dossier partiel
 
+> **Deux candidats matériels distincts.** Ce document décrit le **candidat 1** (PR à `720eb7e`) et reste inchangé.
+> Le **candidat 2** (correctif R1-P1, PR à `0e759b7`), campagne arrêtée par l'opérateur, est décrit dans
+> [candidat-2.md](candidat-2.md).
+
 **Conclusion : Q47-06 est en échec (blocage durable après STOP). La campagne est suspendue à la demande de
 l'opérateur pour soumettre le constat à la revue. La disponibilité du service audio après STOP n'est pas
 qualifiée.** Aucune modification fonctionnelle, aucune fusion, aucune issue fermée.

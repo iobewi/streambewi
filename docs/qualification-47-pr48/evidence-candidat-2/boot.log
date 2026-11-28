@@ -1,0 +1,266 @@
+I (29) boot: ESP-IDF v6.1-829-g9a97f6c54ec 2nd stage bootloader
+I (29) boot: chip revision: v0.2
+I (30) boot.esp32s3: Boot SPI Speed : 40MHz
+I (30) boot.esp32s3: SPI Mode       : DIO
+I (34) boot.esp32s3: SPI Flash Size : 4MB
+I (38) boot: Partition Table:
+I (40) boot: ## Label            Usage          Type ST Offset   Length
+I (47) boot:  0 config           Unkno�ESP-ROM:esp32s3-20210327
+Build:Mar 27 2021
+rst:0x1 (POWERON),boot:0x8 (SPI_FAST_FLASH_BOOT)
+SPIWP:0xee
+mode:DIO, clock div:2
+load:0x3fce2820,len:0x13b0
+load:0x403c8700,len:0xd74
+load:0x403cb700,len:0x2ef8
+entry 0x403c88f4
+I (29) boot: ESP-IDF v6.1-829-g9a97f6c54ec 2nd stage bootloader
+I (29) boot: chip revision: v0.2
+I (30) boot.esp32s3: Boot SPI Speed : 40MHz
+I (30) boot.esp32s3: SPI Mode       : DIO
+I (34) boot.esp32s3: SPI Flash Size : 4MB
+I (38) boot: Partition Table:
+I (40) boot: ## Label            Usage          Type ST Offset   Length
+I (47) boot:  0 config           Unknown data     01 40 00009000 00040000
+I (53) boot:  1 factory          factory app      00 00 00050000 00180000
+I (60) esp_image: segment 0: paddr=00050020 vaddr=3c000020 size=2fab8h (195256) map
+I (116) esp_image: segment 1: paddr=0007fae0 vaddr=3fc92ab0 size=00538h (  1336) load
+I (117) esp_image: segment 2: paddr=00080020 vaddr=42030020 size=e11d4h (922068) map
+I (352) esp_image: segment 3: paddr=001611fc vaddr=3fc92fe8 size=1b814h (112660) load
+I (389) esp_image: segment 4: paddr=0017ca18 vaddr=40378000 size=0aab0h ( 43696) load
+I (412) boot: Loaded app from partition at offset 0x50000
+INFO - streambewi::usb: provisioning: CONFIGURED
+INFO - streambewi::usb: stream: waiting for the prebuffer written=0 consumed=0
+INFO - streambewi::status: status: LED blue blinking slowly (state rev 8)
+INFO - streambewi::provisioning: wifi: ready
+INFO - streambewi::stream: net: got IP <ip-carte>/24
+INFO - streambewi::stream: stream: connecting attempt=1 to http://icecast.radiofrance.fr
+INFO - streambewi::status: status: LED green pulsing (state rev 10)
+INFO - streambewi::stream: stream: HTTP status=200 content_length=None chunked=true
+INFO - streambewi::stream: stream: live=65536 consumed=0 lead=65536
+INFO - streambewi::status: status: LED green steady (state rev 12)
+INFO - streambewi::usb: stream: prebuffer bytes=88064
+INFO - streambewi::usb: usb: enabling MSC for Metronic
+INFO - streambewi::usb: usb: enabled=true
+INFO - streambewi::usb: usb: suspended=true
+INFO - streambewi::msc_trace: msct B t=4679 enabled=1
+INFO - streambewi::msc_trace: msct B t=4686 suspended=1
+INFO - streambewi::msc_trace: msct S t=5693 live=102400 consumed=0 open=none lost=0 lines=2 tx_us=534 txmax_us=477
+INFO - streambewi::usb: usb: suspended=false
+INFO - streambewi::usb: usb: bus reset
+INFO - streambewi::msc_trace: msct B t=6258 suspended=0
+INFO - streambewi::msc_trace: msct B t=6281 reset=1
+INFO - streambewi::usb: usb: addressed=2
+INFO - streambewi::usb: usb: configured=true
+INFO - streambewi::stream: stream: session start live=114688
+INFO - streambewi::msc_trace: msct B t=6308 addressed=2
+INFO - streambewi::msc_trace: msct B t=6317 configured=1
+INFO - streambewi::msc_trace: msct R t=6346-6346 n=1 lba=0..0 blk=1/1 gap=0 svc=5 st=0
+INFO - streambewi::msc_trace: msct R t=6356-6356 n=1 lba=0..0 blk=1/1 gap=10 svc=7 st=0
+INFO - streambewi::msc_trace: msct R t=6368-6368 n=1 lba=0..0 blk=1/1 gap=12 svc=5 st=0
+INFO - streambewi::msc_trace: msct C op=0x12 cdb=120000002400 t=6328-6328 n=1 gap=0 svc=2 st=0
+INFO - streambewi::msc_trace: msct C op=0x00 cdb=000000000000 t=6335-6335 n=1 gap=7 svc=0 st=0
+INFO - streambewi::msc_trace: msct C op=0x25 cdb=25000000000000000000 t=6338-6338 n=1 gap=3 svc=1 st=0
+INFO - streambewi::msc_trace: msct R t=6382-6382 n=1 lba=259..259 blk=1/1 gap=14 svc=6 st=0
+INFO - streambewi::msc_trace: msct S t=6729 live=120832 consumed=49152 open=none lost=0 lines=12 tx_us=44928 txmax_us=8945
+INFO - streambewi::msc_trace: msct S t=7771 live=131072 consumed=49152 open=none lost=0 lines=1 tx_us=10605 txmax_us=10605
+INFO - streambewi::msc_trace: msct R t=8457-8457 n=1 lba=1..1 blk=1/1 gap=2075 svc=4 st=0
+INFO - streambewi::msc_trace: msct R t=8474-8474 n=1 lba=259..259 blk=1/1 gap=17 svc=7 st=0
+INFO - streambewi::msc_trace: msct R t=8491-8491 n=1 lba=261..261 blk=1/1 gap=17 svc=6 st=0
+INFO - streambewi::msc_trace: msct R t=8507-8518 n=2 lba=261..262 blk=1/1 gap=16 svc=7 st=0
+INFO - streambewi::msc_trace: msct R t=8533-8533 n=1 lba=261..261 blk=1/1 gap=15 svc=5 st=0
+INFO - streambewi::msc_trace: msct R t=8549-8615 n=2 lba=1..2 blk=1/1 gap=66 svc=7 st=0
+INFO - streambewi::msc_trace: msct R t=8630-8719 n=4 lba=261..276 blk=4/4 gap=33 svc=26 st=0
+INFO - streambewi::msc_trace: msct R t=8766-8794 n=2 lba=3..4 blk=1/1 gap=47 svc=9 st=0
+INFO - streambewi::msc_trace: msct S t=8808 live=139264 consumed=57344 open=none lost=0 lines=9 tx_us=34393 txmax_us=7984
+INFO - streambewi::msc_trace: msct R t=8824-8824 n=1 lba=5..5 blk=1/1 gap=30 svc=4 st=0
+INFO - streambewi::msc_trace: msct R t=8847-8961 n=3 lba=1..3 blk=1/1 gap=98 svc=7 st=0
+INFO - streambewi::msc_trace: msct R t=8975-9005 n=2 lba=277..284 blk=4/4 gap=30 svc=27 st=0
+INFO - streambewi::msc_trace: msct R t=9123-9123 n=1 lba=4..4 blk=1/1 gap=118 svc=4 st=0
+INFO - streambewi::msc_trace: msct R t=9213-9247 n=2 lba=285..292 blk=4/4 gap=90 svc=30 st=0
+INFO - streambewi::msc_trace: msct R t=9299-9396 n=2 lba=5..6 blk=1/1 gap=97 svc=4 st=0
+INFO - streambewi::msc_trace: msct R t=9467-9502 n=2 lba=293..300 blk=4/4 gap=71 svc=28 st=0
+INFO - streambewi::msc_trace: msct R t=9561-9660 n=2 lba=7..8 blk=1/1 gap=99 svc=5 st=0
+INFO - streambewi::msc_trace: msct R t=9730-9762 n=2 lba=301..308 blk=4/4 gap=70 svc=31 st=0
+INFO - streambewi::msc_trace: msct S t=9834 live=155648 consumed=73728 open=0x28@9+2ms lost=0 lines=10 tx_us=22537 txmax_us=10527
+INFO - streambewi::msc_trace: msct R t=9832-9946 n=2 lba=9..10 blk=1/1 gap=114 svc=21 st=0
+INFO - streambewi::msc_trace: msct R t=9993-10029 n=2 lba=309..316 blk=4/4 gap=47 svc=33 st=0
+INFO - streambewi::msc_trace: msct R t=10117-10214 n=2 lba=11..12 blk=1/1 gap=97 svc=4 st=0
+INFO - streambewi::msc_trace: msct R t=10237-10282 n=2 lba=317..324 blk=4/4 gap=45 svc=45 st=0
+INFO - streambewi::msc_trace: msct R t=10416-10416 n=1 lba=13..13 blk=1/1 gap=134 svc=4 st=0
+INFO - streambewi::msc_trace: msct R t=10497-10528 n=2 lba=325..332 blk=4/4 gap=81 svc=26 st=0
+INFO - streambewi::msc_trace: msct R t=10575-10673 n=2 lba=14..15 blk=1/1 gap=98 svc=4 st=0
+INFO - streambewi::msc_trace: msct R t=10738-10768 n=2 lba=333..340 blk=4/4 gap=65 svc=28 st=0
+INFO - streambewi::msc_trace: msct R t=10845-10845 n=1 lba=16..16 blk=1/1 gap=77 svc=5 st=0
+INFO - streambewi::msc_trace: msct S t=10860 live=172032 consumed=90112 open=none lost=0 lines=10 tx_us=27571 txmax_us=11214
+INFO - streambewi::msc_trace: msct R t=10944-10944 n=1 lba=17..17 blk=1/1 gap=99 svc=4 st=0
+INFO - streambewi::msc_trace: msct R t=11003-11036 n=2 lba=341..348 blk=4/4 gap=59 svc=30 st=0
+INFO - streambewi::msc_trace: msct R t=11106-11201 n=2 lba=18..19 blk=1/1 gap=95 svc=5 st=0
+INFO - streambewi::msc_trace: msct R t=11265-11303 n=2 lba=349..356 blk=4/4 gap=64 svc=32 st=0
+INFO - streambewi::msc_trace: msct R t=11368-11462 n=2 lba=20..21 blk=1/1 gap=94 svc=6 st=0
+INFO - streambewi::msc_trace: msct R t=11519-11553 n=2 lba=357..364 blk=4/4 gap=57 svc=28 st=0
+INFO - streambewi::msc_trace: msct R t=11622-11718 n=2 lba=22..23 blk=1/1 gap=96 svc=6 st=0
+INFO - streambewi::msc_trace: msct R t=11770-11803 n=2 lba=365..372 blk=4/4 gap=52 svc=28 st=0
+INFO - streambewi::msc_trace: msct R t=11887-11887 n=1 lba=24..24 blk=1/1 gap=84 svc=5 st=0
+INFO - streambewi::msc_trace: msct S t=11896 live=188416 consumed=106496 open=none lost=0 lines=10 tx_us=31231 txmax_us=10787
+INFO - streambewi::msc_trace: msct R t=11987-11987 n=1 lba=25..25 blk=1/1 gap=100 svc=4 st=0
+INFO - streambewi::msc_trace: msct R t=12041-12071 n=2 lba=373..380 blk=4/4 gap=54 svc=24 st=0
+INFO - streambewi::msc_trace: msct R t=12155-12255 n=2 lba=26..27 blk=1/1 gap=100 svc=9 st=0
+INFO - streambewi::msc_trace: msct R t=12298-12349 n=2 lba=381..388 blk=4/4 gap=51 svc=45 st=0
+INFO - streambewi::msc_trace: msct R t=12450-12450 n=1 lba=28..28 blk=1/1 gap=101 svc=4 st=0
+INFO - streambewi::msc_trace: msct R t=12538-12569 n=2 lba=389..396 blk=4/4 gap=88 svc=25 st=0
+INFO - streambewi::msc_trace: msct R t=12609-12708 n=2 lba=29..30 blk=1/1 gap=99 svc=4 st=0
+INFO - streambewi::msc_trace: msct R t=12803-12836 n=2 lba=397..404 blk=4/4 gap=95 svc=26 st=0
+INFO - streambewi::msc_trace: msct R t=12881-12881 n=1 lba=31..31 blk=1/1 gap=45 svc=4 st=0
+INFO - streambewi::msc_trace: msct S t=12935 live=204800 consumed=122880 open=none lost=0 lines=10 tx_us=24044 txmax_us=10886
+INFO - streambewi::msc_trace: msct R t=12979-12979 n=1 lba=32..32 blk=1/1 gap=98 svc=4 st=0
+INFO - streambewi::msc_trace: msct R t=13066-13102 n=2 lba=405..412 blk=4/4 gap=87 svc=29 st=0
+INFO - streambewi::msc_trace: msct R t=13144-13297 n=3 lba=33..35 blk=1/1 gap=97 svc=6 st=0
+INFO - streambewi::msc_trace: msct R t=13312-13343 n=2 lba=413..420 blk=4/4 gap=31 svc=29 st=0
+INFO - streambewi::msc_trace: msct R t=13468-13569 n=2 lba=36..37 blk=1/1 gap=125 svc=7 st=0
+INFO - streambewi::msc_trace: msct R t=13584-13618 n=2 lba=421..428 blk=4/4 gap=34 svc=29 st=0
+INFO - streambewi::msc_trace: msct R t=13736-13836 n=2 lba=38..39 blk=1/1 gap=118 svc=4 st=0
+INFO - streambewi::msc_trace: msct R t=13850-13884 n=2 lba=429..436 blk=4/4 gap=34 svc=28 st=0
+INFO - streambewi::msc_trace: msct S t=13963 live=221184 consumed=139264 open=none lost=0 lines=9 tx_us=23467 txmax_us=10870
+INFO - streambewi::msc_trace: msct R t=14001-14001 n=1 lba=40..40 blk=1/1 gap=117 svc=4 st=0
+INFO - streambewi::msc_trace: msct R t=14074-14106 n=2 lba=437..444 blk=4/4 gap=73 svc=27 st=0
+INFO - streambewi::msc_trace: msct R t=14175-14269 n=2 lba=41..42 blk=1/1 gap=94 svc=7 st=0
+INFO - streambewi::msc_trace: msct R t=14325-14353 n=2 lba=445..452 blk=4/4 gap=56 svc=30 st=0
+INFO - streambewi::msc_trace: msct R t=14442-14540 n=2 lba=43..44 blk=1/1 gap=98 svc=4 st=0
+INFO - streambewi::msc_trace: msct R t=14603-14631 n=2 lba=453..460 blk=4/4 gap=63 svc=27 st=0
+INFO - streambewi::msc_trace: msct R t=14707-14804 n=2 lba=45..46 blk=1/1 gap=97 svc=4 st=0
+INFO - streambewi::msc_trace: msct R t=14842-14873 n=2 lba=461..468 blk=4/4 gap=38 svc=27 st=0
+INFO - streambewi::msc_trace: msct R t=14970-14970 n=1 lba=47..47 blk=1/1 gap=97 svc=3 st=0
+INFO - streambewi::msc_trace: msct S t=14993 live=237568 consumed=155648 open=none lost=0 lines=10 tx_us=23907 txmax_us=10787
+INFO - streambewi::msc_trace: msct R t=15069-15069 n=1 lba=48..48 blk=1/1 gap=99 svc=4 st=0
+INFO - streambewi::msc_trace: msct R t=15105-15140 n=2 lba=469..476 blk=4/4 gap=36 svc=28 st=0
+INFO - streambewi::msc_trace: msct R t=15232-15326 n=2 lba=49..50 blk=1/1 gap=94 svc=5 st=0
+INFO - streambewi::msc_trace: msct R t=15347-15379 n=2 lba=477..484 blk=4/4 gap=32 svc=26 st=0
+INFO - streambewi::msc_trace: msct R t=15500-15602 n=2 lba=51..52 blk=1/1 gap=121 svc=7 st=0
+INFO - streambewi::msc_trace: msct R t=15618-15649 n=2 lba=485..492 blk=4/4 gap=31 svc=25 st=0
+INFO - streambewi::msc_trace: msct R t=15765-15865 n=2 lba=53..54 blk=1/1 gap=116 svc=7 st=0
+INFO - streambewi::msc_trace: msct R t=15882-15913 n=2 lba=493..500 blk=4/4 gap=31 svc=30 st=0
+INFO - streambewi::msc_trace: msct S t=16024 live=253952 consumed=172032 open=none lost=0 lines=9 tx_us=15343 txmax_us=10870
+INFO - streambewi::msc_trace: msct R t=16033-16131 n=2 lba=55..56 blk=1/1 gap=120 svc=4 st=0
+INFO - streambewi::msc_trace: msct R t=16147-16178 n=2 lba=501..508 blk=4/4 gap=31 svc=27 st=0
+INFO - streambewi::msc_trace: msct R t=16296-16296 n=1 lba=57..57 blk=1/1 gap=118 svc=10 st=0
+INFO - streambewi::msc_trace: msct R t=16378-16412 n=2 lba=509..516 blk=4/4 gap=82 svc=29 st=0
+INFO - streambewi::msc_trace: msct R t=16473-16570 n=2 lba=58..59 blk=1/1 gap=97 svc=4 st=0
+INFO - streambewi::msc_trace: msct R t=16641-16675 n=2 lba=517..524 blk=4/4 gap=71 svc=27 st=0
+INFO - streambewi::msc_trace: msct R t=16742-16842 n=2 lba=60..61 blk=1/1 gap=100 svc=6 st=0
+INFO - streambewi::msc_trace: msct R t=16907-16943 n=2 lba=525..532 blk=4/4 gap=65 svc=30 st=0
+INFO - streambewi::msc_trace: msct R t=17013-17013 n=1 lba=62..62 blk=1/1 gap=70 svc=11 st=0
+INFO - streambewi::msc_trace: msct S t=17046 live=270336 consumed=188416 open=none lost=0 lines=10 tx_us=16279 txmax_us=7370
+INFO - streambewi::msc_trace: msct R t=17115-17115 n=1 lba=63..63 blk=1/1 gap=102 svc=3 st=0
+INFO - streambewi::msc_trace: msct R t=17146-17176 n=2 lba=533..540 blk=4/4 gap=31 svc=26 st=0
+INFO - streambewi::msc_trace: msct R t=17284-17384 n=2 lba=64..65 blk=1/1 gap=108 svc=4 st=0
+INFO - streambewi::msc_trace: msct R t=17410-17448 n=2 lba=541..548 blk=4/4 gap=38 svc=32 st=0
+INFO - streambewi::msc_trace: msct R t=17516-17615 n=2 lba=66..67 blk=1/1 gap=99 svc=8 st=0
+INFO - streambewi::msc_trace: msct R t=17674-17705 n=2 lba=549..556 blk=4/4 gap=59 svc=29 st=0
+INFO - streambewi::msc_trace: msct R t=17779-17876 n=2 lba=68..69 blk=1/1 gap=97 svc=6 st=0
+INFO - streambewi::msc_trace: msct R t=17913-17945 n=2 lba=557..564 blk=4/4 gap=37 svc=33 st=0
+INFO - streambewi::msc_trace: msct R t=18049-18049 n=1 lba=70..70 blk=1/1 gap=104 svc=4 st=0
+INFO - streambewi::msc_trace: msct S t=18071 live=286720 consumed=204800 open=none lost=0 lines=10 tx_us=19831 txmax_us=10779
+INFO - streambewi::msc_trace: msct R t=18147-18147 n=1 lba=71..71 blk=1/1 gap=98 svc=4 st=0
+INFO - streambewi::msc_trace: msct R t=18178-18210 n=2 lba=565..572 blk=4/4 gap=32 svc=49 st=0
+INFO - streambewi::msc_trace: msct R t=18332-18428 n=2 lba=72..73 blk=1/1 gap=122 svc=4 st=0
+INFO - streambewi::msc_trace: msct R t=18447-18481 n=2 lba=573..580 blk=4/4 gap=34 svc=28 st=0
+INFO - streambewi::msc_trace: msct R t=18602-18602 n=1 lba=74..74 blk=1/1 gap=121 svc=4 st=0
+INFO - streambewi::msc_trace: msct R t=18682-18715 n=2 lba=581..588 blk=4/4 gap=80 svc=29 st=0
+INFO - streambewi::msc_trace: msct R t=18768-18868 n=2 lba=75..76 blk=1/1 gap=100 svc=8 st=0
+INFO - streambewi::msc_trace: msct R t=18945-18980 n=2 lba=589..596 blk=4/4 gap=77 svc=29 st=0
+INFO - streambewi::msc_trace: msct R t=19040-19040 n=1 lba=77..77 blk=1/1 gap=60 svc=4 st=0
+INFO - streambewi::msc_trace: msct S t=19104 live=303104 consumed=221184 open=none lost=0 lines=10 tx_us=24111 txmax_us=10874
+INFO - streambewi::msc_trace: msct R t=19137-19137 n=1 lba=78..78 blk=1/1 gap=97 svc=4 st=0
+INFO - streambewi::msc_trace: msct R t=19210-19244 n=2 lba=597..604 blk=4/4 gap=73 svc=30 st=0
+INFO - streambewi::msc_trace: msct R t=19311-19404 n=2 lba=79..80 blk=1/1 gap=93 svc=4 st=0
+INFO - streambewi::msc_trace: msct R t=19449-19483 n=2 lba=605..612 blk=4/4 gap=45 svc=28 st=0
+INFO - streambewi::msc_trace: msct R t=19571-19670 n=2 lba=81..82 blk=1/1 gap=99 svc=4 st=0
+INFO - streambewi::msc_trace: msct R t=19716-19751 n=2 lba=613..620 blk=4/4 gap=46 svc=29 st=0
+INFO - streambewi::msc_trace: msct R t=19844-19945 n=2 lba=83..84 blk=1/1 gap=101 svc=5 st=0
+INFO - streambewi::msc_trace: msct R t=19977-20011 n=2 lba=621..628 blk=4/4 gap=34 svc=30 st=0
+INFO - streambewi::msc_trace: msct R t=20115-20115 n=1 lba=85..85 blk=1/1 gap=104 svc=4 st=0
+INFO - streambewi::msc_trace: msct S t=20137 live=319488 consumed=237568 open=none lost=0 lines=10 tx_us=23853 txmax_us=10870
+INFO - streambewi::msc_trace: msct R t=20197-20239 n=2 lba=629..636 blk=4/4 gap=82 svc=34 st=0
+INFO - streambewi::msc_trace: msct R t=20303-20416 n=2 lba=86..87 blk=1/1 gap=113 svc=19 st=0
+INFO - streambewi::msc_trace: msct R t=20482-20517 n=2 lba=637..644 blk=4/4 gap=66 svc=29 st=0
+INFO - streambewi::msc_trace: msct R t=20593-20693 n=2 lba=88..89 blk=1/1 gap=100 svc=6 st=0
+INFO - streambewi::msc_trace: msct R t=20745-20779 n=2 lba=645..652 blk=4/4 gap=52 svc=32 st=0
+INFO - streambewi::msc_trace: msct R t=20868-20969 n=2 lba=90..91 blk=1/1 gap=101 svc=6 st=0
+INFO - streambewi::msc_trace: msct R t=20990-21023 n=2 lba=653..660 blk=4/4 gap=33 svc=27 st=0
+INFO - streambewi::msc_trace: msct R t=21143-21143 n=1 lba=92..92 blk=1/1 gap=120 svc=4 st=0
+INFO - streambewi::msc_trace: msct S t=21162 live=335872 consumed=253952 open=none lost=0 lines=9 tx_us=19402 txmax_us=10870
+INFO - streambewi::msc_trace: msct R t=21242-21242 n=1 lba=93..93 blk=1/1 gap=99 svc=4 st=0
+INFO - streambewi::msc_trace: msct R t=21256-21290 n=2 lba=661..668 blk=4/4 gap=34 svc=27 st=0
+INFO - streambewi::msc_trace: msct R t=21404-21503 n=2 lba=94..95 blk=1/1 gap=114 svc=4 st=0
+INFO - streambewi::msc_trace: msct R t=21518-21550 n=2 lba=669..676 blk=4/4 gap=32 svc=26 st=0
+INFO - streambewi::msc_trace: msct R t=21666-21666 n=1 lba=96..96 blk=1/1 gap=116 svc=4 st=0
+INFO - streambewi::msc_trace: msct R t=21754-21786 n=2 lba=677..684 blk=4/4 gap=88 svc=26 st=0
+INFO - streambewi::msc_trace: msct R t=21837-21991 n=3 lba=97..99 blk=1/1 gap=96 svc=5 st=0
+INFO - streambewi::msc_trace: msct R t=22018-22048 n=2 lba=685..692 blk=4/4 gap=30 svc=27 st=0
+INFO - streambewi::msc_trace: msct R t=22153-22153 n=1 lba=100..100 blk=1/1 gap=105 svc=4 st=0
+INFO - streambewi::msc_trace: msct S t=22185 live=352256 consumed=270336 open=none lost=0 lines=10 tx_us=19917 txmax_us=10779
+INFO - streambewi::msc_trace: msct R t=22254-22254 n=1 lba=101..101 blk=1/1 gap=101 svc=19 st=0
+INFO - streambewi::msc_trace: msct R t=22284-22330 n=2 lba=693..700 blk=4/4 gap=46 svc=41 st=0
+INFO - streambewi::msc_trace: msct R t=22453-22453 n=1 lba=102..102 blk=1/1 gap=123 svc=3 st=0
+INFO - streambewi::msc_trace: msct R t=22522-22554 n=2 lba=701..708 blk=4/4 gap=69 svc=29 st=0
+INFO - streambewi::msc_trace: msct R t=22623-22723 n=2 lba=103..104 blk=1/1 gap=100 svc=4 st=0
+INFO - streambewi::msc_trace: msct R t=22786-22823 n=2 lba=709..716 blk=4/4 gap=63 svc=31 st=0
+INFO - streambewi::msc_trace: msct R t=22895-22996 n=2 lba=105..106 blk=1/1 gap=101 svc=5 st=0
+INFO - streambewi::msc_trace: msct R t=23057-23088 n=2 lba=717..724 blk=4/4 gap=61 svc=30 st=0
+INFO - streambewi::msc_trace: msct R t=23165-23165 n=1 lba=107..107 blk=1/1 gap=77 svc=7 st=0
+INFO - streambewi::msc_trace: msct S t=23215 live=368640 consumed=286720 open=none lost=0 lines=10 tx_us=24249 txmax_us=10866
+INFO - streambewi::msc_trace: msct R t=23262-23262 n=1 lba=108..108 blk=1/1 gap=97 svc=4 st=0
+INFO - streambewi::msc_trace: msct R t=23290-23326 n=2 lba=725..732 blk=4/4 gap=36 svc=30 st=0
+INFO - streambewi::msc_trace: msct R t=23432-23532 n=2 lba=109..110 blk=1/1 gap=106 svc=5 st=0
+INFO - streambewi::msc_trace: msct R t=23554-23585 n=2 lba=733..740 blk=4/4 gap=31 svc=28 st=0
+INFO - streambewi::msc_trace: msct R t=23701-23798 n=2 lba=111..112 blk=1/1 gap=116 svc=4 st=0
+INFO - streambewi::msc_trace: msct R t=23818-23851 n=2 lba=741..748 blk=4/4 gap=33 svc=27 st=0
+INFO - streambewi::msc_trace: msct R t=23963-23963 n=1 lba=113..113 blk=1/1 gap=112 svc=6 st=0
+INFO - streambewi::msc_trace: msct R t=24058-24089 n=2 lba=749..756 blk=4/4 gap=95 svc=26 st=0
+INFO - streambewi::msc_trace: msct R t=24129-24225 n=2 lba=114..115 blk=1/1 gap=96 svc=9 st=0
+INFO - streambewi::msc_trace: msct S t=24248 live=385024 consumed=303104 open=none lost=0 lines=10 tx_us=20181 txmax_us=10871
+INFO - streambewi::msc_trace: msct R t=24323-24355 n=2 lba=757..764 blk=4/4 gap=98 svc=29 st=0
+INFO - streambewi::msc_trace: msct R t=24400-24499 n=2 lba=116..117 blk=1/1 gap=99 svc=4 st=0
+INFO - streambewi::msc_trace: msct R t=24574-24607 n=2 lba=765..772 blk=4/4 gap=75 svc=29 st=0
+INFO - streambewi::msc_trace: msct R t=24669-24768 n=2 lba=118..119 blk=1/1 gap=99 svc=6 st=0
+INFO - streambewi::msc_trace: msct R t=24826-24858 n=2 lba=773..780 blk=4/4 gap=58 svc=27 st=0
+INFO - streambewi::msc_trace: msct R t=24935-25034 n=2 lba=120..121 blk=1/1 gap=99 svc=4 st=0
+INFO - streambewi::msc_trace: msct R t=25093-25126 n=2 lba=781..788 blk=4/4 gap=59 svc=27 st=0
+INFO - streambewi::msc_trace: msct R t=25197-25197 n=1 lba=122..122 blk=1/1 gap=71 svc=4 st=0
+INFO - streambewi::msc_trace: msct S t=25263 live=401408 consumed=319488 open=none lost=0 lines=9 tx_us=15971 txmax_us=7343
+INFO - streambewi::msc_trace: msct R t=25293-25293 n=1 lba=123..123 blk=1/1 gap=96 svc=5 st=0
+INFO - streambewi::msc_trace: msct R t=25355-25390 n=2 lba=789..796 blk=4/4 gap=62 svc=29 st=0
+INFO - streambewi::msc_trace: msct R t=25458-25555 n=2 lba=124..125 blk=1/1 gap=97 svc=7 st=0
+INFO - streambewi::msc_trace: msct R t=25594-25624 n=2 lba=797..804 blk=4/4 gap=39 svc=27 st=0
+INFO - streambewi::msc_trace: msct R t=25725-25825 n=2 lba=126..127 blk=1/1 gap=101 svc=4 st=0
+INFO - streambewi::msc_trace: msct R t=25858-25891 n=2 lba=805..812 blk=4/4 gap=33 svc=27 st=0
+INFO - streambewi::msc_trace: msct R t=25990-26088 n=2 lba=128..129 blk=1/1 gap=99 svc=5 st=0
+INFO - streambewi::msc_trace: msct R t=26125-26156 n=2 lba=813..820 blk=4/4 gap=37 svc=28 st=0
+INFO - streambewi::msc_trace: msct S t=26292 live=417792 consumed=335872 open=none lost=0 lines=9 tx_us=19451 txmax_us=10701
+INFO - streambewi::msc_trace: msct R t=26362-27161 n=8 lba=821..852 blk=4/4 gap=233 svc=28 st=0
+INFO - streambewi::msc_trace: msct S t=27307 live=434176 consumed=352256 open=none lost=0 lines=2 tx_us=7974 txmax_us=7389
+INFO - streambewi::msc_trace: msct R t=27397-28187 n=8 lba=853..884 blk=4/4 gap=236 svc=30 st=0
+INFO - streambewi::msc_trace: msct S t=28322 live=450560 consumed=368640 open=none lost=0 lines=2 tx_us=7844 txmax_us=7271
+INFO - streambewi::msc_trace: msct R t=28427-29222 n=8 lba=885..916 blk=4/4 gap=240 svc=29 st=0
+INFO - streambewi::msc_trace: msct S t=29334 live=466944 consumed=385024 open=none lost=0 lines=2 tx_us=7863 txmax_us=7283
+INFO - streambewi::msc_trace: msct R t=29434-30233 n=8 lba=917..948 blk=4/4 gap=233 svc=40 st=0
+INFO - streambewi::msc_trace: msct S t=30349 live=483328 consumed=401408 open=none lost=0 lines=2 tx_us=7864 txmax_us=7286
+INFO - streambewi::msc_trace: msct R t=30454-31267 n=8 lba=949..980 blk=4/4 gap=247 svc=29 st=0
+INFO - streambewi::msc_trace: msct S t=31365 live=499712 consumed=417792 open=none lost=0 lines=2 tx_us=7596 txmax_us=7012
+INFO - streambewi::msc_trace: msct R t=31498-32299 n=8 lba=981..1012 blk=4/4 gap=247 svc=39 st=0
+INFO - streambewi::msc_trace: msct S t=32377 live=516096 consumed=434176 open=none lost=0 lines=2 tx_us=7884 txmax_us=7289
+INFO - streambewi::msc_trace: msct R t=32508-33288 n=8 lba=1013..1044 blk=4/4 gap=234 svc=27 st=0
+INFO - streambewi::msc_trace: msct S t=33396 live=532480 consumed=450560 open=none lost=0 lines=2 tx_us=7956 txmax_us=7369
+INFO - streambewi::msc_trace: msct R t=33526-34343 n=8 lba=1045..1076 blk=4/4 gap=254 svc=28 st=0
+INFO - streambewi::msc_trace: msct S t=34410 live=548864 consumed=466944 open=none lost=0 lines=2 tx_us=8046 txmax_us=7457
+INFO - streambewi::msc_trace: msct R t=34572-35340 n=8 lba=1077..1108 blk=4/4 gap=261 svc=26 st=0
+INFO - streambewi::msc_trace: msct S t=35426 live=565248 consumed=483328 open=none lost=0 lines=2 tx_us=8048 txmax_us=7465
+INFO - streambewi::msc_trace: msct R t=35578-36375 n=8 lba=1109..1140 blk=4/4 gap=238 svc=27 st=0
+INFO - streambewi::msc_trace: msct S t=36442 live=581632 consumed=499712 open=none lost=0 lines=2 tx_us=8042 txmax_us=7458
+INFO - streambewi::msc_trace: msct R t=36610-37383 n=8 lba=1141..1172 blk=4/4 gap=235 svc=29 st=0
+INFO - streambewi::msc_trace: msct S t=37454 live=598016 consumed=516096 open=none lost=0 lines=2 tx_us=8034 txmax_us=7450
+INFO - streambewi::msc_trace: msct R t=37642-38443 n=8 lba=1173..1204 blk=4/4 gap=259 svc=30 st=0
+INFO - streambewi::msc_trace: msct S t=38471 live=614400 consumed=532480 open=none lost=0 lines=2 tx_us=8039 txmax_us=7450
+INFO - streambewi::msc_trace: msct R t=38650-39447 n=8 lba=1205..1236 blk=4/4 gap=236 svc=28 st=0
+INFO - streambewi::msc_trace: msct S t=39486 live=630784 consumed=548864 open=none lost=0 lines=2 tx_us=8039 txmax_us=7455
