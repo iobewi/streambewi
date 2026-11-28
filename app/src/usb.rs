@@ -449,7 +449,7 @@ mod tests {
 
     #[test]
     fn head_retry_respects_recognition_boundary_and_idle() {
-        use crate::stream_policy::HEAD_SECTORS;
+        use streambewi_core::HEAD_SECTORS;
 
         for count in [1, 3, HEAD_SECTORS, HEAD_SECTORS + 1] {
             let (stream, mut disk) = retry_fixture();
