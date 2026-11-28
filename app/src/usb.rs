@@ -9,10 +9,12 @@ use embassy_time::{Duration, Instant, Timer};
 #[cfg(feature = "usb-debug")]
 use embassy_usb::Handler;
 use embassy_usb::{Builder, driver::Driver};
-use iobewi_fat16::{ReadStatus, VirtualFat16};
+use iobewi_fat16::{ReadOnlyBlockDevice, ReadStatus, SECTOR_SIZE, VirtualFat16};
 use iobewi_usb_msc::{InquiryIdentity, MscClass, ReadAction, ReadPolicy, State as MscState};
 
 use crate::provisioning;
+#[cfg(test)]
+use crate::stream::CONSUMER_IDLE_LIMIT;
 use crate::stream::{STREAM, SharedStream, SharedStreamSource};
 use crate::stream_policy::{FAT16_CONFIG, PREBUFFER_BYTES};
 
@@ -26,6 +28,8 @@ const PENDING_TIMEOUT: Duration = Duration::from_secs(5);
 const STALL_BEFORE_DROP: Duration = Duration::from_secs(2);
 /// How long the device stays off the bus, so that the host registers the removal.
 const DISCONNECT_HOLD: Duration = Duration::from_millis(1500);
+/// Minimum inactivity before an explicit metadata-to-head retry can reopen a file.
+const HEAD_REOPEN_IDLE_LIMIT: Duration = Duration::from_secs(2);
 const RECONNECT_POLL: Duration = Duration::from_millis(200);
 
 /// Soft-connect and soft-disconnect of the USB device, provided by the target (the portable
@@ -153,7 +157,7 @@ impl ReadPolicy for StreamReadPolicy {
     }
 
     fn unavailable(&mut self, status: ReadStatus, _sector_elapsed: Duration) -> ReadAction {
-        if is_stall(status, self.stream.producer_idle()) {
+        if is_stall(status, self.stream.producer_idle()) && self.stream.recovery_start().is_some() {
             self.stall.signal(());
         }
         let action = decide(status, self.command_start.elapsed());
@@ -193,7 +197,11 @@ impl LinkSupervisor {
 
     async fn cycle(&self) {
         self.stall.wait().await;
-        let (written_at_stall, _) = self.stream.progress();
+        // A far-ahead request can be Pending even with a full window. Do not
+        // disconnect a held session that cannot accept the recovery prebuffer.
+        let Some(written_at_stall) = self.stream.recovery_start() else {
+            return;
+        };
         let generation = self.stream.generation();
         log::info!("usb: stream stalled, leaving the bus");
         log::debug!(
@@ -220,6 +228,70 @@ impl LinkSupervisor {
         log::info!("usb: stream back, rejoining the bus");
         self.link.set_connected(true);
         crate::status::usb_ready();
+    }
+}
+
+/// Exact metadata-to-file-head sequence observed on the Metronic after STOP (#47).
+/// It is an open hint, not a SCSI PLAY command. A bare head re-read is not a new open.
+#[derive(Default)]
+struct OpenProbe(u8);
+
+impl OpenProbe {
+    fn observe(&mut self, lba: u32, root: u32, head: u32) -> bool {
+        let (step, opened) = match (self.0, lba) {
+            (1, iobewi_fat16::RESERVED_SECTORS) => (2, false),
+            (2, lba) if lba == root => (3, false),
+            (3, lba) if lba == head => (0, true),
+            (_, lba) if lba == root => (1, false),
+            _ => (0, false),
+        };
+        self.0 = step;
+        opened
+    }
+}
+
+/// Keep product-specific open recognition outside the generic FAT and MSC libraries.
+struct StreamDisk {
+    volume: VirtualFat16<SharedStreamSource>,
+    source: SharedStreamSource,
+    probe: OpenProbe,
+    retry_after: Duration,
+}
+
+impl StreamDisk {
+    fn new(stream: &'static SharedStream, retry_after: Duration) -> Self {
+        let source = SharedStreamSource::new(stream);
+        Self {
+            volume: VirtualFat16::new(source, FAT16_CONFIG).expect("valid FAT16 config"),
+            source,
+            probe: OpenProbe::default(),
+            retry_after,
+        }
+    }
+}
+
+impl ReadOnlyBlockDevice for StreamDisk {
+    fn last_lba(&self) -> u32 {
+        self.volume.last_lba()
+    }
+
+    fn begin_session(&mut self) {
+        self.probe = OpenProbe::default();
+        self.volume.begin_session();
+    }
+
+    fn end_session(&mut self) {
+        self.probe = OpenProbe::default();
+        self.volume.end_session();
+    }
+
+    fn read_sector(&mut self, lba: u32, out: &mut [u8; SECTOR_SIZE]) -> ReadStatus {
+        let geometry = self.volume.geometry();
+        let root = geometry.data_start_lba - geometry.root_sectors;
+        if self.probe.observe(lba, root, geometry.data_start_lba) {
+            self.source.retry_head_after_idle(self.retry_after);
+        }
+        self.volume.read_sector(lba, out)
     }
 }
 
@@ -316,8 +388,7 @@ where
 
     let mut msc = MscClass::new(&mut builder, msc_state, MSC_IDENTITY);
     let mut usb_device = builder.build();
-    let mut disk = VirtualFat16::new(SharedStreamSource::new(&STREAM), FAT16_CONFIG)
-        .expect("valid FAT16 config");
+    let mut disk = StreamDisk::new(&STREAM, HEAD_REOPEN_IDLE_LIMIT);
 
     let device_fut = usb_device.run();
     let msc_fut = async {
@@ -343,6 +414,93 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn explicit_open_pattern_excludes_bare_head_rereads() {
+        let mut probe = OpenProbe::default();
+        for lba in [261, 261, 259, 261, 259, 1, 259] {
+            assert!(!probe.observe(lba, 259, 261));
+        }
+        assert!(probe.observe(261, 259, 261));
+        assert!(!probe.observe(261, 259, 261));
+    }
+
+    fn retry_fixture() -> (&'static SharedStream, StreamDisk) {
+        let stream: &'static SharedStream = Box::leak(Box::new(SharedStream::new()));
+        for tag in 0..160u8 {
+            assert_eq!(stream.push(&[tag; SECTOR_SIZE]), SECTOR_SIZE);
+        }
+        let mut disk = StreamDisk::new(stream, Duration::from_millis(20));
+        disk.begin_session();
+        (stream, disk)
+    }
+
+    fn open_head(disk: &mut StreamDisk) -> [u8; SECTOR_SIZE] {
+        let mut sector = [0; SECTOR_SIZE];
+        for lba in [259, 1, 259, 261] {
+            assert_eq!(disk.read_sector(lba, &mut sector), ReadStatus::Ready);
+        }
+        sector
+    }
+
+    fn fill_window(stream: &SharedStream, tag: u8) {
+        while stream.push(&[tag; SECTOR_SIZE]) > 0 {}
+    }
+
+    #[test]
+    fn head_retry_respects_recognition_boundary_and_idle() {
+        use crate::stream_policy::HEAD_SECTORS;
+
+        for count in [1, 3, HEAD_SECTORS, HEAD_SECTORS + 1] {
+            let (stream, mut disk) = retry_fixture();
+            let first = open_head(&mut disk);
+            let mut sector = [0; SECTOR_SIZE];
+            for index in 1..count {
+                assert_eq!(
+                    disk.read_sector(261 + index, &mut sector),
+                    ReadStatus::Ready
+                );
+            }
+            fill_window(stream, 0xF1);
+            // Even the full metadata pattern must not rebase a recent read.
+            assert_eq!(open_head(&mut disk), first);
+            embassy_futures::block_on(Timer::after(Duration::from_millis(30)));
+            // A bare head read must not rebase, even after inactivity.
+            assert_eq!(disk.read_sector(261, &mut sector), ReadStatus::Ready);
+            assert_eq!(sector, first);
+            embassy_futures::block_on(Timer::after(Duration::from_millis(30)));
+            let reopened = open_head(&mut disk);
+            if count <= HEAD_SECTORS {
+                assert_ne!(reopened, first, "count={count}");
+            } else {
+                assert_eq!(reopened, first, "count={count}");
+            }
+            assert_eq!(disk.read_sector(261, &mut sector), ReadStatus::Ready);
+            assert_eq!(sector, reopened);
+        }
+    }
+
+    #[test]
+    fn successive_three_sector_open_failures_can_renew_the_origin() {
+        let (stream, mut disk) = retry_fixture();
+        let mut first = open_head(&mut disk);
+        let mut sector = [0; SECTOR_SIZE];
+        let mut consumed = stream.progress().1;
+        for tag in [0xE1, 0xE2, 0xE3] {
+            for lba in [261, 262, 263, 261, 262] {
+                assert_eq!(disk.read_sector(lba, &mut sector), ReadStatus::Ready);
+            }
+            fill_window(stream, tag);
+            embassy_futures::block_on(Timer::after(Duration::from_millis(30)));
+            let reopened = open_head(&mut disk);
+            assert_ne!(reopened, first);
+            assert!(stream.progress().1 > consumed);
+            consumed = stream.progress().1;
+            assert_eq!(disk.read_sector(261, &mut sector), ReadStatus::Ready);
+            assert_eq!(sector, reopened);
+            first = reopened;
+        }
+    }
 
     #[test]
     fn pending_waits_within_the_command_budget_then_zero_fills() {
@@ -475,17 +633,20 @@ mod tests {
         assert_eq!(stream.writable(), 0);
         // The producer waits for room for a long time (the host reads ahead of the stream, or not at
         // all): that is not silence of the stream.
-        embassy_futures::block_on(embassy_futures::join::join(stream.wait_for_room(), async {
-            Timer::after(Duration::from_millis(120)).await;
-            assert!(stream.producer_idle() < Duration::from_millis(40));
-            assert!(!is_stall(ReadStatus::Pending, stream.producer_idle()));
-            // The reader catches up: there is room again.
-            let mut sector = [0u8; iobewi_fat16::SECTOR_SIZE];
-            let mut index = 0;
-            while source.read_file_sector(index, &mut sector) == ReadStatus::Ready {
-                index += 1;
-            }
-        }));
+        embassy_futures::block_on(embassy_futures::join::join(
+            stream.wait_for_room(CONSUMER_IDLE_LIMIT),
+            async {
+                Timer::after(Duration::from_millis(120)).await;
+                assert!(stream.producer_idle() < Duration::from_millis(40));
+                assert!(!is_stall(ReadStatus::Pending, stream.producer_idle()));
+                // The reader catches up: there is room again.
+                let mut sector = [0u8; iobewi_fat16::SECTOR_SIZE];
+                let mut index = 0;
+                while source.read_file_sector(index, &mut sector) == ReadStatus::Ready {
+                    index += 1;
+                }
+            },
+        ));
         assert!(stream.writable() > 0);
     }
 
