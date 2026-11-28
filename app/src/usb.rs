@@ -425,42 +425,81 @@ mod tests {
         assert!(!probe.observe(261, 259, 261));
     }
 
-    #[test]
-    fn head_only_retry_after_idle_can_advance_origin_but_active_reads_cannot() {
+    fn retry_fixture() -> (&'static SharedStream, StreamDisk) {
         let stream: &'static SharedStream = Box::leak(Box::new(SharedStream::new()));
         for tag in 0..160u8 {
             assert_eq!(stream.push(&[tag; SECTOR_SIZE]), SECTOR_SIZE);
         }
         let mut disk = StreamDisk::new(stream, Duration::from_millis(20));
         disk.begin_session();
+        (stream, disk)
+    }
+
+    fn open_head(disk: &mut StreamDisk) -> [u8; SECTOR_SIZE] {
         let mut sector = [0; SECTOR_SIZE];
         for lba in [259, 1, 259, 261] {
             assert_eq!(disk.read_sector(lba, &mut sector), ReadStatus::Ready);
         }
-        let first = sector;
-        for _ in 0..33 {
-            stream.push(&[0xF1; SECTOR_SIZE]);
+        sector
+    }
+
+    fn fill_window(stream: &SharedStream, tag: u8) {
+        while stream.push(&[tag; SECTOR_SIZE]) > 0 {}
+    }
+
+    #[test]
+    fn head_retry_respects_recognition_boundary_and_idle() {
+        use crate::stream_policy::HEAD_SECTORS;
+
+        for count in [1, 3, HEAD_SECTORS, HEAD_SECTORS + 1] {
+            let (stream, mut disk) = retry_fixture();
+            let first = open_head(&mut disk);
+            let mut sector = [0; SECTOR_SIZE];
+            for index in 1..count {
+                assert_eq!(
+                    disk.read_sector(261 + index, &mut sector),
+                    ReadStatus::Ready
+                );
+            }
+            fill_window(stream, 0xF1);
+            // Even the full metadata pattern must not rebase a recent read.
+            assert_eq!(open_head(&mut disk), first);
+            embassy_futures::block_on(Timer::after(Duration::from_millis(30)));
+            // A bare head read must not rebase, even after inactivity.
+            assert_eq!(disk.read_sector(261, &mut sector), ReadStatus::Ready);
+            assert_eq!(sector, first);
+            embassy_futures::block_on(Timer::after(Duration::from_millis(30)));
+            let reopened = open_head(&mut disk);
+            if count <= HEAD_SECTORS {
+                assert_ne!(reopened, first, "count={count}");
+            } else {
+                assert_eq!(reopened, first, "count={count}");
+            }
+            assert_eq!(disk.read_sector(261, &mut sector), ReadStatus::Ready);
+            assert_eq!(sector, reopened);
         }
-        assert_eq!(disk.read_sector(261, &mut sector), ReadStatus::Ready);
-        assert_eq!(sector, first);
-        embassy_futures::block_on(Timer::after(Duration::from_millis(30)));
-        // A bare re-read must keep its mapping even after the idle limit.
-        assert_eq!(disk.read_sector(261, &mut sector), ReadStatus::Ready);
-        assert_eq!(sector, first);
-        embassy_futures::block_on(Timer::after(Duration::from_millis(30)));
-        for lba in [259, 1, 259, 261] {
-            assert_eq!(disk.read_sector(lba, &mut sector), ReadStatus::Ready);
+    }
+
+    #[test]
+    fn successive_three_sector_open_failures_can_renew_the_origin() {
+        let (stream, mut disk) = retry_fixture();
+        let mut first = open_head(&mut disk);
+        let mut sector = [0; SECTOR_SIZE];
+        let mut consumed = stream.progress().1;
+        for tag in [0xE1, 0xE2, 0xE3] {
+            for lba in [261, 262, 263, 261, 262] {
+                assert_eq!(disk.read_sector(lba, &mut sector), ReadStatus::Ready);
+            }
+            fill_window(stream, tag);
+            embassy_futures::block_on(Timer::after(Duration::from_millis(30)));
+            let reopened = open_head(&mut disk);
+            assert_ne!(reopened, first);
+            assert!(stream.progress().1 > consumed);
+            consumed = stream.progress().1;
+            assert_eq!(disk.read_sector(261, &mut sector), ReadStatus::Ready);
+            assert_eq!(sector, reopened);
+            first = reopened;
         }
-        assert_ne!(sector, first);
-        let reopened = sector;
-        assert_eq!(disk.read_sector(261, &mut sector), ReadStatus::Ready);
-        assert_eq!(sector, reopened);
-        assert_eq!(disk.read_sector(262, &mut sector), ReadStatus::Ready);
-        embassy_futures::block_on(Timer::after(Duration::from_millis(30)));
-        for lba in [259, 1, 259, 261] {
-            assert_eq!(disk.read_sector(lba, &mut sector), ReadStatus::Ready);
-        }
-        assert_eq!(sector, reopened);
     }
 
     #[test]
